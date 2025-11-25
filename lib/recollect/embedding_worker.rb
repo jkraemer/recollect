@@ -18,6 +18,7 @@ module Recollect
 
       @running = true
       @thread = Thread.new { run_loop }
+      recover_missing_embeddings
     end
 
     def stop
@@ -90,6 +91,22 @@ module Recollect
       db.store_embedding(item[:memory_id], embedding)
     rescue StandardError => e
       warn "[EmbeddingWorker] Failed to store embedding for ##{item[:memory_id]}: #{e.message}"
+    end
+
+    def recover_missing_embeddings
+      total = 0
+      # Include global database (nil) plus all project databases
+      projects = [nil] + @db_manager.list_projects
+      projects.each do |project|
+        db = @db_manager.get_database(project)
+        db.memories_without_embeddings.each do |row|
+          enqueue(memory_id: row["id"], content: row["content"], project: project)
+          total += 1
+        end
+      end
+      warn "[EmbeddingWorker] Recovering #{total} missing embeddings" if total.positive?
+    rescue StandardError => e
+      warn "[EmbeddingWorker] Recovery failed: #{e.message}"
     end
   end
 end
