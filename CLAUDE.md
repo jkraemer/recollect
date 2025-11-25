@@ -77,6 +77,14 @@ bundle exec rubocop
 | `RECOLLECT_PORT` | `8080` | Server port |
 | `RECOLLECT_URL` | `http://localhost:8080` | CLI base URL |
 
+## Before Committing
+
+Run rubocop to detect and fix any style offenses:
+
+```bash
+bundle exec rubocop
+```
+
 ## Testing
 
 Tests use `test/tmp/test_data` for isolated database files (cleaned between tests). Test helper sets `RACK_ENV=test` and provides `Recollect::TestCase` base class with Rack::Test methods.

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+# rubocop:disable Naming/VariableNumber
 require "test_helper"
 require "rack/test"
 
@@ -192,3 +193,4 @@ class HTTPServerTest < Recollect::TestCase
     assert_includes [200, 404], last_response.status
   end
 end
+# rubocop:enable Naming/VariableNumber

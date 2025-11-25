@@ -26,29 +26,11 @@ module Recollect
     end
 
     def search_all(query, project: nil, memory_type: nil, limit: 10)
-      results = []
-
-      if project
-        # Search specific project only
-        db = get_database(project)
-        memories = db.search(query, memory_type: memory_type, limit: limit)
-        memories.each { |m| m["project"] = project }
-        results.concat(memories)
-      else
-        # Search global
-        global_db = get_database(nil)
-        global_memories = global_db.search(query, memory_type: memory_type, limit: limit)
-        global_memories.each { |m| m["project"] = nil }
-        results.concat(global_memories)
-
-        # Search all projects
-        list_projects.each do |proj|
-          db = get_database(proj)
-          proj_memories = db.search(query, memory_type: memory_type, limit: limit)
-          proj_memories.each { |m| m["project"] = proj }
-          results.concat(proj_memories)
-        end
-      end
+      results = if project
+                  search_project(query, project, memory_type: memory_type, limit: limit)
+                else
+                  search_all_projects(query, memory_type: memory_type, limit: limit)
+                end
 
       # Sort by relevance (rank) and limit
       results.sort_by { |m| m["rank"] || 0 }.take(limit)
@@ -69,6 +51,27 @@ module Recollect
     end
 
     private
+
+    def search_project(query, project, memory_type: nil, limit: 10)
+      db = get_database(project)
+      memories = db.search(query, memory_type: memory_type, limit: limit)
+      memories.each { |m| m["project"] = project }
+      memories
+    end
+
+    def search_all_projects(query, memory_type: nil, limit: 10)
+      results = []
+
+      # Search global
+      results.concat(search_project(query, nil, memory_type: memory_type, limit: limit))
+
+      # Search all projects
+      list_projects.each do |proj|
+        results.concat(search_project(query, proj, memory_type: memory_type, limit: limit))
+      end
+
+      results
+    end
 
     def store_project_metadata(project_name)
       metadata_file = @config.projects_dir.join(".project_names.json")

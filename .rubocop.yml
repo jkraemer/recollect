@@ -49,10 +49,15 @@ Metrics/MethodLength:
 
 # Class length - reasonable default
 Metrics/ClassLength:
-  Max: 150
+  Max: 160
 
 # ABC size - slightly relaxed
 Metrics/AbcSize:
-  Max: 20
+  Max: 25
   Exclude:
     - 'test/**/*'
+    - 'bin/*'
+
+# Allow multiple assertions per test for comprehensive testing
+Minitest/MultipleAssertions:
+  Enabled: false

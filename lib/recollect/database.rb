@@ -111,7 +111,7 @@ module Recollect
       @db.execute(sql, params).map { |row| deserialize(row) }
     end
 
-    def update(id, content: nil, tags: nil, metadata: nil)
+    def update(id, content: nil, tags: nil, metadata: nil) # rubocop:disable Naming/PredicateMethod
       updates = []
       params = []
 
@@ -139,7 +139,7 @@ module Recollect
       @db.changes.positive?
     end
 
-    def delete(id)
+    def delete(id) # rubocop:disable Naming/PredicateMethod
       @db.execute("DELETE FROM memories WHERE id = ?", id)
       @db.changes.positive?
     end

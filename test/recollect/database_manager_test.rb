@@ -158,8 +158,6 @@ class DatabaseManagerTest < Recollect::TestCase
     end
 
     threads.each(&:join)
-
     # If we got here without errors, thread safety is working
-    assert true
   end
 end
