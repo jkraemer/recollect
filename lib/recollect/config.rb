@@ -1,28 +1,28 @@
 # frozen_string_literal: true
 
-require 'pathname'
-require 'json'
+require "pathname"
+require "json"
 
 module Recollect
   class Config
     attr_accessor :data_dir, :host, :port, :max_results
 
     def initialize
-      @data_dir = Pathname.new(ENV.fetch('RECOLLECT_DATA_DIR',
-        File.join(Dir.home, '.recollect')))
-      @host = ENV.fetch('RECOLLECT_HOST', '127.0.0.1')
-      @port = ENV.fetch('RECOLLECT_PORT', '8080').to_i
+      @data_dir = Pathname.new(ENV.fetch("RECOLLECT_DATA_DIR",
+                                         File.join(Dir.home, ".recollect")))
+      @host = ENV.fetch("RECOLLECT_HOST", "127.0.0.1")
+      @port = ENV.fetch("RECOLLECT_PORT", "8080").to_i
       @max_results = 100
 
       ensure_directories!
     end
 
     def global_db_path
-      data_dir.join('global.db')
+      data_dir.join("global.db")
     end
 
     def projects_dir
-      data_dir.join('projects')
+      data_dir.join("projects")
     end
 
     def project_db_path(project_name)
@@ -33,19 +33,17 @@ module Recollect
       path = Pathname.new(cwd)
 
       # Check for .git
-      if (path / '.git').exist?
-        return git_remote_name(path) || path.basename.to_s
-      end
+      return git_remote_name(path) || path.basename.to_s if (path / ".git").exist?
 
       # Check for package.json
-      if (path / 'package.json').exist?
-        data = JSON.parse((path / 'package.json').read)
-        return data['name'] if data['name']
+      if (path / "package.json").exist?
+        data = JSON.parse((path / "package.json").read)
+        return data["name"] if data["name"]
       end
 
       # Check for *.gemspec
-      gemspec = Dir.glob(path / '*.gemspec').first
-      return File.basename(gemspec, '.gemspec') if gemspec
+      gemspec = Dir.glob(path / "*.gemspec").first
+      return File.basename(gemspec, ".gemspec") if gemspec
 
       # Fallback to directory name (unless generic)
       name = path.basename.to_s
@@ -62,7 +60,7 @@ module Recollect
     end
 
     def sanitize_name(name)
-      name.to_s.gsub(/[^a-zA-Z0-9_]/, '_').downcase
+      name.to_s.gsub(/[^a-zA-Z0-9_]/, "_").downcase
     end
 
     def git_remote_name(path)
@@ -70,7 +68,7 @@ module Recollect
       return nil if output.empty?
 
       # Extract repo name from URL
-      output.split('/').last&.sub(/\.git$/, '')
+      output.split("/").last&.sub(/\.git$/, "")
     rescue StandardError
       nil
     end

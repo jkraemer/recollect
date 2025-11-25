@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'bundler/setup'
+require "bundler/setup"
 
-exec 'bundle', 'exec', 'puma', '-C', 'config/puma.rb'
+exec "bundle", "exec", "puma", "-C", "config/puma.rb"

@@ -1,25 +1,25 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require 'bundler/setup'
-require 'thor'
-require 'tty-table'
-require 'pastel'
-require 'net/http'
-require 'json'
+require "bundler/setup"
+require "thor"
+require "tty-table"
+require "pastel"
+require "net/http"
+require "json"
 
 module Recollect
   class CLI < Thor
     def initialize(*)
       super
       @pastel = Pastel.new
-      @base_url = ENV.fetch('RECOLLECT_URL', 'http://localhost:8080')
+      @base_url = ENV.fetch("RECOLLECT_URL", "http://localhost:8080")
     end
 
-    desc 'store CONTENT', 'Store a new memory'
-    option :project, aliases: '-p', desc: 'Project name'
-    option :type, aliases: '-t', default: 'note', desc: 'Memory type'
-    option :tags, aliases: '-T', type: :array, desc: 'Tags'
+    desc "store CONTENT", "Store a new memory"
+    option :project, aliases: "-p", desc: "Project name"
+    option :type, aliases: "-t", default: "note", desc: "Memory type"
+    option :tags, aliases: "-T", type: :array, desc: "Tags"
     def store(content)
       data = {
         content: content,
@@ -28,12 +28,12 @@ module Recollect
         tags: options[:tags]
       }.compact
 
-      response = post('/api/memories', data)
+      response = post("/api/memories", data)
 
-      if response.code == '201'
+      if response.code == "201"
         result = JSON.parse(response.body)
-        say @pastel.green("Stored memory ##{result['id']}")
-        location = result['project'] ? "project '#{result['project']}'" : 'global'
+        say @pastel.green("Stored memory ##{result["id"]}")
+        location = result["project"] ? "project '#{result["project"]}'" : "global"
         say "  Location: #{location}"
       else
         say @pastel.red("Error: #{response.message}")
@@ -42,10 +42,10 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
-    desc 'search QUERY', 'Search memories'
-    option :project, aliases: '-p', desc: 'Limit to project'
-    option :type, aliases: '-t', desc: 'Filter by type'
-    option :limit, aliases: '-l', type: :numeric, default: 10
+    desc "search QUERY", "Search memories"
+    option :project, aliases: "-p", desc: "Limit to project"
+    option :type, aliases: "-t", desc: "Filter by type"
+    option :limit, aliases: "-l", type: :numeric, default: 10
     def search(query)
       params = {
         q: query,
@@ -54,12 +54,12 @@ module Recollect
         limit: options[:limit]
       }.compact
 
-      response = get('/api/memories/search', params)
+      response = get("/api/memories/search", params)
 
-      if response.code == '200'
+      if response.code == "200"
         data = JSON.parse(response.body)
-        display_memories(data['results'])
-        say "\n#{data['count']} results for '#{query}'"
+        display_memories(data["results"])
+        say "\n#{data["count"]} results for '#{query}'"
       else
         say @pastel.red("Error: #{response.message}")
       end
@@ -67,10 +67,10 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
-    desc 'list', 'List recent memories'
-    option :project, aliases: '-p', desc: 'Filter by project'
-    option :type, aliases: '-t', desc: 'Filter by type'
-    option :limit, aliases: '-l', type: :numeric, default: 20
+    desc "list", "List recent memories"
+    option :project, aliases: "-p", desc: "Filter by project"
+    option :type, aliases: "-t", desc: "Filter by type"
+    option :limit, aliases: "-l", type: :numeric, default: 20
     def list
       params = {
         project: options[:project],
@@ -78,9 +78,9 @@ module Recollect
         limit: options[:limit]
       }.compact
 
-      response = get('/api/memories', params)
+      response = get("/api/memories", params)
 
-      if response.code == '200'
+      if response.code == "200"
         memories = JSON.parse(response.body)
         display_memories(memories)
       else
@@ -90,19 +90,19 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
-    desc 'projects', 'List all projects'
+    desc "projects", "List all projects"
     def projects
-      response = get('/api/projects')
+      response = get("/api/projects")
 
-      if response.code == '200'
+      if response.code == "200"
         data = JSON.parse(response.body)
 
-        if data['projects'].empty?
-          say @pastel.yellow('No projects found.')
+        if data["projects"].empty?
+          say @pastel.yellow("No projects found.")
         else
           say "\nProjects:"
-          data['projects'].each { |p| say "  - #{p}" }
-          say "\nTotal: #{data['count']}"
+          data["projects"].each { |p| say "  - #{p}" }
+          say "\nTotal: #{data["count"]}"
         end
       else
         say @pastel.red("Error: #{response.message}")
@@ -111,15 +111,15 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
-    desc 'status', 'Check server status'
+    desc "status", "Check server status"
     def status
-      response = get('/health')
+      response = get("/health")
 
-      if response.code == '200'
+      if response.code == "200"
         data = JSON.parse(response.body)
-        say @pastel.green("Server is running (v#{data['version']})")
+        say @pastel.green("Server is running (v#{data["version"]})")
       else
-        say @pastel.red('Server is not responding')
+        say @pastel.red("Server is not responding")
       end
     rescue StandardError => e
       say @pastel.red("Server unreachable: #{e.message}")
@@ -136,14 +136,14 @@ module Recollect
     def post(path, data)
       uri = URI("#{@base_url}#{path}")
       http = Net::HTTP.new(uri.host, uri.port)
-      request = Net::HTTP::Post.new(uri.path, 'Content-Type' => 'application/json')
+      request = Net::HTTP::Post.new(uri.path, "Content-Type" => "application/json")
       request.body = data.to_json
       http.request(request)
     end
 
     def display_memories(memories)
       if memories.empty?
-        say @pastel.yellow('No memories found.')
+        say @pastel.yellow("No memories found.")
         return
       end
 
@@ -151,10 +151,10 @@ module Recollect
         header: %w[ID Type Project Content],
         rows: memories.map do |m|
           [
-            m['id'],
-            m['memory_type'],
-            m['project'] || 'global',
-            truncate(m['content'], 50)
+            m["id"],
+            m["memory_type"],
+            m["project"] || "global",
+            truncate(m["content"], 50)
           ]
         end
       )
@@ -163,7 +163,8 @@ module Recollect
     end
 
     def truncate(text, length)
-      return '' unless text
+      return "" unless text
+
       text.length > length ? "#{text[0...length]}..." : text
     end
   end

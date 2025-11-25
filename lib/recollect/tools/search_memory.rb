@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'mcp'
+require "mcp"
 
 module Recollect
   module Tools
@@ -39,29 +39,29 @@ module Recollect
       input_schema(
         properties: {
           query: {
-            type: 'string',
-            description: 'Search query'
+            type: "string",
+            description: "Search query"
           },
           project: {
-            type: 'string',
-            description: 'Limit search to specific project (omit to search all)'
+            type: "string",
+            description: "Limit search to specific project (omit to search all)"
           },
           memory_type: {
-            type: 'string',
+            type: "string",
             enum: %w[note decision pattern bug learning],
-            description: 'Filter by memory type'
+            description: "Filter by memory type"
           },
           limit: {
-            type: 'integer',
-            description: 'Maximum results (default: 10)',
+            type: "integer",
+            description: "Maximum results (default: 10)",
             default: 10
           }
         },
-        required: ['query']
+        required: ["query"]
       )
 
       class << self
-        def call(query:, project: nil, memory_type: nil, limit: 10, server_context:)
+        def call(query:, server_context:, project: nil, memory_type: nil, limit: 10)
           db_manager = server_context[:db_manager]
 
           results = db_manager.search_all(
@@ -72,13 +72,13 @@ module Recollect
           )
 
           MCP::Tool::Response.new([{
-            type: 'text',
-            text: JSON.generate({
-              results: results,
-              count: results.length,
-              query: query
-            })
-          }])
+                                    type: "text",
+                                    text: JSON.generate({
+                                                          results: results,
+                                                          count: results.length,
+                                                          query: query
+                                                        })
+                                  }])
         end
       end
     end

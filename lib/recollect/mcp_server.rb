@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'mcp'
+require "mcp"
 
 module Recollect
   module MCPServer
@@ -15,7 +15,7 @@ module Recollect
     class << self
       def build(db_manager)
         MCP::Server.new(
-          name: 'recollect',
+          name: "recollect",
           version: Recollect::VERSION,
           tools: TOOLS,
           server_context: { db_manager: db_manager }

@@ -1,0 +1,58 @@
+# frozen_string_literal: true
+
+plugins:
+  - rubocop-minitest
+  - rubocop-rake
+
+AllCops:
+  TargetRubyVersion: 3.4
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - 'vendor/**/*'
+    - 'tmp/**/*'
+
+# Prefer double quotes for consistency
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+# Allow longer lines for readability in some cases
+Layout/LineLength:
+  Max: 120
+  AllowedPatterns:
+    - '^\s*#'  # Allow long comments
+
+# Documentation is nice but not required for all classes
+Style/Documentation:
+  Enabled: false
+
+# Allow compact module/class definitions for simple cases
+Style/ClassAndModuleChildren:
+  Enabled: false
+
+# Block length exemptions for tests and DSLs
+Metrics/BlockLength:
+  Exclude:
+    - 'test/**/*'
+    - 'spec/**/*'
+    - '*.gemspec'
+    - 'Rakefile'
+
+# Method length - reasonable default
+Metrics/MethodLength:
+  Max: 20
+  Exclude:
+    - 'test/**/*'
+
+# Class length - reasonable default
+Metrics/ClassLength:
+  Max: 150
+
+# ABC size - slightly relaxed
+Metrics/AbcSize:
+  Max: 20
+  Exclude:
+    - 'test/**/*'

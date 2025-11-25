@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'mcp'
+require "mcp"
 
 module Recollect
   module Tools
@@ -36,29 +36,29 @@ module Recollect
       input_schema(
         properties: {
           content: {
-            type: 'string',
-            description: 'The memory content to store'
+            type: "string",
+            description: "The memory content to store"
           },
           memory_type: {
-            type: 'string',
+            type: "string",
             enum: %w[note decision pattern bug learning],
-            description: 'Type of memory (default: note)'
+            description: "Type of memory (default: note)"
           },
           tags: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Tags for categorization'
+            type: "array",
+            items: { type: "string" },
+            description: "Tags for categorization"
           },
           project: {
-            type: 'string',
-            description: 'Project name (omit for global memory)'
+            type: "string",
+            description: "Project name (omit for global memory)"
           }
         },
-        required: ['content']
+        required: ["content"]
       )
 
       class << self
-        def call(content:, memory_type: 'note', tags: nil, project: nil, server_context:)
+        def call(content:, server_context:, memory_type: "note", tags: nil, project: nil)
           db_manager = server_context[:db_manager]
           db = db_manager.get_database(project)
 
@@ -66,20 +66,20 @@ module Recollect
             content: content,
             memory_type: memory_type,
             tags: tags,
-            source: 'mcp'
+            source: "mcp"
           )
 
-          location = project ? "project '#{project}'" : 'global'
+          location = project ? "project '#{project}'" : "global"
 
           MCP::Tool::Response.new([{
-            type: 'text',
-            text: JSON.generate({
-              success: true,
-              id: id,
-              stored_in: location,
-              message: "Memory stored successfully in #{location}"
-            })
-          }])
+                                    type: "text",
+                                    text: JSON.generate({
+                                                          success: true,
+                                                          id: id,
+                                                          stored_in: location,
+                                                          message: "Memory stored successfully in #{location}"
+                                                        })
+                                  }])
         end
       end
     end

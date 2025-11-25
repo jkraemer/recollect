@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require 'sqlite3'
-require 'json'
+require "sqlite3"
+require "json"
 
 module Recollect
   class Database
@@ -58,7 +58,9 @@ module Recollect
       create_schema
     end
 
-    def store(content:, memory_type: 'note', tags: nil, metadata: nil, source: 'unknown')
+    def store(content:, memory_type: "note", tags: nil, metadata: nil, source: "unknown")
+      raise ArgumentError, "content cannot be empty" if content.nil? || content.to_s.strip.empty?
+
       @db.execute(<<~SQL, [content, memory_type, json_encode(tags), json_encode(metadata), source])
         INSERT INTO memories (content, memory_type, tags, metadata, source)
         VALUES (?, ?, ?, ?, ?)
@@ -67,13 +69,13 @@ module Recollect
     end
 
     def get(id)
-      row = @db.get_first_row('SELECT * FROM memories WHERE id = ?', id)
+      row = @db.get_first_row("SELECT * FROM memories WHERE id = ?", id)
       deserialize(row)
     end
 
     def search(query, memory_type: nil, limit: 10, offset: 0)
       # Escape query for FTS5 (treat as literal phrase)
-      safe_query = '"' + query.gsub('"', '""') + '"'
+      safe_query = "\"#{query.gsub('"', '""')}\""
 
       sql = <<~SQL
         SELECT memories.*, bm25(memories_fts) as rank
@@ -84,27 +86,27 @@ module Recollect
       params = [safe_query]
 
       if memory_type
-        sql += ' AND memories.memory_type = ?'
+        sql += " AND memories.memory_type = ?"
         params << memory_type
       end
 
-      sql += ' ORDER BY rank LIMIT ? OFFSET ?'
-      params.concat([limit, offset])
+      sql += " ORDER BY rank LIMIT ? OFFSET ?"
+      params.push(limit, offset)
 
       @db.execute(sql, params).map { |row| deserialize(row) }
     end
 
     def list(memory_type: nil, limit: 50, offset: 0)
-      sql = 'SELECT * FROM memories'
+      sql = "SELECT * FROM memories"
       params = []
 
       if memory_type
-        sql += ' WHERE memory_type = ?'
+        sql += " WHERE memory_type = ?"
         params << memory_type
       end
 
-      sql += ' ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?'
-      params.concat([limit, offset])
+      sql += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+      params.push(limit, offset)
 
       @db.execute(sql, params).map { |row| deserialize(row) }
     end
@@ -114,17 +116,17 @@ module Recollect
       params = []
 
       if content
-        updates << 'content = ?'
+        updates << "content = ?"
         params << content
       end
 
       if tags
-        updates << 'tags = ?'
+        updates << "tags = ?"
         params << json_encode(tags)
       end
 
       if metadata
-        updates << 'metadata = ?'
+        updates << "metadata = ?"
         params << json_encode(metadata)
       end
 
@@ -133,20 +135,20 @@ module Recollect
       updates << "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
       params << id
 
-      @db.execute("UPDATE memories SET #{updates.join(', ')} WHERE id = ?", params)
-      @db.changes > 0
+      @db.execute("UPDATE memories SET #{updates.join(", ")} WHERE id = ?", params)
+      @db.changes.positive?
     end
 
     def delete(id)
-      @db.execute('DELETE FROM memories WHERE id = ?', id)
-      @db.changes > 0
+      @db.execute("DELETE FROM memories WHERE id = ?", id)
+      @db.changes.positive?
     end
 
     def count(memory_type: nil)
       if memory_type
-        @db.get_first_value('SELECT COUNT(*) FROM memories WHERE memory_type = ?', memory_type)
+        @db.get_first_value("SELECT COUNT(*) FROM memories WHERE memory_type = ?", memory_type)
       else
-        @db.get_first_value('SELECT COUNT(*) FROM memories')
+        @db.get_first_value("SELECT COUNT(*) FROM memories")
       end
     end
 
@@ -178,15 +180,15 @@ module Recollect
       return nil unless row
 
       {
-        'id' => row['id'],
-        'content' => row['content'],
-        'memory_type' => row['memory_type'],
-        'tags' => json_decode(row['tags']),
-        'metadata' => json_decode(row['metadata']),
-        'created_at' => row['created_at'],
-        'updated_at' => row['updated_at'],
-        'source' => row['source'],
-        'rank' => row['rank']
+        "id" => row["id"],
+        "content" => row["content"],
+        "memory_type" => row["memory_type"],
+        "tags" => json_decode(row["tags"]),
+        "metadata" => json_decode(row["metadata"]),
+        "created_at" => row["created_at"],
+        "updated_at" => row["updated_at"],
+        "source" => row["source"],
+        "rank" => row["rank"]
       }.compact
     end
 
