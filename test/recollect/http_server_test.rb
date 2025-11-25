@@ -192,5 +192,128 @@ class HTTPServerTest < Recollect::TestCase
     # Either serves file or 404 if file doesn't exist yet
     assert_includes [200, 404], last_response.status
   end
+
+  # Tag stats
+  def test_get_api_tags_returns_tag_stats
+    # Create memories with tags
+    post "/api/memories", {
+      content: "First memory",
+      tags: %w[decision threading]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Second memory",
+      tags: %w[decision]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Third memory",
+      tags: %w[threading performance]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    get "/api/tags"
+
+    assert_predicate last_response, :ok?
+
+    data = JSON.parse(last_response.body)
+
+    assert_kind_of Hash, data["tags"]
+    assert_equal 5, data["total"] # decision(2) + threading(2) + performance(1)
+    assert_equal 3, data["unique"] # decision, threading, performance
+    assert_equal 2, data["tags"]["decision"]
+    assert_equal 2, data["tags"]["threading"]
+    assert_equal 1, data["tags"]["performance"]
+  end
+
+  def test_get_api_tags_with_project_filter
+    # Create memories in different projects
+    post "/api/memories", {
+      content: "Project A memory",
+      tags: %w[decision],
+      project: "project-a"
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Project B memory",
+      tags: %w[decision threading],
+      project: "project-b"
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    get "/api/tags", project: "project-a"
+
+    assert_predicate last_response, :ok?
+
+    data = JSON.parse(last_response.body)
+
+    assert_equal 1, data["total"]
+    assert_equal 1, data["unique"]
+    assert_equal 1, data["tags"]["decision"]
+    assert_nil data["tags"]["threading"]
+  end
+
+  # Search by tags
+  def test_get_api_memories_by_tags_returns_matching_memories
+    # Create memories with tags
+    post "/api/memories", {
+      content: "Memory with decision tag",
+      tags: %w[decision]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Memory with threading tag",
+      tags: %w[threading]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Memory with both tags",
+      tags: %w[decision threading]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    get "/api/memories/by-tags", tags: "decision"
+
+    assert_predicate last_response, :ok?
+
+    data = JSON.parse(last_response.body)
+
+    assert_kind_of Array, data["results"]
+    assert_equal 2, data["count"]
+    assert_equal ["decision"], data["tags"]
+
+    # All results should have the decision tag
+    data["results"].each do |memory|
+      assert_includes memory["tags"], "decision"
+    end
+  end
+
+  def test_get_api_memories_by_tags_with_multiple_tags
+    # Create memories with various tag combinations
+    post "/api/memories", {
+      content: "Only decision",
+      tags: %w[decision]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Only threading",
+      tags: %w[threading]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Both decision and threading",
+      tags: %w[decision threading]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    get "/api/memories/by-tags", tags: "decision,threading"
+
+    assert_predicate last_response, :ok?
+
+    data = JSON.parse(last_response.body)
+
+    assert_kind_of Array, data["results"]
+    assert_equal 1, data["count"]
+    assert_equal %w[decision threading], data["tags"]
+
+    # Only the memory with both tags should be returned
+    assert_equal "Both decision and threading", data["results"][0]["content"]
+  end
 end
 # rubocop:enable Naming/VariableNumber

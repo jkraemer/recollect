@@ -50,6 +50,8 @@ Metrics/MethodLength:
 # Class length - reasonable default
 Metrics/ClassLength:
   Max: 160
+  Exclude:
+    - 'test/**/*'
 
 # ABC size - slightly relaxed
 Metrics/AbcSize:

@@ -78,6 +78,24 @@ module Recollect
       json_response({ results: results, count: results.length, query: query })
     end
 
+    # Search by tags
+    get "/api/memories/by-tags" do
+      tags_param = params["tags"]
+      halt 400, json_response({ error: 'Query parameter "tags" required' }, status_code: 400) unless tags_param
+
+      tags = tags_param.split(",").map(&:strip)
+      limit = (params["limit"] || 10).to_i
+
+      results = db_manager.search_by_tags(
+        tags,
+        project: params["project"],
+        memory_type: params["memory_type"],
+        limit: limit
+      )
+
+      json_response({ results: results, count: results.length, tags: tags })
+    end
+
     # Get single memory
     get "/api/memories/:id" do
       project = params["project"]
@@ -145,6 +163,19 @@ module Recollect
     get "/api/projects" do
       projects = db_manager.list_projects
       json_response({ projects: projects, count: projects.length })
+    end
+
+    # Tag statistics
+    get "/api/tags" do
+      tags = db_manager.tag_stats(
+        project: params["project"],
+        memory_type: params["memory_type"]
+      )
+
+      total = tags.values.sum
+      unique = tags.size
+
+      json_response({ tags: tags, total: total, unique: unique })
     end
 
     # Serve Web UI
