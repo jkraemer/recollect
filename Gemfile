@@ -5,8 +5,8 @@ source "https://rubygems.org"
 ruby ">= 3.4.0"
 
 # Core
-gem "mcp" # Official MCP SDK (Shopify)
-gem "puma", "~> 6.4"
+gem "mcp"
+gem "puma", "~> 7.0"
 gem "rack-cors", "~> 2.0"
 gem "sinatra", "~> 4.0"
 gem "sqlite3", "~> 2.0"

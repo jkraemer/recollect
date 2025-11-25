@@ -19,13 +19,19 @@ module Recollect
     desc "store CONTENT", "Store a new memory"
     option :project, aliases: "-p", desc: "Project name"
     option :type, aliases: "-t", default: "note", desc: "Memory type"
-    option :tags, aliases: "-T", type: :array, desc: "Tags"
-    def store(content)
+    option :tags, aliases: "-T", desc: "Tags (comma-separated)"
+    def store(*args)
+      content = args.join(" ")
+      if content.empty?
+        say @pastel.red("Error: CONTENT is required")
+        return
+      end
+      tags = options[:tags]&.split(",")&.map(&:strip)
       data = {
         content: content,
         memory_type: options[:type],
         project: options[:project],
-        tags: options[:tags]
+        tags: tags
       }.compact
 
       response = post("/api/memories", data)
@@ -221,20 +227,19 @@ module Recollect
         return
       end
 
-      # Sort by count descending and take top N
-      sorted_tags = tags.sort_by { |t| -t["count"] }.take(top_n)
+      # tags is a hash { "tag_name" => count }, sort by count desc and take top N
+      sorted_tags = tags.sort_by { |_, count| -count }.take(top_n)
 
       # Find max count for bar chart scaling
-      max_count = sorted_tags.first["count"]
+      max_count = sorted_tags.first[1]
       max_bar_width = 40
 
       say "\nTag Statistics:"
-      sorted_tags.each do |tag|
-        count = tag["count"]
+      sorted_tags.each do |tag_name, count|
         bar_width = max_count.positive? ? (count.to_f / max_count * max_bar_width).round : 0
         bar = "█" * bar_width
 
-        say "  #{@pastel.cyan(tag["tag"].ljust(20))} #{bar} #{count}"
+        say "  #{@pastel.cyan(tag_name.ljust(20))} #{bar} #{count}"
       end
       say "\nShowing top #{sorted_tags.size} tags"
     end
