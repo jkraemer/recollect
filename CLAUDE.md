@@ -1,0 +1,95 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**Recollect** is a Ruby-based HTTP MCP (Model Context Protocol) server for persistent memory management. It stores memories in SQLite databases with FTS5 full-text search, accessible via MCP protocol over HTTP.
+
+## Commands
+
+```bash
+# Run tests
+bundle exec rake test
+
+# Run a single test file
+bundle exec ruby -Itest test/recollect/database_test.rb
+
+# Run specific test method
+bundle exec ruby -Itest test/recollect/database_test.rb -n test_store_returns_id
+
+# Lint
+bundle exec rubocop
+
+# Start server (development)
+./bin/server
+# Or: bundle exec puma -C config/puma.rb
+
+# CLI commands (requires running server)
+./bin/recollect status
+./bin/recollect store "content" -p project -t decision
+./bin/recollect search "query"
+./bin/recollect list
+./bin/recollect projects
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Sinatra/Puma Server                   │
+├─────────────────────────────────────────────────────────┤
+│  POST /mcp         → MCP::Server#handle_json(body)      │
+│  GET/POST /api/*   → REST endpoints for Web UI + CLI    │
+│  GET /             → Static Web UI files                │
+└─────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────┐
+│              SQLite + FTS5 (per-project)                │
+├─────────────────────────────────────────────────────────┤
+│  ~/.recollect/global.db        → Cross-project memories │
+│  ~/.recollect/projects/*.db    → Project-specific       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+- **HTTPServer** (`lib/recollect/http_server.rb`): Sinatra app handling MCP endpoint, REST API, and static files
+- **MCPServer** (`lib/recollect/mcp_server.rb`): Factory building MCP::Server with all tools
+- **DatabaseManager** (`lib/recollect/database_manager.rb`): Multi-database coordination with lazy initialization
+- **Database** (`lib/recollect/database.rb`): SQLite wrapper with FTS5 search
+- **Tools** (`lib/recollect/tools/`): MCP tool implementations (store, search, get_context, list_projects, delete)
+
+### Design Decisions
+
+- **HTTP-only transport**: No stdio; single Puma server simplifies SQLite concurrency
+- **MCP via handle_json**: MCP protocol exposed at `/mcp` endpoint
+- **Project isolation**: Separate database per project, plus global database
+- **Embedding-ready**: Schema includes BLOB column for future vector search
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RECOLLECT_DATA_DIR` | `~/.recollect` | Data storage directory |
+| `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
+| `RECOLLECT_PORT` | `8080` | Server port |
+| `RECOLLECT_URL` | `http://localhost:8080` | CLI base URL |
+
+## Testing
+
+Tests use `test/tmp/test_data` for isolated database files (cleaned between tests). Test helper sets `RACK_ENV=test` and provides `Recollect::TestCase` base class with Rack::Test methods.
+
+## MCP Configuration for Claude Code
+
+```json
+{
+  "mcpServers": {
+    "recollect": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
+  }
+}
+```
