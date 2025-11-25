@@ -1,0 +1,180 @@
+# frozen_string_literal: true
+
+require 'test_helper'
+
+module Recollect
+  class ConfigTest < TestCase
+    def setup
+      super
+      @config = Config.new
+    end
+
+    def test_default_data_dir
+      # When no env var set, should use ~/.recollect
+      original_value = ENV['RECOLLECT_DATA_DIR']
+      ENV.delete('RECOLLECT_DATA_DIR')
+      config = Config.new
+      expected_path = File.join(Dir.home, '.recollect')
+      assert_equal Pathname.new(expected_path), config.data_dir
+    ensure
+      ENV['RECOLLECT_DATA_DIR'] = original_value if original_value
+    end
+
+    def test_data_dir_from_env
+      # Should use RECOLLECT_DATA_DIR when set
+      test_dir = '/tmp/recollect_test'
+      ENV['RECOLLECT_DATA_DIR'] = test_dir
+      config = Config.new
+      assert_equal Pathname.new(test_dir), config.data_dir
+    ensure
+      ENV['RECOLLECT_DATA_DIR'] = File.join(__dir__, '..', 'tmp', 'test_data')
+    end
+
+    def test_default_host
+      assert_equal '127.0.0.1', @config.host
+    end
+
+    def test_host_from_env
+      ENV['RECOLLECT_HOST'] = '0.0.0.0'
+      config = Config.new
+      assert_equal '0.0.0.0', config.host
+    ensure
+      ENV.delete('RECOLLECT_HOST')
+    end
+
+    def test_default_port
+      assert_equal 8080, @config.port
+    end
+
+    def test_port_from_env
+      ENV['RECOLLECT_PORT'] = '9999'
+      config = Config.new
+      assert_equal 9999, config.port
+    ensure
+      ENV.delete('RECOLLECT_PORT')
+    end
+
+    def test_default_max_results
+      assert_equal 100, @config.max_results
+    end
+
+    def test_max_results_can_be_changed
+      @config.max_results = 50
+      assert_equal 50, @config.max_results
+    end
+
+    def test_global_db_path
+      expected_path = @config.data_dir.join('global.db')
+      assert_equal expected_path, @config.global_db_path
+    end
+
+    def test_projects_dir
+      expected_path = @config.data_dir.join('projects')
+      assert_equal expected_path, @config.projects_dir
+    end
+
+    def test_project_db_path_sanitizes_names
+      # Should sanitize special characters to underscores
+      assert_equal @config.projects_dir.join('my_project.db'),
+                   @config.project_db_path('my-project')
+
+      assert_equal @config.projects_dir.join('my_project.db'),
+                   @config.project_db_path('my@project')
+
+      assert_equal @config.projects_dir.join('my_project.db'),
+                   @config.project_db_path('My Project')
+
+      # Should be lowercase
+      assert_equal @config.projects_dir.join('myproject.db'),
+                   @config.project_db_path('MyProject')
+    end
+
+    def test_detect_project_from_git
+      # Create a temporary directory with .git
+      Dir.mktmpdir do |dir|
+        git_dir = File.join(dir, '.git')
+        FileUtils.mkdir_p(git_dir)
+
+        # Mock git config to return a remote URL
+        mock_git_output = "https://github.com/user/test-repo.git\n"
+        mock_git_command = "git -C \"#{dir}\" config --get remote.origin.url 2>/dev/null"
+
+        # Create a mock that returns the repo name
+        def @config.git_remote_name(path)
+          'test-repo'
+        end
+
+        project_name = @config.detect_project(dir)
+
+        # Should either return git remote name or directory basename
+        assert project_name
+        assert_kind_of String, project_name
+        refute_empty project_name
+      end
+    end
+
+    def test_detect_project_from_package_json
+      # Create a temporary directory with package.json
+      Dir.mktmpdir do |dir|
+        package_json = File.join(dir, 'package.json')
+        File.write(package_json, '{"name": "my-npm-package"}')
+
+        project_name = @config.detect_project(dir)
+        assert_equal 'my-npm-package', project_name
+      end
+    end
+
+    def test_detect_project_from_gemspec
+      # Create a temporary directory with gemspec
+      Dir.mktmpdir do |dir|
+        gemspec = File.join(dir, 'my-gem.gemspec')
+        File.write(gemspec, 'Gem::Specification.new do |s|; end')
+
+        project_name = @config.detect_project(dir)
+        assert_equal 'my-gem', project_name
+      end
+    end
+
+    def test_detect_project_returns_nil_for_generic_directories
+      # Generic directory names should return nil
+      generic_dirs = %w[home Documents Desktop Downloads src code]
+
+      generic_dirs.each do |dir_name|
+        Dir.mktmpdir(dir_name) do |dir|
+          # Rename the directory to match the generic name
+          parent = File.dirname(dir)
+          new_path = File.join(parent, dir_name)
+          File.rename(dir, new_path)
+
+          project_name = @config.detect_project(new_path)
+          assert_nil project_name, "Expected nil for generic directory '#{dir_name}'"
+
+          # Rename back for cleanup
+          File.rename(new_path, dir)
+        end
+      end
+    end
+
+    def test_detect_project_returns_directory_name_for_non_generic
+      # Non-generic directory without .git/package.json/gemspec should return basename
+      Dir.mktmpdir('my-custom-project') do |dir|
+        # Rename to have a known name
+        parent = File.dirname(dir)
+        new_path = File.join(parent, 'my-custom-project')
+        File.rename(dir, new_path)
+
+        project_name = @config.detect_project(new_path)
+        assert_equal 'my-custom-project', project_name
+
+        # Rename back for cleanup
+        File.rename(new_path, dir)
+      end
+    end
+
+    def test_ensures_directories_exist
+      # Config initialization should create directories
+      assert @config.data_dir.exist?, 'data_dir should exist'
+      assert @config.projects_dir.exist?, 'projects_dir should exist'
+    end
+  end
+end

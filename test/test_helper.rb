@@ -21,7 +21,7 @@ module Recollect
 
     def setup
       # Clean databases between tests
-      Dir.glob(File.join(TEST_DATA_DIR, '**/*.db')).each do |f|
+      Dir.glob(File.join(TEST_DATA_DIR, '**/*.db*')).each do |f|
         FileUtils.rm_f(f)
       end
     end
