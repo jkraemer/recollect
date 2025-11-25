@@ -108,6 +108,10 @@ module Recollect
       end
     end
 
+    def enqueue_embedding(memory_id:, content:, project:)
+      @embedding_worker&.enqueue(memory_id: memory_id, content: content, project: project)
+    end
+
     private
 
     def search_project(query, project, memory_type: nil, limit: 10)
@@ -247,7 +251,8 @@ module Recollect
     end
 
     def score_fts_results(fts_results, scores)
-      max_rank = fts_results.map { |m| (m["rank"] || 0).abs }.max || 1.0
+      max_rank = fts_results.map { |m| (m["rank"] || 0).abs }.max
+      max_rank = 1.0 if max_rank.nil? || max_rank.zero?
       fts_results.each do |mem|
         normalized = (mem["rank"] || 0).abs / max_rank
         scores[mem["id"]] = { memory: mem, fts_score: normalized, vec_score: 0.0 }
@@ -255,9 +260,10 @@ module Recollect
     end
 
     def score_vector_results(vec_results, scores)
-      max_distance = vec_results.map { |m| m["distance"] || 0 }.max || 1.0
+      max_distance = vec_results.map { |m| m["distance"] || 0 }.max
+      max_distance = 1.0 if max_distance.nil? || max_distance.zero?
       vec_results.each do |mem|
-        normalized = 1.0 - ((mem["distance"] || 0) / [max_distance, 0.001].max)
+        normalized = 1.0 - ((mem["distance"] || 0) / max_distance)
         if scores[mem["id"]]
           scores[mem["id"]][:vec_score] = normalized
         else

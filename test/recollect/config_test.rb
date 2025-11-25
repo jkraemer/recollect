@@ -205,10 +205,10 @@ module Recollect
       assert_equal 384, @config.vector_dimensions
     end
 
-    def test_embed_script_path
-      expected = Recollect.root.join("bin", "embed")
+    def test_embed_server_script_path
+      expected = Recollect.root.join("bin", "embed-server")
 
-      assert_equal expected, @config.embed_script_path
+      assert_equal expected, @config.embed_server_script_path
     end
 
     def test_vec_extension_path_finds_system_extension
@@ -244,7 +244,7 @@ module Recollect
     def test_vectors_available_false_when_embed_script_missing
       ENV["ENABLE_VECTORS"] = "true"
       config = Config.new
-      config.embed_script_path = Pathname.new("/nonexistent/embed")
+      config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
 
       refute_predicate config, :vectors_available?
     ensure

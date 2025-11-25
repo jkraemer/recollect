@@ -11,6 +11,8 @@ AllCops:
   Exclude:
     - 'vendor/**/*'
     - 'tmp/**/*'
+    - '.venv/**/*'
+    - 'coverage/**/*'
 
 # Prefer double quotes for consistency
 Style/StringLiterals:

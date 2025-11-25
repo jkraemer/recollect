@@ -242,7 +242,7 @@ module Recollect
       pending = db.memories_without_embeddings(limit: limit)
 
       pending.each do |row|
-        db_manager.instance_variable_get(:@embedding_worker)&.enqueue(
+        db_manager.enqueue_embedding(
           memory_id: row["id"],
           content: row["content"],
           project: project
