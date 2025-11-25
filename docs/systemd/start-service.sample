@@ -1,0 +1,12 @@
+#!/bin/bash
+cd "$(dirname "$0")/.."
+
+# Add your Ruby version manager's shims to PATH.
+# For asdf:
+# export PATH="$HOME/.asdf/shims:$PATH"
+# For rbenv:
+# export PATH="$HOME/.rbenv/shims:$PATH"
+# For rvm:
+# source ~/.rvm/scripts/rvm
+
+exec bundle exec puma -C config/puma.rb

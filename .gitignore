@@ -2,3 +2,4 @@
 /coverage
 /.claude
 /.venv
+/bin/start-service

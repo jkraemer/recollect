@@ -1,9 +1,0 @@
-#!/bin/bash
-cd "$(dirname "$0")/.."
-
-# Uncomment and adjust for your Ruby version manager:
-# eval "$(rbenv init -)"
-# source ~/.rvm/scripts/rvm
-# source ~/.asdf/asdf.sh
-
-exec bundle exec puma -C config/puma.rb

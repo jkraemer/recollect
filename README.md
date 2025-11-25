@@ -132,50 +132,7 @@ Open `http://localhost:8080` in your browser to browse and search memories.
 
 ## Running as a systemd Service
 
-To run Recollect automatically on login, create a user systemd service.
-
-First, edit `bin/start-service` and uncomment the line for your Ruby version manager (rbenv, rvm, or asdf).
-
-Then create the systemd unit:
-
-```bash
-mkdir -p ~/.config/systemd/user
-
-cat > ~/.config/systemd/user/recollect.service << 'EOF'
-[Unit]
-Description=Recollect MCP Memory Server
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/path/to/recollect/bin/start-service
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-EOF
-```
-
-Update the paths to match your installation, then enable and start:
-
-```bash
-systemctl --user daemon-reload
-systemctl --user enable recollect
-systemctl --user start recollect
-
-# Check status
-systemctl --user status recollect
-
-# View logs
-journalctl --user -u recollect -f
-```
-
-To ensure the service runs even when not logged in:
-
-```bash
-loginctl enable-linger $USER
-```
+See [docs/systemd/README.md](docs/systemd/README.md) for setup instructions to run Recollect as a user systemd service.
 
 ## Development
 

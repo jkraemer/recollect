@@ -1,0 +1,16 @@
+[Unit]
+Description=Recollect MCP Memory Server
+After=network.target
+
+[Service]
+Type=simple
+# Enable semantic vector search (requires Python venv with sentence-transformers)
+# Environment=ENABLE_VECTORS=true
+ExecStart=/path/to/recollect/bin/start-service
+# Graceful reload: restarts workers without dropping connections
+ExecReload=/bin/kill -USR1 $MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
