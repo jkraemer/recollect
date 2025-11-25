@@ -1,0 +1,172 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'thor'
+require 'tty-table'
+require 'pastel'
+require 'net/http'
+require 'json'
+
+module Recollect
+  class CLI < Thor
+    def initialize(*)
+      super
+      @pastel = Pastel.new
+      @base_url = ENV.fetch('RECOLLECT_URL', 'http://localhost:8080')
+    end
+
+    desc 'store CONTENT', 'Store a new memory'
+    option :project, aliases: '-p', desc: 'Project name'
+    option :type, aliases: '-t', default: 'note', desc: 'Memory type'
+    option :tags, aliases: '-T', type: :array, desc: 'Tags'
+    def store(content)
+      data = {
+        content: content,
+        memory_type: options[:type],
+        project: options[:project],
+        tags: options[:tags]
+      }.compact
+
+      response = post('/api/memories', data)
+
+      if response.code == '201'
+        result = JSON.parse(response.body)
+        say @pastel.green("Stored memory ##{result['id']}")
+        location = result['project'] ? "project '#{result['project']}'" : 'global'
+        say "  Location: #{location}"
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
+    desc 'search QUERY', 'Search memories'
+    option :project, aliases: '-p', desc: 'Limit to project'
+    option :type, aliases: '-t', desc: 'Filter by type'
+    option :limit, aliases: '-l', type: :numeric, default: 10
+    def search(query)
+      params = {
+        q: query,
+        project: options[:project],
+        type: options[:type],
+        limit: options[:limit]
+      }.compact
+
+      response = get('/api/memories/search', params)
+
+      if response.code == '200'
+        data = JSON.parse(response.body)
+        display_memories(data['results'])
+        say "\n#{data['count']} results for '#{query}'"
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
+    desc 'list', 'List recent memories'
+    option :project, aliases: '-p', desc: 'Filter by project'
+    option :type, aliases: '-t', desc: 'Filter by type'
+    option :limit, aliases: '-l', type: :numeric, default: 20
+    def list
+      params = {
+        project: options[:project],
+        type: options[:type],
+        limit: options[:limit]
+      }.compact
+
+      response = get('/api/memories', params)
+
+      if response.code == '200'
+        memories = JSON.parse(response.body)
+        display_memories(memories)
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
+    desc 'projects', 'List all projects'
+    def projects
+      response = get('/api/projects')
+
+      if response.code == '200'
+        data = JSON.parse(response.body)
+
+        if data['projects'].empty?
+          say @pastel.yellow('No projects found.')
+        else
+          say "\nProjects:"
+          data['projects'].each { |p| say "  - #{p}" }
+          say "\nTotal: #{data['count']}"
+        end
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
+    desc 'status', 'Check server status'
+    def status
+      response = get('/health')
+
+      if response.code == '200'
+        data = JSON.parse(response.body)
+        say @pastel.green("Server is running (v#{data['version']})")
+      else
+        say @pastel.red('Server is not responding')
+      end
+    rescue StandardError => e
+      say @pastel.red("Server unreachable: #{e.message}")
+    end
+
+    private
+
+    def get(path, params = {})
+      uri = URI("#{@base_url}#{path}")
+      uri.query = URI.encode_www_form(params) unless params.empty?
+      Net::HTTP.get_response(uri)
+    end
+
+    def post(path, data)
+      uri = URI("#{@base_url}#{path}")
+      http = Net::HTTP.new(uri.host, uri.port)
+      request = Net::HTTP::Post.new(uri.path, 'Content-Type' => 'application/json')
+      request.body = data.to_json
+      http.request(request)
+    end
+
+    def display_memories(memories)
+      if memories.empty?
+        say @pastel.yellow('No memories found.')
+        return
+      end
+
+      table = TTY::Table.new(
+        header: %w[ID Type Project Content],
+        rows: memories.map do |m|
+          [
+            m['id'],
+            m['memory_type'],
+            m['project'] || 'global',
+            truncate(m['content'], 50)
+          ]
+        end
+      )
+
+      puts table.render(:unicode)
+    end
+
+    def truncate(text, length)
+      return '' unless text
+      text.length > length ? "#{text[0...length]}..." : text
+    end
+  end
+end
+
+Recollect::CLI.start(ARGV)

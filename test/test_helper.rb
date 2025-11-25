@@ -11,6 +11,7 @@ require 'recollect'
 require 'minitest/autorun'
 require 'rack/test'
 require 'fileutils'
+require 'json'
 
 # Ensure test data directory exists
 FileUtils.mkdir_p(TEST_DATA_DIR)
