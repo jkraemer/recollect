@@ -61,7 +61,10 @@ module Recollect
     def store(content:, memory_type: "note", tags: nil, metadata: nil, source: "unknown")
       raise ArgumentError, "content cannot be empty" if content.nil? || content.to_s.strip.empty?
 
-      @db.execute(<<~SQL, [content, memory_type, json_encode(tags), json_encode(metadata), source])
+      # Normalize tags to lowercase
+      normalized_tags = tags&.map(&:downcase)
+
+      @db.execute(<<~SQL, [content, memory_type, json_encode(normalized_tags), json_encode(metadata), source])
         INSERT INTO memories (content, memory_type, tags, metadata, source)
         VALUES (?, ?, ?, ?, ?)
       SQL
@@ -122,7 +125,9 @@ module Recollect
 
       if tags
         updates << "tags = ?"
-        params << json_encode(tags)
+        # Normalize tags to lowercase
+        normalized_tags = tags.map(&:downcase)
+        params << json_encode(normalized_tags)
       end
 
       if metadata
@@ -150,6 +155,58 @@ module Recollect
       else
         @db.get_first_value("SELECT COUNT(*) FROM memories")
       end
+    end
+
+    def search_by_tags(tag_filters, memory_type: nil, limit: 10)
+      return [] if tag_filters.nil? || tag_filters.empty?
+
+      # Normalize tag_filters to lowercase
+      normalized_tags = tag_filters.map(&:downcase)
+
+      sql = "SELECT * FROM memories WHERE 1=1"
+      params = []
+
+      # Build WHERE clause to match all tags (AND logic)
+      normalized_tags.each do |tag|
+        sql += " AND tags LIKE ?"
+        params << "%\"#{tag}\"%"
+      end
+
+      if memory_type
+        sql += " AND memory_type = ?"
+        params << memory_type
+      end
+
+      sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+      params << limit
+
+      @db.execute(sql, params).map { |row| deserialize(row) }
+    end
+
+    def get_tag_stats(memory_type: nil)
+      sql = "SELECT tags FROM memories"
+      params = []
+
+      if memory_type
+        sql += " WHERE memory_type = ?"
+        params << memory_type
+      end
+
+      rows = @db.execute(sql, params)
+      tag_counts = Hash.new(0)
+
+      rows.each do |row|
+        tags = json_decode(row["tags"])
+        next unless tags
+
+        tags.each do |tag|
+          # Normalize to lowercase when counting
+          tag_counts[tag.downcase] += 1
+        end
+      end
+
+      # Sort by frequency descending
+      tag_counts.sort_by { |_tag, count| -count }.to_h
     end
 
     def close

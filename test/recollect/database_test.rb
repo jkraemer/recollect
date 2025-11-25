@@ -199,4 +199,87 @@ class DatabaseTest < Recollect::TestCase
   def test_store_rejects_nil_content
     assert_raises(ArgumentError) { @db.store(content: nil) }
   end
+
+  # Test search_by_tags returns memories matching all tags
+  def test_search_by_tags_returns_memories_matching_all_tags
+    @db.store(content: "Ruby async patterns", tags: %w[ruby async programming])
+    @db.store(content: "Ruby basics", tags: %w[ruby beginner])
+    @db.store(content: "Python async", tags: %w[python async programming])
+
+    results = @db.search_by_tags(%w[ruby async])
+
+    assert_equal 1, results.length
+    assert_includes results.first["content"], "Ruby async patterns"
+  end
+
+  # Test search_by_tags with type filter
+  def test_search_by_tags_with_type_filter
+    @db.store(content: "Ruby pattern", tags: %w[ruby design], memory_type: "pattern")
+    @db.store(content: "Ruby note", tags: %w[ruby design], memory_type: "note")
+    @db.store(content: "Ruby decision", tags: %w[ruby design], memory_type: "decision")
+
+    results = @db.search_by_tags(%w[ruby design], memory_type: "pattern")
+
+    assert_equal 1, results.length
+    assert_equal "pattern", results.first["memory_type"]
+  end
+
+  # Test search_by_tags returns empty when no matches
+  def test_search_by_tags_returns_empty_when_no_matches
+    @db.store(content: "Ruby note", tags: %w[ruby backend])
+    @db.store(content: "Python note", tags: %w[python frontend])
+
+    results = @db.search_by_tags(%w[java database])
+
+    assert_empty results
+  end
+
+  # Test search_by_tags is case insensitive
+  def test_search_by_tags_is_case_insensitive
+    @db.store(content: "Ruby patterns", tags: %w[Ruby Programming])
+    @db.store(content: "Python patterns", tags: %w[python coding])
+
+    results = @db.search_by_tags(%w[RUBY programming])
+
+    assert_equal 1, results.length
+    assert_includes results.first["content"], "Ruby patterns"
+  end
+
+  # Test store normalizes tags to lowercase
+  def test_store_normalizes_tags_to_lowercase
+    id = @db.store(content: "Test", tags: %w[Ruby PYTHON JavaScript])
+
+    memory = @db.get(id)
+
+    assert_equal %w[ruby python javascript], memory["tags"]
+  end
+
+  # Test get_tag_stats counts frequency
+  def test_get_tag_stats_counts_frequency
+    @db.store(content: "Memory 1", tags: %w[ruby programming])
+    @db.store(content: "Memory 2", tags: %w[ruby backend])
+    @db.store(content: "Memory 3", tags: %w[python programming])
+    @db.store(content: "Memory 4", tags: %w[ruby backend programming])
+
+    stats = @db.get_tag_stats
+
+    assert_equal 3, stats["ruby"]
+    assert_equal 3, stats["programming"]
+    assert_equal 2, stats["backend"]
+    assert_equal 1, stats["python"]
+  end
+
+  # Test get_tag_stats with type filter
+  def test_get_tag_stats_with_type_filter
+    @db.store(content: "Note 1", tags: %w[ruby testing], memory_type: "note")
+    @db.store(content: "Note 2", tags: %w[ruby debugging], memory_type: "note")
+    @db.store(content: "Decision 1", tags: %w[ruby architecture], memory_type: "decision")
+
+    stats = @db.get_tag_stats(memory_type: "note")
+
+    assert_equal 2, stats["ruby"]
+    assert_equal 1, stats["testing"]
+    assert_equal 1, stats["debugging"]
+    assert_nil stats["architecture"]
+  end
 end
