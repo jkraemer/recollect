@@ -185,5 +185,81 @@ module Recollect
       assert_predicate @config.data_dir, :exist?, "data_dir should exist"
       assert_predicate @config.projects_dir, :exist?, "projects_dir should exist"
     end
+
+    # Vector search configuration tests
+
+    def test_vectors_disabled_by_default
+      refute @config.enable_vectors
+    end
+
+    def test_vectors_enabled_from_env
+      ENV["ENABLE_VECTORS"] = "true"
+      config = Config.new
+
+      assert config.enable_vectors
+    ensure
+      ENV.delete("ENABLE_VECTORS")
+    end
+
+    def test_vector_dimensions
+      assert_equal 384, @config.vector_dimensions
+    end
+
+    def test_embed_script_path
+      expected = Recollect.root.join("bin", "embed")
+
+      assert_equal expected, @config.embed_script_path
+    end
+
+    def test_vec_extension_path_finds_system_extension
+      # Should find the sqlite-vec extension if installed
+      path = @config.vec_extension_path
+
+      if File.exist?("/usr/lib/vec0.so")
+        assert_equal "/usr/lib/vec0.so", path
+      else
+        # Extension not installed on this system - that's OK
+        assert_nil(path) || assert_kind_of(String, path)
+      end
+    end
+
+    def test_vectors_available_false_when_disabled
+      refute_predicate @config, :vectors_available?
+    end
+
+    def test_vectors_available_false_when_extension_missing
+      ENV["ENABLE_VECTORS"] = "true"
+      config = Config.new
+
+      # Stub vec_extension_path to return nil
+      def config.vec_extension_path
+        nil
+      end
+
+      refute_predicate config, :vectors_available?
+    ensure
+      ENV.delete("ENABLE_VECTORS")
+    end
+
+    def test_vectors_available_false_when_embed_script_missing
+      ENV["ENABLE_VECTORS"] = "true"
+      config = Config.new
+      config.embed_script_path = Pathname.new("/nonexistent/embed")
+
+      refute_predicate config, :vectors_available?
+    ensure
+      ENV.delete("ENABLE_VECTORS")
+    end
+
+    def test_python_path_uses_venv_when_available
+      # Should use .venv/bin/python3 if it exists and is executable
+      venv_python = Recollect.root.join(".venv", "bin", "python3")
+
+      if venv_python.executable?
+        assert_equal venv_python.to_s, @config.python_path
+      else
+        assert_equal "python3", @config.python_path
+      end
+    end
   end
 end

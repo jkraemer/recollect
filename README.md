@@ -23,12 +23,34 @@ enabling AI coding assistants to maintain context across sessions.
 - Ruby >= 3.4.0
 - SQLite3
 
+### Optional: Vector Search
+
+For semantic vector search (hybrid FTS5 + vector similarity):
+
+- Python >= 3.8
+- sqlite-vec extension (e.g., `pacman -S sqlite-vec` on Arch Linux)
+
 ## Installation
 
 ```bash
 git clone <repo-url>
 cd ruby-mcp-memory
 bundle install
+```
+
+### Optional: Set Up Vector Search
+
+To enable semantic vector search, create a Python virtual environment and install dependencies:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+Then set the environment variable when starting the server:
+
+```bash
+ENABLE_VECTORS=true ./bin/server
 ```
 
 ## Usage

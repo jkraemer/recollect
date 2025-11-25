@@ -5,7 +5,10 @@ require "json"
 
 module Recollect
   class Config
-    attr_accessor :data_dir, :host, :port, :max_results
+    attr_accessor :data_dir, :host, :port, :max_results,
+                  :enable_vectors, :vector_dimensions, :embed_script_path
+
+    VECTOR_DIMENSIONS = 384 # all-MiniLM-L6-v2
 
     def initialize
       @data_dir = Pathname.new(ENV.fetch("RECOLLECT_DATA_DIR",
@@ -13,6 +16,11 @@ module Recollect
       @host = ENV.fetch("RECOLLECT_HOST", "127.0.0.1")
       @port = ENV.fetch("RECOLLECT_PORT", "8080").to_i
       @max_results = 100
+
+      # Vector search configuration
+      @enable_vectors = ENV.fetch("ENABLE_VECTORS", "false") == "true"
+      @vector_dimensions = VECTOR_DIMENSIONS
+      @embed_script_path = Recollect.root.join("bin", "embed")
 
       ensure_directories!
     end
@@ -50,6 +58,36 @@ module Recollect
       return nil if %w[home Documents Desktop Downloads src code].include?(name)
 
       name
+    end
+
+    def vec_extension_path
+      paths = [
+        "/usr/lib/vec0.so",                        # Arch Linux package
+        "~/.local/lib/sqlite-vec/vec0.so",         # User local install
+        "~/.local/lib/sqlite-vec/vec0.dylib",      # macOS user local
+        "/usr/local/lib/vec0.so",                  # System local install
+        "/usr/local/lib/vec0.dylib"                # macOS system local
+      ]
+
+      paths.each do |path|
+        expanded = File.expand_path(path)
+        return expanded if File.exist?(expanded)
+      end
+
+      nil
+    end
+
+    def vectors_available?
+      enable_vectors && vec_extension_path && File.executable?(embed_script_path)
+    end
+
+    def python_path
+      # Use the venv Python if available
+      venv_python = Recollect.root.join(".venv", "bin", "python3")
+      return venv_python.to_s if venv_python.executable?
+
+      # Fall back to system Python
+      "python3"
     end
 
     private
