@@ -20,4 +20,6 @@ end
 
 # Autoloading
 loader = Zeitwerk::Loader.for_gem
+loader.inflector.inflect('mcp_server' => 'MCPServer')
+loader.inflector.inflect('http_server' => 'HTTPServer')
 loader.setup
