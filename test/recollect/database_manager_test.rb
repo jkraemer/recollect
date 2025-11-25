@@ -160,4 +160,47 @@ class DatabaseManagerTest < Recollect::TestCase
     threads.each(&:join)
     # If we got here without errors, thread safety is working
   end
+
+  # Test tag_stats for specific project
+  def test_tag_stats_for_specific_project
+    db = @manager.get_database("tag-stats-project")
+    db.store(content: "Memory 1", tags: %w[ruby testing])
+    db.store(content: "Memory 2", tags: %w[ruby performance])
+    db.store(content: "Memory 3", tags: ["testing"])
+
+    stats = @manager.tag_stats(project: "tag-stats-project")
+
+    assert_equal 2, stats["ruby"]
+    assert_equal 2, stats["testing"]
+    assert_equal 1, stats["performance"]
+  end
+
+  # Test tag_stats aggregates across all databases
+  def test_tag_stats_aggregates_across_all_databases
+    # Store in global
+    global = @manager.get_database(nil)
+    global.store(content: "Global memory", tags: %w[shared global])
+
+    # Store in project
+    db = @manager.get_database("tag-stats-aggregate")
+    db.store(content: "Project memory", tags: %w[shared project])
+
+    stats = @manager.tag_stats
+
+    assert_equal 2, stats["shared"]
+    assert_equal 1, stats["global"]
+    assert_equal 1, stats["project"]
+  end
+
+  # Test tag_stats with memory_type filter
+  def test_tag_stats_with_memory_type_filter
+    db = @manager.get_database("tag-stats-type")
+    db.store(content: "A note", memory_type: "note", tags: ["note-tag"])
+    db.store(content: "A todo", memory_type: "todo", tags: ["todo-tag"])
+
+    stats = @manager.tag_stats(project: "tag-stats-type", memory_type: "note")
+
+    assert_equal 1, stats["note-tag"]
+    assert_nil stats["todo-tag"]
+  end
 end

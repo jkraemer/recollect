@@ -43,6 +43,14 @@ module Recollect
       end.sort
     end
 
+    def tag_stats(project: nil, memory_type: nil)
+      if project
+        get_database(project).get_tag_stats(memory_type: memory_type)
+      else
+        aggregate_tag_stats(memory_type: memory_type)
+      end
+    end
+
     def close_all
       @mutex.synchronize do
         @databases.each_value(&:close)
@@ -99,6 +107,25 @@ module Recollect
 
     def sanitize_name(name)
       name.to_s.gsub(/[^a-zA-Z0-9_]/, "_").downcase
+    end
+
+    def aggregate_tag_stats(memory_type: nil)
+      combined = Hash.new(0)
+
+      # Global database
+      get_database(nil).get_tag_stats(memory_type: memory_type).each do |tag, count|
+        combined[tag] += count
+      end
+
+      # All project databases
+      list_projects.each do |proj|
+        get_database(proj).get_tag_stats(memory_type: memory_type).each do |tag, count|
+          combined[tag] += count
+        end
+      end
+
+      # Sort by frequency descending
+      combined.sort_by { |_, count| -count }.to_h
     end
   end
 end
