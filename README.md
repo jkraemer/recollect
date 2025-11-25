@@ -1,10 +1,13 @@
 # Recollect
 
-A Ruby-based MCP (Model Context Protocol) server for persistent memory management across Claude Code sessions.
+A Ruby-based MCP (Model Context Protocol) server for persistent memory
+management across Claude Code sessions.
 
 ## Overview
 
-Recollect stores decisions, patterns, bugs, and learnings in SQLite databases with FTS5 full-text search. It exposes memories via the MCP protocol over HTTP, enabling AI coding assistants to maintain context across sessions.
+Recollect stores decisions, patterns, bugs, and learnings in SQLite databases
+with FTS5 full-text search. It exposes memories via the MCP protocol over HTTP,
+enabling AI coding assistants to maintain context across sessions.
 
 ## Features
 
