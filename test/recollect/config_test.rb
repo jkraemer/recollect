@@ -46,7 +46,7 @@ module Recollect
     end
 
     def test_default_port
-      assert_equal 8080, @config.port
+      assert_equal 7326, @config.port
     end
 
     def test_port_from_env
@@ -56,6 +56,17 @@ module Recollect
       assert_equal 9999, config.port
     ensure
       ENV.delete("RECOLLECT_PORT")
+    end
+
+    def test_url
+      assert_equal "http://#{@config.host}:#{@config.port}", @config.url
+    end
+
+    def test_url_reflects_host_and_port_changes
+      @config.host = "0.0.0.0"
+      @config.port = 9000
+
+      assert_equal "http://0.0.0.0:9000", @config.url
     end
 
     def test_default_max_results

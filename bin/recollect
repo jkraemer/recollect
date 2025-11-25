@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "bundler/setup"
+require_relative "../lib/recollect"
 require "thor"
 require "tty-table"
 require "pastel"
@@ -13,7 +14,7 @@ module Recollect
     def initialize(*)
       super
       @pastel = Pastel.new
-      @base_url = ENV.fetch("RECOLLECT_URL", "http://localhost:8080")
+      @base_url = ENV.fetch("RECOLLECT_URL", Recollect.config.url)
     end
 
     desc "store CONTENT", "Store a new memory"

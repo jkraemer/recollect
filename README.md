@@ -61,7 +61,7 @@ ENABLE_VECTORS=true ./bin/server
 ./bin/server
 ```
 
-The server runs at `http://localhost:8080` by default.
+The server runs at `http://localhost:7326` by default.
 
 ### Configure Claude Code
 
@@ -72,7 +72,7 @@ Add to your Claude Code MCP configuration:
   "mcpServers": {
     "recollect": {
       "type": "http",
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:7326/mcp"
     }
   }
 }
@@ -99,7 +99,7 @@ Add to your Claude Code MCP configuration:
 
 ### Web UI
 
-Open `http://localhost:8080` in your browser to browse and search memories.
+Open `http://localhost:7326` in your browser to browse and search memories.
 
 ## MCP Tools
 
@@ -125,8 +125,8 @@ Open `http://localhost:8080` in your browser to browse and search memories.
 |---------------------|---------|-------------|
 | `RECOLLECT_DATA_DIR` | `~/.recollect` | Data storage directory |
 | `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
-| `RECOLLECT_PORT` | `8080` | Server port |
-| `RECOLLECT_URL` | `http://localhost:8080` | CLI base URL |
+| `RECOLLECT_PORT` | `7326` | Server port |
+| `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
 | `WEB_CONCURRENCY` | `2` | Puma worker processes |
 | `PUMA_MAX_THREADS` | `5` | Threads per worker |
 

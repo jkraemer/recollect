@@ -14,7 +14,7 @@ module Recollect
       @data_dir = Pathname.new(ENV.fetch("RECOLLECT_DATA_DIR",
                                          File.join(Dir.home, ".recollect")))
       @host = ENV.fetch("RECOLLECT_HOST", "127.0.0.1")
-      @port = ENV.fetch("RECOLLECT_PORT", "8080").to_i
+      @port = ENV.fetch("RECOLLECT_PORT", "7326").to_i
       @max_results = 100
 
       # Vector search configuration
@@ -88,6 +88,10 @@ module Recollect
 
       # Fall back to system Python
       "python3"
+    end
+
+    def url
+      "http://#{host}:#{port}"
     end
 
     private

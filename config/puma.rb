@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../lib/recollect"
+
 # Workers (processes)
 workers ENV.fetch("WEB_CONCURRENCY", 2).to_i
 
@@ -10,8 +12,8 @@ threads threads_count, threads_count
 # Environment
 environment ENV.fetch("RACK_ENV", "development")
 
-# Binding
-bind "tcp://#{ENV.fetch("RECOLLECT_HOST", "127.0.0.1")}:#{ENV.fetch("RECOLLECT_PORT", "8080")}"
+# Binding - use Config for host/port defaults
+bind "tcp://#{Recollect.config.host}:#{Recollect.config.port}"
 
 # Preload app for copy-on-write memory savings
 preload_app!

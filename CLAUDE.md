@@ -74,8 +74,8 @@ bundle exec rubocop
 |----------|---------|-------------|
 | `RECOLLECT_DATA_DIR` | `~/.recollect` | Data storage directory |
 | `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
-| `RECOLLECT_PORT` | `8080` | Server port |
-| `RECOLLECT_URL` | `http://localhost:8080` | CLI base URL |
+| `RECOLLECT_PORT` | `7326` | Server port |
+| `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
 
 ## Before Committing
 
@@ -104,7 +104,7 @@ Tests use `test/tmp/test_data` for isolated database files (cleaned between test
   "mcpServers": {
     "recollect": {
       "type": "http",
-      "url": "http://localhost:8080/mcp"
+      "url": "http://localhost:7326/mcp"
     }
   }
 }
