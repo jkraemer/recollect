@@ -17,7 +17,7 @@ bind "tcp://#{ENV.fetch("RECOLLECT_HOST", "127.0.0.1")}:#{ENV.fetch("RECOLLECT_P
 preload_app!
 
 # Lifecycle hooks
-on_worker_boot do
+before_worker_boot do
   # Each worker gets fresh DB connections via lazy initialization
 end
 
