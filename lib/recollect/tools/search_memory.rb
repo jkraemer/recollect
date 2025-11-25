@@ -100,9 +100,11 @@ module Recollect
 
         def perform_search(db_manager, query, tags, params)
           if tags && !tags.empty?
+            # Tag search doesn't use vectors (yet)
             db_manager.search_by_tags(tags, **params)
           else
-            db_manager.search_all(query, **params)
+            # Use hybrid search (auto-falls back to FTS5 if vectors unavailable)
+            db_manager.hybrid_search(query, **params)
           end
         end
       end

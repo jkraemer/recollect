@@ -178,6 +178,55 @@ module Recollect
       say @pastel.red("Server unreachable: #{e.message}")
     end
 
+    desc "vector-status", "Check vector search status"
+    def vector_status
+      response = get("/api/vectors/status")
+
+      if response.code == "200"
+        data = JSON.parse(response.body)
+
+        if data["enabled"]
+          say @pastel.green("Vector search is enabled")
+          say "  Total memories:  #{data["total_memories"]}"
+          say "  With embeddings: #{data["total_embeddings"]}"
+          say "  Coverage:        #{data["coverage"]}%"
+        else
+          say @pastel.yellow("Vector search is not enabled")
+          say "  Reason: #{data["reason"]}"
+        end
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
+    desc "vector-backfill", "Generate embeddings for existing memories"
+    option :project, aliases: "-p", desc: "Limit to project"
+    option :limit, aliases: "-l", type: :numeric, default: 100
+    def vector_backfill
+      params = {
+        project: options[:project],
+        limit: options[:limit]
+      }.compact
+
+      response = post_form("/api/vectors/backfill", params)
+
+      if response.code == "200"
+        data = JSON.parse(response.body)
+        say @pastel.green("Queued #{data["queued"]} memories for embedding")
+      else
+        error = begin
+          JSON.parse(response.body)["error"]
+        rescue StandardError
+          response.message
+        end
+        say @pastel.red("Error: #{error}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
     private
 
     def get(path, params = {})
@@ -192,6 +241,12 @@ module Recollect
       request = Net::HTTP::Post.new(uri.path, "Content-Type" => "application/json")
       request.body = data.to_json
       http.request(request)
+    end
+
+    def post_form(path, params = {})
+      uri = URI("#{@base_url}#{path}")
+      uri.query = URI.encode_www_form(params) unless params.empty?
+      Net::HTTP.post_form(uri, {})
     end
 
     def display_memories(memories)

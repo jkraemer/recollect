@@ -32,6 +32,32 @@ module Recollect
       rescue JSON::ParserError
         halt 400, json_response({ error: "Invalid JSON" }, status_code: 400)
       end
+
+      def count_vectors_across_databases
+        total_memories = 0
+        total_embeddings = 0
+
+        db_manager.list_projects.each do |proj|
+          db = db_manager.get_database(proj)
+          total_memories += db.count
+          total_embeddings += db.embedding_count
+        end
+
+        global_db = db_manager.get_database(nil)
+        total_memories += global_db.count
+        total_embeddings += global_db.embedding_count
+
+        [total_memories, total_embeddings]
+      end
+
+      def determine_vector_unavailable_reason
+        config = Recollect.config
+        return "ENABLE_VECTORS not set" unless config.enable_vectors
+        return "sqlite-vec extension not found" unless config.vec_extension_path
+        return "embed script not executable" unless File.executable?(config.embed_server_script_path)
+
+        "unknown"
+      end
     end
 
     # Health check
@@ -63,12 +89,12 @@ module Recollect
       json_response(memories)
     end
 
-    # Search memories
+    # Search memories (uses hybrid search when vectors available)
     get "/api/memories/search" do
       query = params["q"]
       halt 400, json_response({ error: 'Query parameter "q" required' }, status_code: 400) unless query
 
-      results = db_manager.search_all(
+      results = db_manager.hybrid_search(
         query,
         project: params["project"],
         memory_type: params["type"],
@@ -108,13 +134,13 @@ module Recollect
       json_response(memory)
     end
 
-    # Create memory
+    # Create memory (queues for embedding generation if vectors enabled)
     post "/api/memories" do
       data = parse_json_body
       project = data["project"]
-      db = db_manager.get_database(project)
 
-      id = db.store(
+      id = db_manager.store_with_embedding(
+        project: project,
         content: data["content"],
         memory_type: data["memory_type"] || "note",
         tags: data["tags"],
@@ -122,6 +148,7 @@ module Recollect
         source: "api"
       )
 
+      db = db_manager.get_database(project)
       memory = db.get(id)
       memory["project"] = project
 
@@ -176,6 +203,57 @@ module Recollect
       unique = tags.size
 
       json_response({ tags: tags, total: total, unique: unique })
+    end
+
+    # ========== Vector Search API ==========
+
+    # Vector search status
+    get "/api/vectors/status" do
+      config = Recollect.config
+
+      if config.vectors_available?
+        total_memories, total_embeddings = count_vectors_across_databases
+
+        json_response({
+                        enabled: true,
+                        healthy: true,
+                        total_memories: total_memories,
+                        total_embeddings: total_embeddings,
+                        coverage: total_memories.positive? ? (total_embeddings.to_f / total_memories * 100).round(1) : 0
+                      })
+      else
+        json_response({
+                        enabled: false,
+                        reason: determine_vector_unavailable_reason
+                      })
+      end
+    end
+
+    # Backfill embeddings for existing memories
+    post "/api/vectors/backfill" do
+      unless Recollect.config.vectors_available?
+        halt 400, json_response({ error: "Vector search not enabled" }, status_code: 400)
+      end
+
+      project = params["project"]
+      limit = (params["limit"] || 100).to_i
+
+      db = db_manager.get_database(project)
+      pending = db.memories_without_embeddings(limit: limit)
+
+      pending.each do |row|
+        db_manager.instance_variable_get(:@embedding_worker)&.enqueue(
+          memory_id: row["id"],
+          content: row["content"],
+          project: project
+        )
+      end
+
+      json_response({
+                      success: true,
+                      queued: pending.length,
+                      message: "Queued #{pending.length} memories for embedding generation"
+                    })
     end
 
     # Serve Web UI

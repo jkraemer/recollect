@@ -74,12 +74,13 @@ module Recollect
       class << self
         def call(content:, server_context:, memory_type: "note", tags: nil, project: nil)
           db_manager = server_context[:db_manager]
-          db = db_manager.get_database(project)
 
-          id = db.store(
+          id = db_manager.store_with_embedding(
+            project: project,
             content: content,
             memory_type: memory_type,
             tags: tags,
+            metadata: nil,
             source: "mcp"
           )
 
