@@ -111,6 +111,53 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
+    desc "tags", "Show tag frequency statistics"
+    option :project, aliases: "-p", desc: "Filter by project"
+    option :type, aliases: "-t", desc: "Filter by memory type"
+    option :top, aliases: "-n", type: :numeric, default: 20, desc: "Show top N tags"
+    def tags
+      params = {
+        project: options[:project],
+        memory_type: options[:type]
+      }.compact
+
+      response = get("/api/tags", params)
+
+      if response.code == "200"
+        data = JSON.parse(response.body)
+        display_tags(data["tags"], options[:top])
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
+    desc "find-by-tag TAGS", "Find memories matching ALL specified tags (comma-separated)"
+    option :project, aliases: "-p", desc: "Limit to project"
+    option :type, aliases: "-t", desc: "Filter by type"
+    option :limit, aliases: "-l", type: :numeric, default: 10
+    def find_by_tag(tags)
+      params = {
+        tags: tags,
+        project: options[:project],
+        type: options[:type],
+        limit: options[:limit]
+      }.compact
+
+      response = get("/api/memories/by-tags", params)
+
+      if response.code == "200"
+        data = JSON.parse(response.body)
+        display_memories(data["results"])
+        say "\n#{data["count"]} results matching tags: #{tags}"
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue StandardError => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
     desc "status", "Check server status"
     def status
       response = get("/health")
@@ -166,6 +213,30 @@ module Recollect
       return "" unless text
 
       text.length > length ? "#{text[0...length]}..." : text
+    end
+
+    def display_tags(tags, top_n)
+      if tags.empty?
+        say @pastel.yellow("No tags found.")
+        return
+      end
+
+      # Sort by count descending and take top N
+      sorted_tags = tags.sort_by { |t| -t["count"] }.take(top_n)
+
+      # Find max count for bar chart scaling
+      max_count = sorted_tags.first["count"]
+      max_bar_width = 40
+
+      say "\nTag Statistics:"
+      sorted_tags.each do |tag|
+        count = tag["count"]
+        bar_width = max_count.positive? ? (count.to_f / max_count * max_bar_width).round : 0
+        bar = "█" * bar_width
+
+        say "  #{@pastel.cyan(tag["tag"].ljust(20))} #{bar} #{count}"
+      end
+      say "\nShowing top #{sorted_tags.size} tags"
     end
   end
 end
