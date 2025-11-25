@@ -6,7 +6,8 @@ require "json"
 module Recollect
   class Config
     attr_accessor :data_dir, :host, :port, :max_results,
-                  :enable_vectors, :vector_dimensions, :embed_script_path
+                  :enable_vectors, :vector_dimensions, :embed_script_path,
+                  :embed_server_script_path
 
     VECTOR_DIMENSIONS = 384 # all-MiniLM-L6-v2
 
@@ -21,6 +22,7 @@ module Recollect
       @enable_vectors = ENV.fetch("ENABLE_VECTORS", "false") == "true"
       @vector_dimensions = VECTOR_DIMENSIONS
       @embed_script_path = Recollect.root.join("bin", "embed")
+      @embed_server_script_path = Recollect.root.join("bin", "embed-server")
 
       ensure_directories!
     end
