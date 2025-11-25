@@ -10,6 +10,12 @@ Rake::TestTask.new(:test) do |t|
   t.warning = false
 end
 
+desc "Run tests with coverage report"
+task :coverage do
+  ENV["COVERAGE"] = "true"
+  Rake::Task[:test].invoke
+end
+
 RuboCop::RakeTask.new
 
 task default: :test

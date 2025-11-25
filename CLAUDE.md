@@ -82,8 +82,16 @@ bundle exec rubocop
 Run rubocop to detect and fix any style offenses:
 
 ```bash
-bundle exec rubocop
+bundle exec rake rubocop
 ```
+
+Run test coverage and ensure it hasn't degraded:
+
+```bash
+bundle exec rake coverage
+```
+
+Degrading test coverage is strongly discouraged. If coverage drops, add tests for uncovered code before committing.
 
 ## Testing
 

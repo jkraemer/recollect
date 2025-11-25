@@ -1,5 +1,18 @@
 # frozen_string_literal: true
 
+# SimpleCov must be started before any app code is loaded
+if ENV["COVERAGE"]
+  require "simplecov"
+  require "simplecov-console"
+  SimpleCov.start do
+    add_filter "/test/"
+    add_filter "/vendor/"
+    enable_coverage :branch
+    minimum_coverage line: 80, branch: 70
+    formatter SimpleCov::Formatter::Console
+  end
+end
+
 ENV["RACK_ENV"] = "test"
 
 # Store test data directory in constant before any tests modify ENV
