@@ -6,7 +6,20 @@ module Recollect
   module Tools
     class SearchMemory < MCP::Tool
       description <<~DESC
-        Search memories using full-text search.
+        Search memories using full-text search and/or tag filtering.
+
+        SEARCH STRATEGIES:
+        1. Full-text search: Use query parameter to search content
+        2. Tag filtering: Use tags parameter to filter by specific tags (AND logic)
+        3. Combined: Use both for precise results
+
+        TAG-BASED SEARCHING:
+        Tags now carry semantic meaning. Search by tags to find:
+        - Decisions: tags=["decision"]
+        - Patterns: tags=["pattern"]
+        - Bugs: tags=["bug"]
+        - Learnings: tags=["learning"]
+        - Combined: tags=["architecture", "decision"] (finds memories with both tags)
 
         AUTOMATIC TRIGGERING - Use when user:
 
@@ -40,7 +53,7 @@ module Recollect
         properties: {
           query: {
             type: "string",
-            description: "Search query"
+            description: "Search query for full-text search"
           },
           project: {
             type: "string",
@@ -48,8 +61,13 @@ module Recollect
           },
           memory_type: {
             type: "string",
-            enum: %w[note decision pattern bug learning],
+            enum: %w[note todo],
             description: "Filter by memory type"
+          },
+          tags: {
+            type: "array",
+            items: { type: "string" },
+            description: "Filter by tags (AND logic - memory must have all specified tags)"
           },
           limit: {
             type: "integer",
@@ -61,15 +79,11 @@ module Recollect
       )
 
       class << self
-        def call(query:, server_context:, project: nil, memory_type: nil, limit: 10)
+        # rubocop:disable Metrics/ParameterLists
+        def call(query:, server_context:, project: nil, memory_type: nil, tags: nil, limit: 10)
           db_manager = server_context[:db_manager]
-
-          results = db_manager.search_all(
-            query,
-            project: project,
-            memory_type: memory_type,
-            limit: limit
-          )
+          search_params = { project: project, memory_type: memory_type, limit: limit }
+          results = perform_search(db_manager, query, tags, search_params)
 
           MCP::Tool::Response.new([{
                                     type: "text",
@@ -79,6 +93,17 @@ module Recollect
                                                           query: query
                                                         })
                                   }])
+        end
+        # rubocop:enable Metrics/ParameterLists
+
+        private
+
+        def perform_search(db_manager, query, tags, params)
+          if tags && !tags.empty?
+            db_manager.search_by_tags(tags, **params)
+          else
+            db_manager.search_all(query, **params)
+          end
         end
       end
     end

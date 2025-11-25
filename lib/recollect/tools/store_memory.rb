@@ -8,6 +8,20 @@ module Recollect
       description <<~DESC
         Store a memory for later retrieval.
 
+        MEMORY TYPES:
+        - note: General information, facts, context (default)
+        - todo: Action items, tasks, reminders
+
+        TAGGING PHILOSOPHY:
+        Use tags to add semantic meaning to your memories. Instead of memory types
+        like "decision", "pattern", "bug", or "learning", use descriptive tags:
+
+        Examples:
+        - Architectural decision → tags: ["architecture", "decision"]
+        - Bug fix → tags: ["bug", "authentication"]
+        - Design pattern → tags: ["pattern", "singleton"]
+        - Learning/insight → tags: ["learning", "performance"]
+
         AUTOMATIC TRIGGERING - Use this tool when you observe:
 
         Decisions & Architecture:
@@ -41,13 +55,13 @@ module Recollect
           },
           memory_type: {
             type: "string",
-            enum: %w[note decision pattern bug learning],
+            enum: %w[note todo],
             description: "Type of memory (default: note)"
           },
           tags: {
             type: "array",
             items: { type: "string" },
-            description: "Tags for categorization"
+            description: "Tags for categorization (e.g., decision, pattern, bug, learning)"
           },
           project: {
             type: "string",

@@ -88,4 +88,69 @@ class StoreMemoryTest < Recollect::TestCase
 
     assert_equal "mcp", memory["source"]
   end
+
+  def test_rejects_old_type_decision
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::StoreMemory.input_schema.validate_arguments(
+        content: "A decision",
+        memory_type: "decision"
+      )
+    end
+  end
+
+  def test_rejects_old_type_pattern
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::StoreMemory.input_schema.validate_arguments(
+        content: "A pattern",
+        memory_type: "pattern"
+      )
+    end
+  end
+
+  def test_rejects_old_type_bug
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::StoreMemory.input_schema.validate_arguments(
+        content: "A bug",
+        memory_type: "bug"
+      )
+    end
+  end
+
+  def test_rejects_old_type_learning
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::StoreMemory.input_schema.validate_arguments(
+        content: "A learning",
+        memory_type: "learning"
+      )
+    end
+  end
+
+  def test_accepts_new_type_note
+    result = Recollect::Tools::StoreMemory.call(
+      content: "A note",
+      memory_type: "note",
+      server_context: { db_manager: @db_manager }
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert response_data["success"]
+  end
+
+  def test_accepts_new_type_todo
+    result = Recollect::Tools::StoreMemory.call(
+      content: "A todo",
+      memory_type: "todo",
+      server_context: { db_manager: @db_manager }
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert response_data["success"]
+
+    db = @db_manager.get_database(nil)
+    memory = db.get(response_data["id"])
+
+    assert_equal "todo", memory["memory_type"]
+  end
 end

@@ -75,4 +75,99 @@ class SearchMemoryTest < Recollect::TestCase
     assert_equal 1, response_data["count"]
     assert_equal "search-project", response_data["results"].first["project"]
   end
+
+  def test_filters_by_single_tag
+    db = @db_manager.get_database(nil)
+    db.store(content: "Architecture decision about database", tags: %w[architecture decision])
+    db.store(content: "Bug fix for login", tags: %w[bug authentication])
+    db.store(content: "Another architecture note", tags: %w[architecture])
+
+    result = Recollect::Tools::SearchMemory.call(
+      query: "",
+      tags: ["architecture"],
+      server_context: { db_manager: @db_manager }
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert_equal 2, response_data["count"]
+    response_data["results"].each do |memory|
+      assert_includes memory["tags"], "architecture"
+    end
+  end
+
+  def test_filters_by_multiple_tags_with_and_logic
+    db = @db_manager.get_database(nil)
+    db.store(content: "Architecture decision about database", tags: %w[architecture decision])
+    db.store(content: "Bug fix for login", tags: %w[bug authentication])
+    db.store(content: "Another architecture note", tags: %w[architecture])
+
+    result = Recollect::Tools::SearchMemory.call(
+      query: "",
+      tags: %w[architecture decision],
+      server_context: { db_manager: @db_manager }
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert_equal 1, response_data["count"]
+    assert_includes response_data["results"].first["tags"], "architecture"
+    assert_includes response_data["results"].first["tags"], "decision"
+  end
+
+  def test_filters_by_tags_in_specific_project
+    project_db = @db_manager.get_database("tag-project")
+    project_db.store(content: "Project memory with tags", tags: %w[important])
+
+    global_db = @db_manager.get_database(nil)
+    global_db.store(content: "Global memory with tags", tags: %w[important])
+
+    result = Recollect::Tools::SearchMemory.call(
+      query: "",
+      tags: ["important"],
+      project: "tag-project",
+      server_context: { db_manager: @db_manager }
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert_equal 1, response_data["count"]
+    assert_equal "tag-project", response_data["results"].first["project"]
+  end
+
+  def test_rejects_old_type_decision
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::SearchMemory.input_schema.validate_arguments(
+        query: "test",
+        memory_type: "decision"
+      )
+    end
+  end
+
+  def test_rejects_old_type_pattern
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::SearchMemory.input_schema.validate_arguments(
+        query: "test",
+        memory_type: "pattern"
+      )
+    end
+  end
+
+  def test_rejects_old_type_bug
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::SearchMemory.input_schema.validate_arguments(
+        query: "test",
+        memory_type: "bug"
+      )
+    end
+  end
+
+  def test_rejects_old_type_learning
+    assert_raises(::MCP::Tool::InputSchema::ValidationError) do
+      Recollect::Tools::SearchMemory.input_schema.validate_arguments(
+        query: "test",
+        memory_type: "learning"
+      )
+    end
+  end
 end

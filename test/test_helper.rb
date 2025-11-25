@@ -20,6 +20,7 @@ TEST_DATA_DIR = File.join(__dir__, "tmp", "test_data")
 ENV["RECOLLECT_DATA_DIR"] = TEST_DATA_DIR
 
 require "bundler/setup"
+require "mcp"
 require "recollect"
 require "minitest/autorun"
 require "rack/test"

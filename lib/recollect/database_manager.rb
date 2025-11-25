@@ -36,6 +36,17 @@ module Recollect
       results.sort_by { |m| m["rank"] || 0 }.take(limit)
     end
 
+    def search_by_tags(tags, project: nil, memory_type: nil, limit: 10)
+      results = if project
+                  search_project_by_tags(tags, project, memory_type: memory_type, limit: limit)
+                else
+                  search_all_projects_by_tags(tags, memory_type: memory_type, limit: limit)
+                end
+
+      # Sort by created_at DESC and limit
+      results.sort_by { |m| m["created_at"] || "" }.reverse.take(limit)
+    end
+
     def list_projects
       @config.projects_dir.glob("*.db").map do |path|
         sanitized = path.basename(".db").to_s
@@ -76,6 +87,27 @@ module Recollect
       # Search all projects
       list_projects.each do |proj|
         results.concat(search_project(query, proj, memory_type: memory_type, limit: limit))
+      end
+
+      results
+    end
+
+    def search_project_by_tags(tags, project, memory_type: nil, limit: 10)
+      db = get_database(project)
+      memories = db.search_by_tags(tags, memory_type: memory_type, limit: limit)
+      memories.each { |m| m["project"] = project }
+      memories
+    end
+
+    def search_all_projects_by_tags(tags, memory_type: nil, limit: 10)
+      results = []
+
+      # Search global
+      results.concat(search_project_by_tags(tags, nil, memory_type: memory_type, limit: limit))
+
+      # Search all projects
+      list_projects.each do |proj|
+        results.concat(search_project_by_tags(tags, proj, memory_type: memory_type, limit: limit))
       end
 
       results
