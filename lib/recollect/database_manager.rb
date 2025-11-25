@@ -8,6 +8,9 @@ module Recollect
       @config = config
       @databases = {}
       @mutex = Mutex.new
+      @embedding_worker = nil
+
+      start_embedding_worker if @config.vectors_available?
     end
 
     def get_database(project = nil)
@@ -20,9 +23,25 @@ module Recollect
           # Store original project name for later retrieval
           store_project_metadata(project) if project
 
-          Database.new(path)
+          Database.new(path, load_vectors: @config.vectors_available?)
         end
       end
+    end
+
+    def store_with_embedding(project:, content:, memory_type:, tags:, metadata:, source:)
+      db = get_database(project)
+      id = db.store(
+        content: content,
+        memory_type: memory_type,
+        tags: tags,
+        metadata: metadata,
+        source: source
+      )
+
+      # Queue for embedding generation
+      @embedding_worker&.enqueue(memory_id: id, content: content, project: project)
+
+      id
     end
 
     def search_all(query, project: nil, memory_type: nil, limit: 10)
@@ -47,6 +66,23 @@ module Recollect
       results.sort_by { |m| m["created_at"] || "" }.reverse.take(limit)
     end
 
+    def hybrid_search(query, project: nil, memory_type: nil, limit: 10)
+      # If vectors not available, fall back to FTS5 only
+      unless @config.vectors_available? && vectors_ready?
+        return search_all(query, project: project, memory_type: memory_type, limit: limit)
+      end
+
+      # Get query embedding
+      embedding = embedding_client.embed(query)
+
+      # Collect results from both methods
+      fts_results = search_all(query, project: project, memory_type: memory_type, limit: limit * 2)
+      vec_results = vector_search_all(embedding, project: project, limit: limit * 2)
+
+      # Merge and rank
+      merge_hybrid_results(fts_results, vec_results, limit)
+    end
+
     def list_projects
       @config.projects_dir.glob("*.db").map do |path|
         sanitized = path.basename(".db").to_s
@@ -63,6 +99,9 @@ module Recollect
     end
 
     def close_all
+      @embedding_worker&.stop
+      @embedding_client&.shutdown
+
       @mutex.synchronize do
         @databases.each_value(&:close)
         @databases.clear
@@ -158,6 +197,81 @@ module Recollect
 
       # Sort by frequency descending
       combined.sort_by { |_, count| -count }.to_h
+    end
+
+    # Vector search helpers
+
+    def start_embedding_worker
+      @embedding_worker = EmbeddingWorker.new(self)
+      @embedding_worker.start
+    end
+
+    def embedding_client
+      @embedding_client ||= EmbeddingClient.new
+    end
+
+    def vectors_ready?
+      # Check if at least one database has vectors enabled
+      @databases.values.any?(&:vectors_enabled?)
+    end
+
+    def vector_search_all(embedding, project: nil, limit: 10)
+      if project
+        db = get_database(project)
+        results = db.vector_search(embedding, limit: limit)
+        results.each { |m| m["project"] = project }
+      else
+        results = []
+
+        # Search global
+        global_results = get_database(nil).vector_search(embedding, limit: limit)
+        global_results.each { |m| m["project"] = nil }
+        results.concat(global_results)
+
+        # Search all projects
+        list_projects.each do |proj|
+          proj_results = get_database(proj).vector_search(embedding, limit: limit)
+          proj_results.each { |m| m["project"] = proj }
+          results.concat(proj_results)
+        end
+
+      end
+      results
+    end
+
+    def merge_hybrid_results(fts_results, vec_results, limit)
+      scores = {}
+      score_fts_results(fts_results, scores)
+      score_vector_results(vec_results, scores)
+      combine_and_sort_scores(scores, limit)
+    end
+
+    def score_fts_results(fts_results, scores)
+      max_rank = fts_results.map { |m| (m["rank"] || 0).abs }.max || 1.0
+      fts_results.each do |mem|
+        normalized = (mem["rank"] || 0).abs / max_rank
+        scores[mem["id"]] = { memory: mem, fts_score: normalized, vec_score: 0.0 }
+      end
+    end
+
+    def score_vector_results(vec_results, scores)
+      max_distance = vec_results.map { |m| m["distance"] || 0 }.max || 1.0
+      vec_results.each do |mem|
+        normalized = 1.0 - ((mem["distance"] || 0) / [max_distance, 0.001].max)
+        if scores[mem["id"]]
+          scores[mem["id"]][:vec_score] = normalized
+        else
+          scores[mem["id"]] = { memory: mem, fts_score: 0.0, vec_score: normalized }
+        end
+      end
+    end
+
+    def combine_and_sort_scores(scores, limit)
+      scored = scores.values.map do |entry|
+        combined = (entry[:fts_score] * 0.6) + (entry[:vec_score] * 0.4)
+        entry[:memory].merge("combined_score" => combined)
+      end
+      scored.sort_by { |m| -m["combined_score"] }.take(limit)
     end
   end
 end

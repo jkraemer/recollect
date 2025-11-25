@@ -5,6 +5,12 @@ require "json"
 
 module Recollect
   class Database
+    VECTOR_SCHEMA = <<~SQL
+      CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
+        embedding float[384]
+      );
+    SQL
+
     SCHEMA = <<~SQL
       -- Main memories table
       CREATE TABLE IF NOT EXISTS memories (
@@ -50,12 +56,35 @@ module Recollect
       END;
     SQL
 
-    def initialize(db_path)
+    def initialize(db_path, load_vectors: false)
       @db_path = db_path.to_s
       @db = SQLite3::Database.new(@db_path)
       @db.results_as_hash = true
+      @vectors_enabled = false
+
       configure_database
       create_schema
+
+      load_vector_extension if load_vectors
+    end
+
+    def load_vector_extension
+      vec_path = Recollect.config.vec_extension_path
+      return unless vec_path
+
+      @db.enable_load_extension(true)
+      @db.load_extension(vec_path)
+      @db.enable_load_extension(false)
+
+      @db.execute_batch(VECTOR_SCHEMA)
+      @vectors_enabled = true
+    rescue SQLite3::Exception => e
+      warn "[Database] Failed to load sqlite-vec: #{e.message}"
+      @vectors_enabled = false
+    end
+
+    def vectors_enabled?
+      @vectors_enabled
     end
 
     def store(content:, memory_type: "note", tags: nil, metadata: nil, source: "unknown")
@@ -213,6 +242,57 @@ module Recollect
       @db.close
     end
 
+    # Vector search methods
+
+    def store_embedding(memory_id, embedding)
+      return unless @vectors_enabled
+
+      embedding_blob = embedding.pack("e*") # little-endian float
+
+      @db.execute(<<~SQL, [memory_id, embedding_blob])
+        INSERT OR REPLACE INTO vec_memories(rowid, embedding)
+        VALUES (?, ?)
+      SQL
+    end
+
+    def vector_search(query_embedding, limit: 10)
+      return [] unless @vectors_enabled
+
+      query_blob = query_embedding.pack("e*")
+
+      sql = <<~SQL
+        SELECT
+          m.*,
+          v.distance
+        FROM vec_memories v
+        JOIN memories m ON m.id = v.rowid
+        WHERE v.embedding MATCH ?
+          AND k = ?
+        ORDER BY v.distance
+      SQL
+
+      @db.execute(sql, [query_blob, limit]).map { |row| deserialize_with_distance(row) }
+    end
+
+    def embedding_count
+      return 0 unless @vectors_enabled
+
+      @db.get_first_value("SELECT COUNT(*) FROM vec_memories") || 0
+    end
+
+    def memories_without_embeddings(limit: 100)
+      return [] unless @vectors_enabled
+
+      sql = <<~SQL
+        SELECT id, content FROM memories
+        WHERE id NOT IN (SELECT rowid FROM vec_memories)
+        ORDER BY created_at DESC
+        LIMIT ?
+      SQL
+
+      @db.execute(sql, [limit])
+    end
+
     private
 
     def configure_database
@@ -247,6 +327,12 @@ module Recollect
         "source" => row["source"],
         "rank" => row["rank"]
       }.compact
+    end
+
+    def deserialize_with_distance(row)
+      result = deserialize(row)
+      result["distance"] = row["distance"] if row["distance"]
+      result
     end
 
     def json_decode(value)
