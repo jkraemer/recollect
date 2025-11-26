@@ -14,6 +14,7 @@ module Recollect
     end
 
     def get_database(project = nil)
+      project = project&.downcase
       key = project || :global
 
       @mutex.synchronize do
@@ -120,6 +121,7 @@ module Recollect
     private
 
     def search_project(query, project, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
+      project = project&.downcase
       db = get_database(project)
       memories = db.search(query, memory_type: memory_type, limit: limit,
                                   created_after:, created_before:)
@@ -143,6 +145,7 @@ module Recollect
     end
 
     def search_project_by_tags(tags, project, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
+      project = project&.downcase
       db = get_database(project)
       memories = db.search_by_tags(tags, memory_type: memory_type, limit: limit,
                                          created_after:, created_before:)
@@ -229,6 +232,7 @@ module Recollect
     end
 
     def vector_search_all(embedding, project: nil, limit: 10, created_after: nil, created_before: nil)
+      project = project&.downcase
       date_opts = { created_after:, created_before: }
 
       if project

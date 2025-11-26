@@ -36,6 +36,27 @@ class DatabaseManagerTest < Recollect::TestCase
     assert_same db1, db2
   end
 
+  # Test project names are normalized to lowercase
+  def test_get_database_normalizes_case
+    db1 = @manager.get_database("MyProject")
+    db2 = @manager.get_database("myproject")
+    db3 = @manager.get_database("MYPROJECT")
+
+    assert_same db1, db2
+    assert_same db2, db3
+  end
+
+  # Test search results have normalized project names
+  def test_search_results_have_normalized_project
+    db = @manager.get_database("MixedCase")
+    db.store(content: "Test content about search")
+
+    results = @manager.search_all("search", project: "MIXEDCASE")
+
+    assert_equal 1, results.length
+    assert_equal "mixedcase", results.first["project"]
+  end
+
   # Test global and project databases are separate
   def test_global_and_project_databases_are_separate
     global = @manager.get_database(nil)

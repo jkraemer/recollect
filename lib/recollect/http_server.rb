@@ -107,7 +107,7 @@ module Recollect
 
     # List memories
     get "/api/memories" do
-      project = params["project"]
+      project = params["project"]&.downcase
       memory_type = params["type"]
       limit = (params["limit"] || 50).to_i
       offset = (params["offset"] || 0).to_i
@@ -126,7 +126,7 @@ module Recollect
 
       results = db_manager.hybrid_search(
         query,
-        project: params["project"],
+        project: params["project"]&.downcase,
         memory_type: params["type"],
         limit: (params["limit"] || 10).to_i
       )
@@ -144,7 +144,7 @@ module Recollect
 
       results = db_manager.search_by_tags(
         tags,
-        project: params["project"],
+        project: params["project"]&.downcase,
         memory_type: params["memory_type"],
         limit: limit
       )
@@ -154,7 +154,7 @@ module Recollect
 
     # Get single memory
     get "/api/memories/:id" do
-      project = params["project"]
+      project = params["project"]&.downcase
       db = db_manager.get_database(project)
 
       memory = db.get(params["id"].to_i)
@@ -167,7 +167,7 @@ module Recollect
     # Create memory (queues for embedding generation if vectors enabled)
     post "/api/memories" do
       data = parse_json_body
-      project = data["project"]
+      project = data["project"]&.downcase
 
       id = db_manager.store_with_embedding(
         project: project,
@@ -187,7 +187,7 @@ module Recollect
 
     # Delete memory
     delete "/api/memories/:id" do
-      project = params["project"]
+      project = params["project"]&.downcase
       db = db_manager.get_database(project)
 
       success = db.delete(params["id"].to_i)
@@ -205,7 +205,7 @@ module Recollect
     # Tag statistics
     get "/api/tags" do
       tags = db_manager.tag_stats(
-        project: params["project"],
+        project: params["project"]&.downcase,
         memory_type: params["memory_type"]
       )
 
@@ -245,7 +245,7 @@ module Recollect
         halt 400, json_response({ error: "Vector search not enabled" }, status_code: 400)
       end
 
-      project = params["project"]
+      project = params["project"]&.downcase
       limit = (params["limit"] || 100).to_i
 
       db = db_manager.get_database(project)
