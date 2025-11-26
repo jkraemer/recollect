@@ -105,31 +105,6 @@ class DatabaseTest < Recollect::TestCase
     assert_equal "Memory 1", results.first["content"]
   end
 
-  # Test update changes content
-  def test_update_changes_content
-    id = @db.store(content: "Original")
-    @db.update(id, content: "Updated")
-
-    memory = @db.get(id)
-
-    assert_equal "Updated", memory["content"]
-  end
-
-  # Test update changes tags
-  def test_update_changes_tags
-    id = @db.store(content: "Test", tags: ["old"])
-    @db.update(id, tags: %w[new tags])
-
-    memory = @db.get(id)
-
-    assert_equal %w[new tags], memory["tags"]
-  end
-
-  # Test update returns false for missing id
-  def test_update_returns_false_for_missing
-    refute @db.update(99_999, content: "Test")
-  end
-
   # Test delete removes memory
   def test_delete_removes_memory
     id = @db.store(content: "To delete")
@@ -281,23 +256,6 @@ class DatabaseTest < Recollect::TestCase
     assert_equal 1, stats["testing"]
     assert_equal 1, stats["debugging"]
     assert_nil stats["architecture"]
-  end
-
-  # Test update with metadata
-  def test_update_changes_metadata
-    id = @db.store(content: "Test", metadata: { old: "data" })
-    @db.update(id, metadata: { new: "metadata" })
-
-    memory = @db.get(id)
-
-    assert_equal({ "new" => "metadata" }, memory["metadata"])
-  end
-
-  # Test update with empty changes returns false
-  def test_update_with_empty_changes_returns_false
-    id = @db.store(content: "Test")
-
-    refute @db.update(id)
   end
 
   # Test search_by_tags returns empty for nil or empty tags

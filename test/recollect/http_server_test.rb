@@ -130,27 +130,6 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal %w[test http], data["tags"]
   end
 
-  # Update memory
-  def test_update_memory_returns_updated
-    # Create first
-    post "/api/memories", { content: "Original" }.to_json, "CONTENT_TYPE" => "application/json"
-    created = JSON.parse(last_response.body)
-
-    put "/api/memories/#{created["id"]}", { content: "Updated" }.to_json, "CONTENT_TYPE" => "application/json"
-
-    assert_predicate last_response, :ok?
-
-    data = JSON.parse(last_response.body)
-
-    assert_equal "Updated", data["content"]
-  end
-
-  def test_update_missing_memory_returns_404
-    put "/api/memories/99999", { content: "Test" }.to_json, "CONTENT_TYPE" => "application/json"
-
-    assert_equal 404, last_response.status
-  end
-
   # Delete memory
   def test_delete_memory_succeeds
     # Create first
@@ -372,16 +351,6 @@ class HTTPServerTest < Recollect::TestCase
   # Test parse_json_body error handling
   def test_create_memory_with_invalid_json_returns_400
     post "/api/memories", "not valid json", "CONTENT_TYPE" => "application/json"
-
-    assert_equal 400, last_response.status
-
-    data = JSON.parse(last_response.body)
-
-    assert_equal "Invalid JSON", data["error"]
-  end
-
-  def test_update_memory_with_invalid_json_returns_400
-    put "/api/memories/1", "{broken json", "CONTENT_TYPE" => "application/json"
 
     assert_equal 400, last_response.status
 

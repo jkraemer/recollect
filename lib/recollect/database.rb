@@ -143,36 +143,6 @@ module Recollect
       @db.execute(sql, params).map { |row| deserialize(row) }
     end
 
-    def update(id, content: nil, tags: nil, metadata: nil) # rubocop:disable Naming/PredicateMethod
-      updates = []
-      params = []
-
-      if content
-        updates << "content = ?"
-        params << content
-      end
-
-      if tags
-        updates << "tags = ?"
-        # Normalize tags to lowercase
-        normalized_tags = tags.map(&:downcase)
-        params << json_encode(normalized_tags)
-      end
-
-      if metadata
-        updates << "metadata = ?"
-        params << json_encode(metadata)
-      end
-
-      return false if updates.empty?
-
-      updates << "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
-      params << id
-
-      @db.execute("UPDATE memories SET #{updates.join(", ")} WHERE id = ?", params)
-      @db.changes.positive?
-    end
-
     def delete(id) # rubocop:disable Naming/PredicateMethod
       @db.execute("DELETE FROM memories WHERE id = ?", id)
       @db.changes.positive?

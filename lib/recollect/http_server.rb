@@ -159,26 +159,6 @@ module Recollect
       json_response(memory, status_code: 201)
     end
 
-    # Update memory
-    put "/api/memories/:id" do
-      data = parse_json_body
-      project = data["project"]
-      db = db_manager.get_database(project)
-
-      success = db.update(
-        params["id"].to_i,
-        content: data["content"],
-        tags: data["tags"],
-        metadata: data["metadata"]
-      )
-
-      halt 404, json_response({ error: "Memory not found" }, status_code: 404) unless success
-
-      memory = db.get(params["id"].to_i)
-      memory["project"] = project
-      json_response(memory)
-    end
-
     # Delete memory
     delete "/api/memories/:id" do
       project = params["project"]
