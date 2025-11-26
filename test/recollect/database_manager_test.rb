@@ -104,6 +104,28 @@ class DatabaseManagerTest < Recollect::TestCase
     assert_equal "note", results.first["memory_type"]
   end
 
+  # Test search_all filters by date range
+  def test_search_all_filters_by_date
+    db = @manager.get_database("date-test")
+    id1 = db.store(content: "Old memory about testing")
+    id2 = db.store(content: "New memory about testing")
+
+    # Backdate the memories
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", id1]
+    )
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-20T00:00:00Z", id2]
+    )
+
+    results = @manager.search_all("testing", project: "date-test", created_after: "2025-01-15")
+
+    assert_equal 1, results.length
+    assert_equal id2, results.first["id"]
+  end
+
   # Test list_projects returns empty initially
   def test_list_projects_returns_empty_initially
     projects = @manager.list_projects

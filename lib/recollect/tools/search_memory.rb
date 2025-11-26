@@ -76,6 +76,14 @@ module Recollect
             type: "integer",
             description: "Maximum results (default: 10)",
             default: 10
+          },
+          created_after: {
+            type: "string",
+            description: "Filter to memories created on or after this date (YYYY-MM-DD)"
+          },
+          created_before: {
+            type: "string",
+            description: "Filter to memories created on or before this date (YYYY-MM-DD)"
           }
         },
         required: ["query"]
@@ -83,9 +91,11 @@ module Recollect
 
       class << self
         # rubocop:disable Metrics/ParameterLists
-        def call(query:, server_context:, project: nil, memory_type: nil, tags: nil, limit: 10)
+        def call(query:, server_context:, project: nil, memory_type: nil, tags: nil, limit: 10,
+                 created_after: nil, created_before: nil)
           db_manager = server_context[:db_manager]
-          search_params = { project: project, memory_type: memory_type, limit: limit }
+          search_params = { project: project, memory_type: memory_type, limit: limit,
+                            created_after:, created_before: }
           results = perform_search(db_manager, query, tags, search_params)
 
           MCP::Tool::Response.new([{

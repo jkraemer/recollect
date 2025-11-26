@@ -334,4 +334,70 @@ class DatabaseTest < Recollect::TestCase
 
     assert_equal 2, results.length
   end
+
+  # Test search with created_after date filter
+  def test_search_with_created_after
+    id1 = @db.store(content: "Old memory about Ruby")
+    id2 = @db.store(content: "New memory about Ruby")
+
+    # Backdate the first memory
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", id1]
+    )
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-20T00:00:00Z", id2]
+    )
+
+    results = @db.search("Ruby", created_after: "2025-01-15")
+
+    assert_equal 1, results.length
+    assert_equal id2, results.first["id"]
+  end
+
+  # Test search with created_before date filter
+  def test_search_with_created_before
+    id1 = @db.store(content: "Old memory about Ruby")
+    id2 = @db.store(content: "New memory about Ruby")
+
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", id1]
+    )
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-20T00:00:00Z", id2]
+    )
+
+    results = @db.search("Ruby", created_before: "2025-01-15")
+
+    assert_equal 1, results.length
+    assert_equal id1, results.first["id"]
+  end
+
+  # Test search with both date filters (date range)
+  def test_search_with_date_range
+    id1 = @db.store(content: "January memory about Ruby")
+    id2 = @db.store(content: "February memory about Ruby")
+    id3 = @db.store(content: "March memory about Ruby")
+
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-15T00:00:00Z", id1]
+    )
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-02-15T00:00:00Z", id2]
+    )
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-03-15T00:00:00Z", id3]
+    )
+
+    results = @db.search("Ruby", created_after: "2025-02-01", created_before: "2025-02-28")
+
+    assert_equal 1, results.length
+    assert_equal id2, results.first["id"]
+  end
 end

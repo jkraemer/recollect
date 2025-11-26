@@ -170,4 +170,31 @@ class SearchMemoryTest < Recollect::TestCase
       )
     end
   end
+
+  def test_filters_by_date_range
+    db = @db_manager.get_database(nil)
+    id1 = db.store(content: "Old memory about testing")
+    id2 = db.store(content: "New memory about testing")
+
+    # Backdate the memories
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", id1]
+    )
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-20T00:00:00Z", id2]
+    )
+
+    result = Recollect::Tools::SearchMemory.call(
+      query: "testing",
+      created_after: "2025-01-15",
+      server_context: { db_manager: @db_manager }
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert_equal 1, response_data["count"]
+    assert_equal id2, response_data["results"].first["id"]
+  end
 end

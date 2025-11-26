@@ -44,32 +44,36 @@ module Recollect
       id
     end
 
-    def search_all(query, project: nil, memory_type: nil, limit: 10)
+    def search_all(query, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
+      date_opts = { created_after:, created_before: }
       results = if project
-                  search_project(query, project, memory_type: memory_type, limit: limit)
+                  search_project(query, project, memory_type: memory_type, limit: limit, **date_opts)
                 else
-                  search_all_projects(query, memory_type: memory_type, limit: limit)
+                  search_all_projects(query, memory_type: memory_type, limit: limit, **date_opts)
                 end
 
       # Sort by relevance (rank) and limit
       results.sort_by { |m| m["rank"] || 0 }.take(limit)
     end
 
-    def search_by_tags(tags, project: nil, memory_type: nil, limit: 10)
+    def search_by_tags(tags, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
+      date_opts = { created_after:, created_before: }
       results = if project
-                  search_project_by_tags(tags, project, memory_type: memory_type, limit: limit)
+                  search_project_by_tags(tags, project, memory_type: memory_type, limit: limit, **date_opts)
                 else
-                  search_all_projects_by_tags(tags, memory_type: memory_type, limit: limit)
+                  search_all_projects_by_tags(tags, memory_type: memory_type, limit: limit, **date_opts)
                 end
 
       # Sort by created_at DESC and limit
       results.sort_by { |m| m["created_at"] || "" }.reverse.take(limit)
     end
 
-    def hybrid_search(query, project: nil, memory_type: nil, limit: 10)
+    def hybrid_search(query, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
+      date_opts = { created_after:, created_before: }
+
       # If vectors not available, fall back to FTS5 only
       unless @config.vectors_available? && vectors_ready?
-        return search_all(query, project: project, memory_type: memory_type, limit: limit)
+        return search_all(query, project: project, memory_type: memory_type, limit: limit, **date_opts)
       end
 
       # Get query embedding (convert array to space-joined string for embedding)
@@ -77,8 +81,8 @@ module Recollect
       embedding = embedding_client.embed(embed_text)
 
       # Collect results from both methods
-      fts_results = search_all(query, project: project, memory_type: memory_type, limit: limit * 2)
-      vec_results = vector_search_all(embedding, project: project, limit: limit * 2)
+      fts_results = search_all(query, project: project, memory_type: memory_type, limit: limit * 2, **date_opts)
+      vec_results = vector_search_all(embedding, project: project, limit: limit * 2, **date_opts)
 
       # Merge and rank
       merge_hybrid_results(fts_results, vec_results, limit)
@@ -115,43 +119,47 @@ module Recollect
 
     private
 
-    def search_project(query, project, memory_type: nil, limit: 10)
+    def search_project(query, project, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
       db = get_database(project)
-      memories = db.search(query, memory_type: memory_type, limit: limit)
+      memories = db.search(query, memory_type: memory_type, limit: limit,
+                                  created_after:, created_before:)
       memories.each { |m| m["project"] = project }
       memories
     end
 
-    def search_all_projects(query, memory_type: nil, limit: 10)
+    def search_all_projects(query, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
       results = []
+      date_opts = { created_after:, created_before: }
 
       # Search global
-      results.concat(search_project(query, nil, memory_type: memory_type, limit: limit))
+      results.concat(search_project(query, nil, memory_type: memory_type, limit: limit, **date_opts))
 
       # Search all projects
       list_projects.each do |proj|
-        results.concat(search_project(query, proj, memory_type: memory_type, limit: limit))
+        results.concat(search_project(query, proj, memory_type: memory_type, limit: limit, **date_opts))
       end
 
       results
     end
 
-    def search_project_by_tags(tags, project, memory_type: nil, limit: 10)
+    def search_project_by_tags(tags, project, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
       db = get_database(project)
-      memories = db.search_by_tags(tags, memory_type: memory_type, limit: limit)
+      memories = db.search_by_tags(tags, memory_type: memory_type, limit: limit,
+                                         created_after:, created_before:)
       memories.each { |m| m["project"] = project }
       memories
     end
 
-    def search_all_projects_by_tags(tags, memory_type: nil, limit: 10)
+    def search_all_projects_by_tags(tags, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
       results = []
+      date_opts = { created_after:, created_before: }
 
       # Search global
-      results.concat(search_project_by_tags(tags, nil, memory_type: memory_type, limit: limit))
+      results.concat(search_project_by_tags(tags, nil, memory_type: memory_type, limit: limit, **date_opts))
 
       # Search all projects
       list_projects.each do |proj|
-        results.concat(search_project_by_tags(tags, proj, memory_type: memory_type, limit: limit))
+        results.concat(search_project_by_tags(tags, proj, memory_type: memory_type, limit: limit, **date_opts))
       end
 
       results
@@ -220,22 +228,24 @@ module Recollect
       @databases.values.any?(&:vectors_enabled?)
     end
 
-    def vector_search_all(embedding, project: nil, limit: 10)
+    def vector_search_all(embedding, project: nil, limit: 10, created_after: nil, created_before: nil)
+      date_opts = { created_after:, created_before: }
+
       if project
         db = get_database(project)
-        results = db.vector_search(embedding, limit: limit)
+        results = db.vector_search(embedding, limit: limit, **date_opts)
         results.each { |m| m["project"] = project }
       else
         results = []
 
         # Search global
-        global_results = get_database(nil).vector_search(embedding, limit: limit)
+        global_results = get_database(nil).vector_search(embedding, limit: limit, **date_opts)
         global_results.each { |m| m["project"] = nil }
         results.concat(global_results)
 
         # Search all projects
         list_projects.each do |proj|
-          proj_results = get_database(proj).vector_search(embedding, limit: limit)
+          proj_results = get_database(proj).vector_search(embedding, limit: limit, **date_opts)
           proj_results.each { |m| m["project"] = proj }
           results.concat(proj_results)
         end

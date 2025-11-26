@@ -2,6 +2,7 @@
 
 require "sqlite3"
 require "json"
+require "date"
 
 module Recollect
   class Database
@@ -105,7 +106,7 @@ module Recollect
       deserialize(row)
     end
 
-    def search(query, memory_type: nil, limit: 10, offset: 0)
+    def search(query, memory_type: nil, limit: 10, offset: 0, created_after: nil, created_before: nil)
       # Build FTS5 query based on input type
       safe_query = if query.is_a?(Array)
                      # Array: AND semantics - each term quoted and joined (implicit AND)
@@ -115,7 +116,7 @@ module Recollect
                      "\"#{query.gsub('"', '""')}\""
                    end
 
-      sql = <<~SQL
+      sql = +<<~SQL
         SELECT memories.*, bm25(memories_fts) as rank
         FROM memories_fts
         JOIN memories ON memories.id = memories_fts.rowid
@@ -127,6 +128,8 @@ module Recollect
         sql += " AND memories.memory_type = ?"
         params << memory_type
       end
+
+      append_date_filters(sql, params, created_after, created_before, column: "memories.created_at")
 
       sql += " ORDER BY rank LIMIT ? OFFSET ?"
       params.push(limit, offset)
@@ -162,13 +165,13 @@ module Recollect
       end
     end
 
-    def search_by_tags(tag_filters, memory_type: nil, limit: 10)
+    def search_by_tags(tag_filters, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
       return [] if tag_filters.nil? || tag_filters.empty?
 
       # Normalize tag_filters to lowercase
       normalized_tags = tag_filters.map(&:downcase)
 
-      sql = "SELECT * FROM memories WHERE 1=1"
+      sql = +"SELECT * FROM memories WHERE 1=1"
       params = []
 
       # Build WHERE clause to match all tags (AND logic)
@@ -181,6 +184,8 @@ module Recollect
         sql += " AND memory_type = ?"
         params << memory_type
       end
+
+      append_date_filters(sql, params, created_after, created_before)
 
       sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
       params << limit
@@ -231,12 +236,12 @@ module Recollect
       SQL
     end
 
-    def vector_search(query_embedding, limit: 10)
+    def vector_search(query_embedding, limit: 10, created_after: nil, created_before: nil)
       return [] unless @vectors_enabled
 
       query_blob = query_embedding.pack("e*")
 
-      sql = <<~SQL
+      sql = +<<~SQL
         SELECT
           m.*,
           v.distance
@@ -244,10 +249,14 @@ module Recollect
         JOIN memories m ON m.id = v.rowid
         WHERE v.embedding MATCH ?
           AND k = ?
-        ORDER BY v.distance
       SQL
+      params = [query_blob, limit]
 
-      @db.execute(sql, [query_blob, limit]).map { |row| deserialize_with_distance(row) }
+      append_date_filters(sql, params, created_after, created_before, column: "m.created_at")
+
+      sql += " ORDER BY v.distance"
+
+      @db.execute(sql, params).map { |row| deserialize_with_distance(row) }
     end
 
     def embedding_count
@@ -287,6 +296,18 @@ module Recollect
 
     def json_encode(value)
       value ? JSON.generate(value) : nil
+    end
+
+    def next_day(date_string)
+      date = Date.parse(date_string)
+      (date + 1).to_s
+    end
+
+    def append_date_filters(sql, params, created_after, created_before, column: "created_at")
+      return if created_after.nil? && created_before.nil?
+
+      (sql << " AND #{column} >= ?" and params << created_after) if created_after
+      (sql << " AND #{column} < ?" and params << next_day(created_before)) if created_before
     end
 
     def deserialize(row)
