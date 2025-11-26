@@ -11,6 +11,10 @@ module Recollect
       set :show_exceptions, :after_handler
     end
 
+    configure :development, :production do
+      use Rack::CommonLogger, $stdout
+    end
+
     helpers do
       def db_manager
         @db_manager ||= DatabaseManager.new(Recollect.config)
