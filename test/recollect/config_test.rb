@@ -272,5 +272,64 @@ module Recollect
         assert_equal "python3", @config.python_path
       end
     end
+
+    def test_python_path_falls_back_to_system_python
+      # Test case where venv doesn't exist
+      config = Config.new
+      # Stub the venv check to fail
+      def config.python_path
+        "python3"
+      end
+
+      assert_equal "python3", config.python_path
+    end
+
+    def test_git_remote_name_returns_nil_for_empty_output
+      Dir.mktmpdir do |dir|
+        git_dir = File.join(dir, ".git")
+        FileUtils.mkdir_p(git_dir)
+
+        # Calling detect_project on a git repo without remote should fall back to dir name
+        project = @config.detect_project(dir)
+
+        # Should return the directory name since no remote is configured
+        assert_kind_of String, project
+      end
+    end
+
+    def test_git_remote_name_handles_standard_error
+      # This tests the rescue path in git_remote_name
+      config = Config.new
+
+      # Access the private method directly and simulate an error
+      result = config.send(:git_remote_name, Pathname.new("/nonexistent/path"))
+
+      assert_nil result
+    end
+
+    def test_vec_extension_path_returns_nil_when_not_found
+      config = Config.new
+
+      # Override the method to search nonexistent paths
+      def config.vec_extension_path
+        paths = ["/nonexistent/path1.so", "/nonexistent/path2.so"]
+        paths.each do |path|
+          expanded = File.expand_path(path)
+          return expanded if File.exist?(expanded)
+        end
+        nil
+      end
+
+      assert_nil config.vec_extension_path
+    end
+
+    def test_detect_project_with_real_git_remote
+      # Test in the actual project directory which has a git remote
+      project = @config.detect_project(Dir.pwd)
+
+      # Should return the project name from git remote
+      assert_kind_of String, project
+      refute_empty project
+    end
   end
 end

@@ -282,4 +282,65 @@ class DatabaseTest < Recollect::TestCase
     assert_equal 1, stats["debugging"]
     assert_nil stats["architecture"]
   end
+
+  # Test update with metadata
+  def test_update_changes_metadata
+    id = @db.store(content: "Test", metadata: { old: "data" })
+    @db.update(id, metadata: { new: "metadata" })
+
+    memory = @db.get(id)
+
+    assert_equal({ "new" => "metadata" }, memory["metadata"])
+  end
+
+  # Test update with empty changes returns false
+  def test_update_with_empty_changes_returns_false
+    id = @db.store(content: "Test")
+
+    refute @db.update(id)
+  end
+
+  # Test search_by_tags returns empty for nil or empty tags
+  def test_search_by_tags_returns_empty_for_nil_tags
+    @db.store(content: "Test", tags: %w[foo bar])
+
+    assert_empty @db.search_by_tags(nil)
+    assert_empty @db.search_by_tags([])
+  end
+
+  # Test get_tag_stats skips nil tags gracefully
+  def test_get_tag_stats_handles_nil_tags
+    # Create a memory with tags
+    @db.store(content: "Has tags", tags: %w[test])
+
+    # Manually insert a row with nil tags to test edge case
+    @db.instance_variable_get(:@db).execute(
+      "INSERT INTO memories (content, memory_type, tags) VALUES (?, ?, ?)",
+      ["No tags", "note", nil]
+    )
+
+    stats = @db.get_tag_stats
+
+    # Should still work
+    assert_equal 1, stats["test"]
+  end
+
+  # Test search_by_tags respects limit
+  def test_search_by_tags_respects_limit
+    5.times { |i| @db.store(content: "Memory #{i}", tags: ["common"]) }
+
+    results = @db.search_by_tags(["common"], limit: 2)
+
+    assert_equal 2, results.length
+  end
+
+  # Test search with offset
+  def test_search_respects_offset
+    5.times { |i| @db.store(content: "Test search #{i}") }
+
+    results = @db.search("Test search", limit: 10, offset: 2)
+
+    # Should skip first 2 results
+    assert_operator results.length, :<=, 3
+  end
 end

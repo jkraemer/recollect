@@ -387,4 +387,233 @@ class DatabaseManagerTest < Recollect::TestCase
     assert_equal 1, results.length
     assert_in_delta 1.0, results.first["combined_score"], 0.01
   end
+
+  # ========== Search By Tags Tests ==========
+
+  # Test search_by_tags for specific project
+  def test_search_by_tags_for_project
+    db = @manager.get_database("tags-project")
+    db.store(content: "Memory with ruby tag", tags: ["ruby"])
+    db.store(content: "Memory with python tag", tags: ["python"])
+    db.store(content: "Memory with both", tags: %w[ruby python])
+
+    results = @manager.search_by_tags(["ruby"], project: "tags-project")
+
+    assert_equal 2, results.length
+    results.each do |result|
+      assert_includes result["tags"], "ruby"
+      assert_equal "tags-project", result["project"]
+    end
+  end
+
+  # Test search_by_tags across all projects
+  def test_search_by_tags_across_all_projects
+    # Store in global
+    global = @manager.get_database(nil)
+    global.store(content: "Global with shared tag", tags: ["shared"])
+
+    # Store in project
+    db = @manager.get_database("tags-all-projects")
+    db.store(content: "Project with shared tag", tags: ["shared"])
+
+    results = @manager.search_by_tags(["shared"])
+
+    assert_equal 2, results.length
+
+    projects = results.map { |r| r["project"] }
+
+    assert_includes projects, nil # global
+    assert_includes projects, "tags-all-projects"
+  end
+
+  # Test search_by_tags with memory_type filter
+  def test_search_by_tags_with_memory_type
+    db = @manager.get_database("tags-type")
+    db.store(content: "A note with tag", memory_type: "note", tags: ["important"])
+    db.store(content: "A decision with tag", memory_type: "decision", tags: ["important"])
+
+    results = @manager.search_by_tags(["important"], project: "tags-type", memory_type: "note")
+
+    assert_equal 1, results.length
+    assert_equal "note", results.first["memory_type"]
+  end
+
+  # Test search_by_tags respects limit
+  def test_search_by_tags_respects_limit
+    db = @manager.get_database("tags-limit")
+    5.times { |i| db.store(content: "Memory #{i}", tags: ["common"]) }
+
+    results = @manager.search_by_tags(["common"], project: "tags-limit", limit: 2)
+
+    assert_equal 2, results.length
+  end
+
+  # ========== Project Metadata Tests ==========
+
+  # Test project names with special characters are preserved
+  def test_project_name_with_special_chars_preserved
+    # Store a memory in a project with special characters
+    @manager.store_with_embedding(
+      project: "my-project/sub",
+      content: "Test content",
+      memory_type: "note",
+      tags: [],
+      metadata: nil,
+      source: "test"
+    )
+
+    # List projects should return the original name
+    projects = @manager.list_projects
+
+    assert_includes projects, "my-project/sub"
+  end
+
+  # Test corrupted project metadata file is handled gracefully
+  def test_corrupted_metadata_file_handled_gracefully
+    # First create a project (sanitized name will be normalproject)
+    db = @manager.get_database("normalproject")
+    db.store(content: "Test")
+
+    # Now corrupt the metadata file
+    metadata_file = @config.projects_dir.join(".project_names.json")
+    File.write(metadata_file, "not valid json")
+
+    # Create a new manager to reload from corrupted file
+    @manager.close_all
+    manager2 = Recollect::DatabaseManager.new(@config)
+
+    begin
+      # list_projects should still work, returning the sanitized name
+      # since metadata is corrupted and can't be parsed
+      projects = manager2.list_projects
+      # Should have the project (uses sanitized name as fallback)
+      assert_includes projects, "normalproject"
+    ensure
+      manager2.close_all
+    end
+  end
+
+  # ========== Store With Embedding Tests ==========
+
+  # Test store_with_embedding returns id
+  def test_store_with_embedding_returns_id
+    id = @manager.store_with_embedding(
+      project: "store-test",
+      content: "Test content",
+      memory_type: "note",
+      tags: %w[test],
+      metadata: { key: "value" },
+      source: "test"
+    )
+
+    assert_kind_of Integer, id
+    assert_operator id, :>, 0
+  end
+
+  # Test store_with_embedding stores content correctly
+  def test_store_with_embedding_stores_content
+    id = @manager.store_with_embedding(
+      project: "store-verify",
+      content: "Verify this content",
+      memory_type: "decision",
+      tags: %w[verify test],
+      metadata: { reason: "testing" },
+      source: "api"
+    )
+
+    db = @manager.get_database("store-verify")
+    memory = db.get(id)
+
+    assert_equal "Verify this content", memory["content"]
+    assert_equal "decision", memory["memory_type"]
+    assert_equal %w[verify test], memory["tags"]
+    assert_equal "api", memory["source"]
+  end
+
+  # ========== Enqueue Embedding Tests ==========
+
+  # Test enqueue_embedding does not raise when worker is nil
+  def test_enqueue_embedding_noop_when_vectors_disabled
+    # Default config has vectors disabled, so @embedding_worker is nil
+    # This should not raise
+    @manager.enqueue_embedding(memory_id: 1, content: "test", project: "test")
+    # If we got here without error, the safe navigation worked
+  end
+
+  # ========== Vectors Ready Tests ==========
+
+  # Test vectors_ready? returns false when no databases have vectors
+  def test_vectors_ready_false_when_no_vectors
+    # Access a database to populate @databases
+    @manager.get_database("vectors-ready-test")
+
+    # vectors_ready? should return false since vectors are disabled
+    refute @manager.send(:vectors_ready?)
+  end
+
+  # ========== Internal Method Tests ==========
+
+  # Test score_fts_results handles empty array
+  def test_score_fts_results_empty_array
+    scores = {}
+    @manager.send(:score_fts_results, [], scores)
+
+    assert_empty scores
+  end
+
+  # Test score_vector_results handles empty array
+  def test_score_vector_results_empty_array
+    scores = {}
+    @manager.send(:score_vector_results, [], scores)
+
+    assert_empty scores
+  end
+
+  # Test score_fts_results normalizes correctly
+  def test_score_fts_results_normalization
+    scores = {}
+    fts_results = [
+      { "id" => 1, "content" => "best", "rank" => -10.0 },
+      { "id" => 2, "content" => "worst", "rank" => -1.0 }
+    ]
+
+    @manager.send(:score_fts_results, fts_results, scores)
+
+    # Best match (rank -10) should have fts_score = 1.0 (normalized)
+    assert_in_delta 1.0, scores[1][:fts_score], 0.01
+    # Worst match (rank -1) should have fts_score = 0.1
+    assert_in_delta 0.1, scores[2][:fts_score], 0.01
+  end
+
+  # Test score_vector_results adds to existing scores
+  def test_score_vector_results_adds_to_existing
+    scores = {
+      1 => { memory: { "id" => 1 }, fts_score: 0.5, vec_score: 0.0 }
+    }
+    vec_results = [
+      { "id" => 1, "distance" => 0.0 }
+    ]
+
+    @manager.send(:score_vector_results, vec_results, scores)
+
+    # Should update vec_score for existing entry
+    assert_in_delta 1.0, scores[1][:vec_score], 0.01
+  end
+
+  # Test combine_and_sort_scores
+  def test_combine_and_sort_scores
+    scores = {
+      1 => { memory: { "id" => 1, "content" => "first" }, fts_score: 1.0, vec_score: 1.0 },
+      2 => { memory: { "id" => 2, "content" => "second" }, fts_score: 0.5, vec_score: 0.0 }
+    }
+
+    results = @manager.send(:combine_and_sort_scores, scores, 10)
+
+    assert_equal 2, results.length
+    assert_equal 1, results.first["id"]
+    # 1.0 * 0.6 + 1.0 * 0.4 = 1.0
+    assert_in_delta 1.0, results.first["combined_score"], 0.01
+    # 0.5 * 0.6 + 0.0 * 0.4 = 0.3
+    assert_in_delta 0.3, results.last["combined_score"], 0.01
+  end
 end

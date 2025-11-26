@@ -28,10 +28,10 @@ end
 desc "Run all tests including slow embedding tests"
 task "test:all" => [:test, "test:slow"]
 
-desc "Run all tests with coverage report"
+desc "Run all tests with coverage report (in single process for accurate coverage)"
 task :coverage do
   ENV["COVERAGE"] = "true"
-  Rake::Task["test:all"].invoke
+  sh 'bundle exec ruby -Ilib -Itest -e "Dir[\'test/**/*_test.rb\'].each { |f| require File.expand_path(f) }"'
 end
 
 RuboCop::RakeTask.new
