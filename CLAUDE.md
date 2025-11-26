@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+When storing or recalling memories, refer to this project as "recollect".
+
 ## Project Overview
 
 **Recollect** is a Ruby-based HTTP MCP (Model Context Protocol) server for persistent memory management. It stores memories in SQLite databases with FTS5 full-text search, accessible via MCP protocol over HTTP.

@@ -78,6 +78,16 @@ Add to your Claude Code MCP configuration:
 }
 ```
 
+### Project Naming
+
+Recollect stores memories per-project. To ensure consistent naming across sessions,
+add an instruction to your project's CLAUDE.md:
+
+> When storing or recalling memories, refer to this project as "myproject"
+
+Without this, different sessions might use inconsistent names (directory basename,
+repo name, etc.) which fragments memories across separate databases.
+
 ### CLI Commands
 
 ```bash
