@@ -103,6 +103,7 @@ module Recollect
       skip_unless_vectors_available
 
       @client.embed("warmup")
+
       assert_predicate @client, :healthy?
 
       @client.shutdown
@@ -115,6 +116,7 @@ module Recollect
 
       # Start the process
       embedding1 = @client.embed("before crash")
+
       assert_equal 384, embedding1.length
 
       # Simulate crash by killing the process
@@ -122,6 +124,7 @@ module Recollect
 
       # Next request should respawn the process
       embedding2 = @client.embed("after crash")
+
       assert_equal 384, embedding2.length
     end
 

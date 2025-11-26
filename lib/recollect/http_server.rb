@@ -15,7 +15,33 @@ module Recollect
       use Rack::CommonLogger, $stdout
     end
 
+    # Wire dump logging for debugging
+    before do
+      if Recollect.config.log_wiredumps?
+        request.body.rewind
+        @request_body = request.body.read
+        request.body.rewind
+
+        $stdout.puts "[WIREDUMP] #{request.request_method} #{request.path_info}"
+        $stdout.puts "[WIREDUMP] Headers: #{filtered_headers}"
+        $stdout.puts "[WIREDUMP] Body: #{@request_body}" unless @request_body.empty?
+      end
+    end
+
+    after do
+      if Recollect.config.log_wiredumps?
+        $stdout.puts "[WIREDUMP] Response status: #{response.status}"
+        body_content = response.body.respond_to?(:join) ? response.body.join : response.body.to_s
+        $stdout.puts "[WIREDUMP] Response: #{body_content}"
+        $stdout.puts "[WIREDUMP] ---"
+      end
+    end
+
     helpers do
+      def filtered_headers
+        request.env.select { |k, _| k.start_with?("HTTP_") || k == "CONTENT_TYPE" }
+      end
+
       def db_manager
         @db_manager ||= DatabaseManager.new(Recollect.config)
       end
@@ -69,8 +95,8 @@ module Recollect
       json_response({ status: "healthy", version: Recollect::VERSION })
     end
 
-    # MCP endpoint
-    post "/mcp" do
+    # MCP endpoint (with and without trailing slash)
+    post %r{/mcp/?} do
       request.body.rewind
       body = request.body.read
       content_type :json

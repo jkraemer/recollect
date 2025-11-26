@@ -6,9 +6,11 @@ require "json"
 module Recollect
   class Config
     attr_accessor :data_dir, :host, :port, :max_results,
-                  :enable_vectors, :vector_dimensions, :embed_server_script_path
+                  :enable_vectors, :vector_dimensions, :embed_server_script_path,
+                  :log_wiredumps
 
     VECTOR_DIMENSIONS = 384 # all-MiniLM-L6-v2
+    TRUTHY_VALUES = %w[true 1 yes on].freeze
 
     def initialize
       @data_dir = Pathname.new(ENV.fetch("RECOLLECT_DATA_DIR",
@@ -18,12 +20,18 @@ module Recollect
       @max_results = 100
 
       # Vector search configuration
-      @enable_vectors = ENV.fetch("ENABLE_VECTORS", "false") == "true"
+      @enable_vectors = env_truthy?("ENABLE_VECTORS")
       @vector_dimensions = VECTOR_DIMENSIONS
       @embed_server_script_path = Recollect.root.join("bin", "embed-server")
 
+      # Debug logging
+      @log_wiredumps = env_truthy?("LOG_WIREDUMPS")
+
       ensure_directories!
     end
+
+    alias log_wiredumps? log_wiredumps
+    alias enable_vectors? enable_vectors
 
     def global_db_path
       data_dir.join("global.db")
@@ -78,7 +86,7 @@ module Recollect
     end
 
     def vectors_available?
-      enable_vectors && vec_extension_path && File.executable?(embed_server_script_path)
+      enable_vectors? && vec_extension_path && File.executable?(embed_server_script_path)
     end
 
     def python_path
@@ -95,6 +103,10 @@ module Recollect
     end
 
     private
+
+    def env_truthy?(name)
+      TRUTHY_VALUES.include?(ENV.fetch(name, "").downcase)
+    end
 
     def ensure_directories!
       data_dir.mkpath
