@@ -40,8 +40,6 @@ GEM
       nio4r (~> 2.0)
     racc (1.8.1)
     rack (3.2.4)
-    rack-cors (2.0.2)
-      rack (>= 2.0.0)
     rack-protection (4.2.1)
       base64 (>= 0.1.0)
       logger (>= 1.6.0)
@@ -141,7 +139,6 @@ DEPENDENCIES
   pastel (~> 0.8)
   pry
   puma (~> 7.0)
-  rack-cors (~> 2.0)
   rack-test (~> 2.1)
   rake
   rubocop (~> 1.69)

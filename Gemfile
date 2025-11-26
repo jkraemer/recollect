@@ -7,7 +7,6 @@ ruby ">= 3.4.0"
 # Core
 gem "mcp"
 gem "puma", "~> 7.0"
-gem "rack-cors", "~> 2.0"
 gem "sinatra", "~> 4.0"
 gem "sqlite3", "~> 2.0"
 
