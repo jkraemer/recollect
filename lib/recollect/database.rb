@@ -106,8 +106,14 @@ module Recollect
     end
 
     def search(query, memory_type: nil, limit: 10, offset: 0)
-      # Escape query for FTS5 (treat as literal phrase)
-      safe_query = "\"#{query.gsub('"', '""')}\""
+      # Build FTS5 query based on input type
+      safe_query = if query.is_a?(Array)
+                     # Array: AND semantics - each term quoted and joined (implicit AND)
+                     query.map { |term| "\"#{term.gsub('"', '""')}\"" }.join(" ")
+                   else
+                     # String: phrase search (existing behavior)
+                     "\"#{query.gsub('"', '""')}\""
+                   end
 
       sql = <<~SQL
         SELECT memories.*, bm25(memories_fts) as rank

@@ -221,6 +221,19 @@ class DatabaseManagerTest < Recollect::TestCase
     refute results.first.key?("combined_score")
   end
 
+  # Test hybrid_search works with array query (AND semantics)
+  def test_hybrid_search_with_array_query
+    db = @manager.get_database("hybrid-array")
+    db.store(content: "Ruby programming patterns for web apps")
+    db.store(content: "Python programming patterns")
+    db.store(content: "Ruby web framework comparison")
+
+    results = @manager.hybrid_search(%w[Ruby programming], project: "hybrid-array")
+
+    assert_equal 1, results.length
+    assert_match(/Ruby programming/, results.first["content"])
+  end
+
   # Test merge_hybrid_results scores FTS-only results correctly
   def test_merge_hybrid_results_fts_only
     fts_results = [

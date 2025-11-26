@@ -52,8 +52,11 @@ module Recollect
       input_schema(
         properties: {
           query: {
-            type: "string",
-            description: "Search query for full-text search"
+            oneOf: [
+              { type: "string" },
+              { type: "array", items: { type: "string" } }
+            ],
+            description: "Search query: string for phrase search, or array of terms for AND search"
           },
           project: {
             type: "string",

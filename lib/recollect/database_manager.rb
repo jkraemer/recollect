@@ -72,8 +72,9 @@ module Recollect
         return search_all(query, project: project, memory_type: memory_type, limit: limit)
       end
 
-      # Get query embedding
-      embedding = embedding_client.embed(query)
+      # Get query embedding (convert array to space-joined string for embedding)
+      embed_text = query.is_a?(Array) ? query.join(" ") : query
+      embedding = embedding_client.embed(embed_text)
 
       # Collect results from both methods
       fts_results = search_all(query, project: project, memory_type: memory_type, limit: limit * 2)

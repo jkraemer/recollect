@@ -301,4 +301,37 @@ class DatabaseTest < Recollect::TestCase
     # Should skip first 2 results
     assert_operator results.length, :<=, 3
   end
+
+  # Test search with array of terms matches ALL terms (AND semantics)
+  def test_search_with_array_matches_all_terms
+    @db.store(content: "Ruby async patterns for web apps")
+    @db.store(content: "Python async/await syntax")
+    @db.store(content: "Ruby web framework comparison")
+    @db.store(content: "JavaScript async promises")
+
+    results = @db.search(%w[Ruby async])
+
+    assert_equal 1, results.length
+    assert_includes results.first["content"], "Ruby async"
+  end
+
+  # Test search with array terms can appear in any order
+  def test_search_with_array_terms_any_order
+    @db.store(content: "Web development with Ruby on Rails")
+    @db.store(content: "Ruby gems for web scraping")
+
+    results = @db.search(%w[web Ruby])
+
+    assert_equal 2, results.length
+  end
+
+  # Test search with single-element array works like phrase
+  def test_search_with_single_element_array
+    @db.store(content: "Ruby async patterns")
+    @db.store(content: "Python async")
+
+    results = @db.search(["async"])
+
+    assert_equal 2, results.length
+  end
 end
