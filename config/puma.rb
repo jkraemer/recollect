@@ -18,6 +18,9 @@ bind "tcp://#{Recollect.config.host}:#{Recollect.config.port}"
 # Preload app for copy-on-write memory savings
 preload_app!
 
+# Log startup configuration
+puts "[Recollect] #{Recollect.config.vector_status_message}"
+
 # Lifecycle hooks
 before_worker_boot do
   # Each worker gets fresh DB connections via lazy initialization

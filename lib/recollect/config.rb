@@ -89,6 +89,23 @@ module Recollect
       enable_vectors? && vec_extension_path && File.executable?(embed_server_script_path)
     end
 
+    def vector_status_message
+      if vectors_available?
+        "Vector embeddings: enabled"
+      else
+        reason = if !enable_vectors?
+                   "ENABLE_VECTORS not set"
+                 elsif !vec_extension_path
+                   "sqlite-vec extension not found"
+                 elsif !File.executable?(embed_server_script_path)
+                   "embed script not executable"
+                 else
+                   "unknown reason"
+                 end
+        "Vector embeddings: disabled (#{reason})"
+      end
+    end
+
     def python_path
       # Use the venv Python if available
       venv_python = Recollect.root.join(".venv", "bin", "python3")

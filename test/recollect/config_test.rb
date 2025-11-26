@@ -331,5 +331,59 @@ module Recollect
       assert_kind_of String, project
       refute_empty project
     end
+
+    # vector_status_message tests
+
+    def test_vector_status_message_when_disabled_by_env
+      refute @config.enable_vectors
+      assert_equal "Vector embeddings: disabled (ENABLE_VECTORS not set)", @config.vector_status_message
+    end
+
+    def test_vector_status_message_when_extension_missing
+      ENV["ENABLE_VECTORS"] = "true"
+      config = Config.new
+
+      def config.vec_extension_path
+        nil
+      end
+
+      assert_equal "Vector embeddings: disabled (sqlite-vec extension not found)", config.vector_status_message
+    ensure
+      ENV.delete("ENABLE_VECTORS")
+    end
+
+    def test_vector_status_message_when_embed_script_not_executable
+      ENV["ENABLE_VECTORS"] = "true"
+      config = Config.new
+      config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
+
+      # Need to also stub vec_extension_path to return a valid path
+      def config.vec_extension_path
+        "/some/path.so"
+      end
+
+      assert_equal "Vector embeddings: disabled (embed script not executable)", config.vector_status_message
+    ensure
+      ENV.delete("ENABLE_VECTORS")
+    end
+
+    def test_vector_status_message_when_enabled
+      ENV["ENABLE_VECTORS"] = "true"
+      config = Config.new
+
+      # Stub all conditions to be true
+      def config.vec_extension_path
+        "/some/path.so"
+      end
+
+      def config.embed_server_script_path
+        # Return a path to an executable file
+        Pathname.new("/bin/true")
+      end
+
+      assert_equal "Vector embeddings: enabled", config.vector_status_message
+    ensure
+      ENV.delete("ENABLE_VECTORS")
+    end
   end
 end
