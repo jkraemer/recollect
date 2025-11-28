@@ -6,6 +6,7 @@ class SearchMemoryTest < Recollect::TestCase
   def setup
     super
     @db_manager = Recollect::DatabaseManager.new
+    @memories_service = Recollect::MemoriesService.new(@db_manager)
 
     # Seed some data
     db = @db_manager.get_database(nil)
@@ -21,7 +22,7 @@ class SearchMemoryTest < Recollect::TestCase
   def test_searches_memories
     result = Recollect::Tools::SearchMemory.call(
       query: "patterns",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     assert_kind_of MCP::Tool::Response, result
@@ -36,7 +37,7 @@ class SearchMemoryTest < Recollect::TestCase
     result = Recollect::Tools::SearchMemory.call(
       query: "patterns",
       memory_type: "pattern",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -52,7 +53,7 @@ class SearchMemoryTest < Recollect::TestCase
     result = Recollect::Tools::SearchMemory.call(
       query: "testing",
       limit: 2,
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -67,7 +68,7 @@ class SearchMemoryTest < Recollect::TestCase
     result = Recollect::Tools::SearchMemory.call(
       query: "patterns",
       project: "search-project",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -85,7 +86,7 @@ class SearchMemoryTest < Recollect::TestCase
     result = Recollect::Tools::SearchMemory.call(
       query: "",
       tags: ["architecture"],
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -105,7 +106,7 @@ class SearchMemoryTest < Recollect::TestCase
     result = Recollect::Tools::SearchMemory.call(
       query: "",
       tags: %w[architecture decision],
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -126,7 +127,7 @@ class SearchMemoryTest < Recollect::TestCase
       query: "",
       tags: ["important"],
       project: "tag-project",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -189,7 +190,7 @@ class SearchMemoryTest < Recollect::TestCase
     result = Recollect::Tools::SearchMemory.call(
       query: "testing",
       created_after: "2025-01-15",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])

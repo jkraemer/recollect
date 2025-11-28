@@ -73,24 +73,23 @@ module Recollect
 
       class << self
         def call(content:, server_context:, memory_type: "note", tags: nil, project: nil)
-          db_manager = server_context[:db_manager]
+          service = server_context[:memories_service]
 
-          id = db_manager.store_with_embedding(
-            project: project,
+          memory = service.create(
             content: content,
+            project: project,
             memory_type: memory_type,
-            tags: tags,
-            metadata: nil,
+            tags: tags || [],
             source: "mcp"
           )
 
-          location = project ? "project '#{project}'" : "global"
+          location = memory["project"] ? "project '#{memory["project"]}'" : "global"
 
           MCP::Tool::Response.new([{
                                     type: "text",
                                     text: JSON.generate({
                                                           success: true,
-                                                          id: id,
+                                                          id: memory["id"],
                                                           stored_in: location,
                                                           message: "Memory stored successfully in #{location}"
                                                         })

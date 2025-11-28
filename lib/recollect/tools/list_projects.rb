@@ -11,8 +11,8 @@ module Recollect
 
       class << self
         def call(server_context:)
-          db_manager = server_context[:db_manager]
-          projects = db_manager.list_projects
+          service = server_context[:memories_service]
+          projects = service.list_projects
 
           MCP::Tool::Response.new([{
                                     type: "text",

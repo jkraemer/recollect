@@ -6,6 +6,7 @@ class StoreMemoryTest < Recollect::TestCase
   def setup
     super
     @db_manager = Recollect::DatabaseManager.new
+    @memories_service = Recollect::MemoriesService.new(@db_manager)
   end
 
   def teardown
@@ -16,7 +17,7 @@ class StoreMemoryTest < Recollect::TestCase
   def test_stores_memory_in_global_database
     result = Recollect::Tools::StoreMemory.call(
       content: "Test memory",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     assert_kind_of MCP::Tool::Response, result
@@ -33,7 +34,7 @@ class StoreMemoryTest < Recollect::TestCase
     result = Recollect::Tools::StoreMemory.call(
       content: "Project memory",
       project: "test-project",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -46,7 +47,7 @@ class StoreMemoryTest < Recollect::TestCase
     result = Recollect::Tools::StoreMemory.call(
       content: "A decision",
       memory_type: "decision",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -64,7 +65,7 @@ class StoreMemoryTest < Recollect::TestCase
     result = Recollect::Tools::StoreMemory.call(
       content: "Tagged memory",
       tags: %w[ruby testing],
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -78,7 +79,7 @@ class StoreMemoryTest < Recollect::TestCase
   def test_sets_source_to_mcp
     result = Recollect::Tools::StoreMemory.call(
       content: "MCP memory",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -129,7 +130,7 @@ class StoreMemoryTest < Recollect::TestCase
     result = Recollect::Tools::StoreMemory.call(
       content: "A note",
       memory_type: "note",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -141,7 +142,7 @@ class StoreMemoryTest < Recollect::TestCase
     result = Recollect::Tools::StoreMemory.call(
       content: "A todo",
       memory_type: "todo",
-      server_context: { db_manager: @db_manager }
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
     )
 
     response_data = JSON.parse(result.content.first[:text])

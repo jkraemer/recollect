@@ -38,20 +38,22 @@ module Recollect
 
       class << self
         def call(project:, server_context:)
-          db_manager = server_context[:db_manager]
-          db = db_manager.get_database(project)
+          service = server_context[:memories_service]
 
-          memories = db.list(limit: 100)
+          memories = service.list(project: project, limit: 100)
           by_type = memories.group_by { |m| m["memory_type"] }
 
           # Get recent (last 7 days)
           cutoff = (Time.now - (7 * 24 * 60 * 60)).strftime("%Y-%m-%dT%H:%M:%SZ")
           recent = memories.select { |m| m["created_at"] > cutoff }
 
+          # Use normalized project name from service
+          normalized_project = memories.first&.dig("project") || project&.downcase
+
           MCP::Tool::Response.new([{
                                     type: "text",
                                     text: JSON.generate({
-                                                          project: project,
+                                                          project: normalized_project,
                                                           total_memories: memories.length,
                                                           recent_count: recent.length,
                                                           by_type: by_type.transform_values(&:length),

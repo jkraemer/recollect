@@ -23,10 +23,9 @@ module Recollect
 
       class << self
         def call(id:, server_context:, project: nil)
-          db_manager = server_context[:db_manager]
-          db = db_manager.get_database(project)
+          service = server_context[:memories_service]
 
-          success = db.delete(id)
+          success = service.delete(id, project: project)
 
           MCP::Tool::Response.new([{
                                     type: "text",

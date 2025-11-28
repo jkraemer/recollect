@@ -6,7 +6,7 @@ module Recollect
       @db_manager = db_manager
     end
 
-    def create(content:, project: nil, memory_type: nil, tags: [])
+    def create(content:, project: nil, memory_type: nil, tags: [], source: "api")
       project = project&.downcase
 
       id = @db_manager.store_with_embedding(
@@ -15,7 +15,7 @@ module Recollect
         memory_type: memory_type || "note",
         tags: tags || [],
         metadata: nil,
-        source: "api"
+        source: source
       )
 
       db = @db_manager.get_database(project)
@@ -50,23 +50,29 @@ module Recollect
       db.delete(id)
     end
 
-    def search(query, project: nil, memory_type: nil, limit: 10)
+    # rubocop:disable Metrics/ParameterLists
+    def search(query, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
       @db_manager.hybrid_search(
         query,
         project: project&.downcase,
         memory_type: memory_type,
-        limit: limit
+        limit: limit,
+        created_after: created_after,
+        created_before: created_before
       )
     end
 
-    def search_by_tags(tags, project: nil, memory_type: nil, limit: 10)
+    def search_by_tags(tags, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
       @db_manager.search_by_tags(
         tags,
         project: project&.downcase,
         memory_type: memory_type,
-        limit: limit
+        limit: limit,
+        created_after: created_after,
+        created_before: created_before
       )
     end
+    # rubocop:enable Metrics/ParameterLists
 
     def list_projects
       @db_manager.list_projects

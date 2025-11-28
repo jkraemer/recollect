@@ -93,10 +93,10 @@ module Recollect
         # rubocop:disable Metrics/ParameterLists
         def call(query:, server_context:, project: nil, memory_type: nil, tags: nil, limit: 10,
                  created_after: nil, created_before: nil)
-          db_manager = server_context[:db_manager]
+          service = server_context[:memories_service]
           search_params = { project: project, memory_type: memory_type, limit: limit,
-                            created_after:, created_before: }
-          results = perform_search(db_manager, query, tags, search_params)
+                            created_after: created_after, created_before: created_before }
+          results = perform_search(service, query, tags, search_params)
 
           MCP::Tool::Response.new([{
                                     type: "text",
@@ -111,13 +111,11 @@ module Recollect
 
         private
 
-        def perform_search(db_manager, query, tags, params)
+        def perform_search(service, query, tags, params)
           if tags && !tags.empty?
-            # Tag search doesn't use vectors (yet)
-            db_manager.search_by_tags(tags, **params)
+            service.search_by_tags(tags, **params)
           else
-            # Use hybrid search (auto-falls back to FTS5 if vectors unavailable)
-            db_manager.hybrid_search(query, **params)
+            service.search(query, **params)
           end
         end
       end

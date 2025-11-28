@@ -209,6 +209,71 @@ class MemoriesServiceTest < Recollect::TestCase
     assert_equal 2, results.length
   end
 
+  # ========== Search with Date Filtering ==========
+
+  def test_search_filters_by_created_after
+    old = @service.create(content: "Old Ruby memory")
+    new = @service.create(content: "New Ruby memory")
+
+    # Backdate the old memory
+    db = @db_manager.get_database(nil)
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", old["id"]]
+    )
+
+    results = @service.search("Ruby", created_after: "2025-01-15")
+
+    assert_equal 1, results.length
+    assert_equal new["id"], results.first["id"]
+  end
+
+  def test_search_filters_by_created_before
+    old = @service.create(content: "Old Ruby memory")
+    new = @service.create(content: "New Ruby memory")
+
+    # Backdate the old memory
+    db = @db_manager.get_database(nil)
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", old["id"]]
+    )
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-20T00:00:00Z", new["id"]]
+    )
+
+    results = @service.search("Ruby", created_before: "2025-01-15")
+
+    assert_equal 1, results.length
+    assert_equal old["id"], results.first["id"]
+  end
+
+  def test_search_filters_by_date_range
+    m1 = @service.create(content: "Ruby January")
+    m2 = @service.create(content: "Ruby February")
+    m3 = @service.create(content: "Ruby March")
+
+    db = @db_manager.get_database(nil)
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-15T00:00:00Z", m1["id"]]
+    )
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-02-15T00:00:00Z", m2["id"]]
+    )
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-03-15T00:00:00Z", m3["id"]]
+    )
+
+    results = @service.search("Ruby", created_after: "2025-02-01", created_before: "2025-02-28")
+
+    assert_equal 1, results.length
+    assert_equal m2["id"], results.first["id"]
+  end
+
   # ========== Search By Tags ==========
 
   def test_search_by_tags_finds_matching
@@ -239,6 +304,22 @@ class MemoriesServiceTest < Recollect::TestCase
 
     assert_equal 1, results.length
     assert_equal "tags-test", results.first["project"]
+  end
+
+  def test_search_by_tags_filters_by_date
+    old = @service.create(content: "Old tagged", tags: ["ruby"])
+    new = @service.create(content: "New tagged", tags: ["ruby"])
+
+    db = @db_manager.get_database(nil)
+    db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", old["id"]]
+    )
+
+    results = @service.search_by_tags(["ruby"], created_after: "2025-01-15")
+
+    assert_equal 1, results.length
+    assert_equal new["id"], results.first["id"]
   end
 
   # ========== List Projects ==========
