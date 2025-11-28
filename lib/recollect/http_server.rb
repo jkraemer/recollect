@@ -46,6 +46,10 @@ module Recollect
         @db_manager ||= DatabaseManager.new(Recollect.config)
       end
 
+      def memories_service
+        @memories_service ||= MemoriesService.new(db_manager)
+      end
+
       def mcp_server
         @mcp_server ||= MCPServer.build(db_manager)
       end
@@ -107,15 +111,12 @@ module Recollect
 
     # List memories
     get "/api/memories" do
-      project = params["project"]&.downcase
-      memory_type = params["type"]
-      limit = (params["limit"] || 50).to_i
-      offset = (params["offset"] || 0).to_i
-
-      db = db_manager.get_database(project)
-      memories = db.list(memory_type: memory_type, limit: limit, offset: offset)
-      memories.each { |m| m["project"] = project }
-
+      memories = memories_service.list(
+        project: params["project"],
+        memory_type: params["type"],
+        limit: (params["limit"] || 50).to_i,
+        offset: (params["offset"] || 0).to_i
+      )
       json_response(memories)
     end
 
@@ -124,9 +125,9 @@ module Recollect
       query = params["q"]
       halt 400, json_response({ error: 'Query parameter "q" required' }, status_code: 400) unless query
 
-      results = db_manager.hybrid_search(
+      results = memories_service.search(
         query,
-        project: params["project"]&.downcase,
+        project: params["project"],
         memory_type: params["type"],
         limit: (params["limit"] || 10).to_i
       )
@@ -140,13 +141,12 @@ module Recollect
       halt 400, json_response({ error: 'Query parameter "tags" required' }, status_code: 400) unless tags_param
 
       tags = tags_param.split(",").map(&:strip)
-      limit = (params["limit"] || 10).to_i
 
-      results = db_manager.search_by_tags(
+      results = memories_service.search_by_tags(
         tags,
-        project: params["project"]&.downcase,
+        project: params["project"],
         memory_type: params["memory_type"],
-        limit: limit
+        limit: (params["limit"] || 10).to_i
       )
 
       json_response({ results: results, count: results.length, tags: tags })
@@ -154,43 +154,29 @@ module Recollect
 
     # Get single memory
     get "/api/memories/:id" do
-      project = params["project"]&.downcase
-      db = db_manager.get_database(project)
-
-      memory = db.get(params["id"].to_i)
+      memory = memories_service.get(params["id"].to_i, project: params["project"])
       halt 404, json_response({ error: "Memory not found" }, status_code: 404) unless memory
 
-      memory["project"] = project
       json_response(memory)
     end
 
     # Create memory (queues for embedding generation if vectors enabled)
     post "/api/memories" do
       data = parse_json_body
-      project = data["project"]&.downcase
 
-      id = db_manager.store_with_embedding(
-        project: project,
+      memory = memories_service.create(
         content: data["content"],
-        memory_type: data["memory_type"] || "note",
-        tags: data["tags"],
-        metadata: data["metadata"],
-        source: "api"
+        project: data["project"],
+        memory_type: data["memory_type"],
+        tags: data["tags"]
       )
-
-      db = db_manager.get_database(project)
-      memory = db.get(id)
-      memory["project"] = project
 
       json_response(memory, status_code: 201)
     end
 
     # Delete memory
     delete "/api/memories/:id" do
-      project = params["project"]&.downcase
-      db = db_manager.get_database(project)
-
-      success = db.delete(params["id"].to_i)
+      success = memories_service.delete(params["id"].to_i, project: params["project"])
       halt 404, json_response({ error: "Memory not found" }, status_code: 404) unless success
 
       json_response({ deleted: params["id"].to_i })
@@ -198,14 +184,14 @@ module Recollect
 
     # List projects
     get "/api/projects" do
-      projects = db_manager.list_projects
+      projects = memories_service.list_projects
       json_response({ projects: projects, count: projects.length })
     end
 
     # Tag statistics
     get "/api/tags" do
-      tags = db_manager.tag_stats(
-        project: params["project"]&.downcase,
+      tags = memories_service.tag_stats(
+        project: params["project"],
         memory_type: params["memory_type"]
       )
 
