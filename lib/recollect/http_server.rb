@@ -125,12 +125,13 @@ module Recollect
       query = params["q"]
       halt 400, json_response({ error: 'Query parameter "q" required' }, status_code: 400) unless query
 
-      results = memories_service.search(
-        query,
+      criteria = SearchCriteria.new(
+        query: query,
         project: params["project"],
         memory_type: params["type"],
         limit: (params["limit"] || 10).to_i
       )
+      results = memories_service.search(criteria)
 
       json_response({ results: results, count: results.length, query: query })
     end
@@ -142,12 +143,13 @@ module Recollect
 
       tags = tags_param.split(",").map(&:strip)
 
-      results = memories_service.search_by_tags(
-        tags,
+      criteria = SearchCriteria.new(
+        query: tags,
         project: params["project"],
         memory_type: params["memory_type"],
         limit: (params["limit"] || 10).to_i
       )
+      results = memories_service.search_by_tags(criteria)
 
       json_response({ results: results, count: results.length, tags: tags })
     end

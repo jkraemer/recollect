@@ -175,7 +175,8 @@ class MemoriesServiceTest < Recollect::TestCase
     @service.create(content: "Ruby programming patterns")
     @service.create(content: "Python programming patterns")
 
-    results = @service.search("Ruby")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby")
+    results = @service.search(criteria)
 
     assert_equal 1, results.length
     assert_match(/Ruby/, results.first["content"])
@@ -185,7 +186,8 @@ class MemoriesServiceTest < Recollect::TestCase
     @service.create(content: "Ruby in global")
     @service.create(content: "Ruby in project", project: "search-test")
 
-    results = @service.search("Ruby", project: "search-test")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", project: "search-test")
+    results = @service.search(criteria)
 
     assert_equal 1, results.length
     assert_equal "search-test", results.first["project"]
@@ -195,7 +197,8 @@ class MemoriesServiceTest < Recollect::TestCase
     @service.create(content: "Ruby note", memory_type: "note")
     @service.create(content: "Ruby todo", memory_type: "todo")
 
-    results = @service.search("Ruby", memory_type: "note")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", memory_type: "note")
+    results = @service.search(criteria)
 
     assert_equal 1, results.length
     assert_equal "note", results.first["memory_type"]
@@ -204,7 +207,8 @@ class MemoriesServiceTest < Recollect::TestCase
   def test_search_respects_limit
     5.times { |i| @service.create(content: "Ruby pattern #{i}") }
 
-    results = @service.search("Ruby", limit: 2)
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", limit: 2)
+    results = @service.search(criteria)
 
     assert_equal 2, results.length
   end
@@ -222,7 +226,8 @@ class MemoriesServiceTest < Recollect::TestCase
       ["2025-01-01T00:00:00Z", old["id"]]
     )
 
-    results = @service.search("Ruby", created_after: "2025-01-15")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", created_after: "2025-01-15")
+    results = @service.search(criteria)
 
     assert_equal 1, results.length
     assert_equal new["id"], results.first["id"]
@@ -243,7 +248,8 @@ class MemoriesServiceTest < Recollect::TestCase
       ["2025-01-20T00:00:00Z", new["id"]]
     )
 
-    results = @service.search("Ruby", created_before: "2025-01-15")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", created_before: "2025-01-15")
+    results = @service.search(criteria)
 
     assert_equal 1, results.length
     assert_equal old["id"], results.first["id"]
@@ -268,7 +274,8 @@ class MemoriesServiceTest < Recollect::TestCase
       ["2025-03-15T00:00:00Z", m3["id"]]
     )
 
-    results = @service.search("Ruby", created_after: "2025-02-01", created_before: "2025-02-28")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", created_after: "2025-02-01", created_before: "2025-02-28")
+    results = @service.search(criteria)
 
     assert_equal 1, results.length
     assert_equal m2["id"], results.first["id"]
@@ -280,7 +287,8 @@ class MemoriesServiceTest < Recollect::TestCase
     @service.create(content: "Memory with ruby", tags: ["ruby"])
     @service.create(content: "Memory with python", tags: ["python"])
 
-    results = @service.search_by_tags(["ruby"])
+    criteria = Recollect::SearchCriteria.new(query: ["ruby"])
+    results = @service.search_by_tags(criteria)
 
     assert_equal 1, results.length
     assert_includes results.first["tags"], "ruby"
@@ -290,7 +298,8 @@ class MemoriesServiceTest < Recollect::TestCase
     @service.create(content: "Has both", tags: %w[ruby testing])
     @service.create(content: "Has ruby only", tags: ["ruby"])
 
-    results = @service.search_by_tags(%w[ruby testing])
+    criteria = Recollect::SearchCriteria.new(query: %w[ruby testing])
+    results = @service.search_by_tags(criteria)
 
     assert_equal 1, results.length
     assert_equal "Has both", results.first["content"]
@@ -300,7 +309,8 @@ class MemoriesServiceTest < Recollect::TestCase
     @service.create(content: "Global tagged", tags: ["shared"])
     @service.create(content: "Project tagged", tags: ["shared"], project: "tags-test")
 
-    results = @service.search_by_tags(["shared"], project: "tags-test")
+    criteria = Recollect::SearchCriteria.new(query: ["shared"], project: "tags-test")
+    results = @service.search_by_tags(criteria)
 
     assert_equal 1, results.length
     assert_equal "tags-test", results.first["project"]
@@ -316,7 +326,8 @@ class MemoriesServiceTest < Recollect::TestCase
       ["2025-01-01T00:00:00Z", old["id"]]
     )
 
-    results = @service.search_by_tags(["ruby"], created_after: "2025-01-15")
+    criteria = Recollect::SearchCriteria.new(query: ["ruby"], created_after: "2025-01-15")
+    results = @service.search_by_tags(criteria)
 
     assert_equal 1, results.length
     assert_equal new["id"], results.first["id"]
@@ -336,8 +347,8 @@ class MemoriesServiceTest < Recollect::TestCase
 
     result = @service.list_projects
 
-    assert_includes result, "project-a"
-    assert_includes result, "project-b"
+    assert_includes result, "project_a"
+    assert_includes result, "project_b"
   end
 
   # ========== Tag Stats ==========

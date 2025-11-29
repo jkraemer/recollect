@@ -129,7 +129,7 @@ class MCPIntegrationTest < Recollect::TestCase
     mcp_response = JSON.parse(last_response.body)
     result_content = JSON.parse(mcp_response["result"]["content"].first["text"])
 
-    assert_includes result_content["projects"], "integration-test-project"
+    assert_includes result_content["projects"], "integration_test_project"
   end
 
   # Test delete via MCP

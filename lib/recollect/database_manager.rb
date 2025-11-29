@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "json"
-
 module Recollect
   class DatabaseManager
     def initialize(config = Recollect.config)
@@ -14,16 +12,12 @@ module Recollect
     end
 
     def get_database(project = nil)
-      project = project&.downcase
+      project = sanitize_project_name(project) if project
       key = project || :global
 
       @mutex.synchronize do
         @databases[key] ||= begin
-          path = project ? @config.project_db_path(project) : @config.global_db_path
-
-          # Store original project name for later retrieval
-          store_project_metadata(project) if project
-
+          path = project ? project_db_path(project) : @config.global_db_path
           Database.new(path, load_vectors: @config.vectors_available?)
         end
       end
@@ -44,54 +38,55 @@ module Recollect
       id
     end
 
-    def search_all(query, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
-      date_opts = { created_after:, created_before: }
-      results = if project
-                  search_project(query, project, memory_type: memory_type, limit: limit, **date_opts)
+    def search_all(criteria)
+      results = if criteria.project?
+                  search_project(criteria)
                 else
-                  search_all_projects(query, memory_type: memory_type, limit: limit, **date_opts)
+                  search_all_projects(criteria)
                 end
 
       # Sort by relevance (rank) and limit
-      results.sort_by { |m| m["rank"] || 0 }.take(limit)
+      results.sort_by { |m| m["rank"] || 0 }.take(criteria.limit)
     end
 
-    def search_by_tags(tags, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
-      date_opts = { created_after:, created_before: }
-      results = if project
-                  search_project_by_tags(tags, project, memory_type: memory_type, limit: limit, **date_opts)
+    def search_by_tags(criteria)
+      results = if criteria.project?
+                  search_project_by_tags(criteria)
                 else
-                  search_all_projects_by_tags(tags, memory_type: memory_type, limit: limit, **date_opts)
+                  search_all_projects_by_tags(criteria)
                 end
 
       # Sort by created_at DESC and limit
-      results.sort_by { |m| m["created_at"] || "" }.reverse.take(limit)
+      results.sort_by { |m| m["created_at"] || "" }.reverse.take(criteria.limit)
     end
 
-    def hybrid_search(query, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
-      date_opts = { created_after:, created_before: }
-
+    def hybrid_search(criteria)
       # If vectors not available, fall back to FTS5 only
-      unless @config.vectors_available? && vectors_ready?
-        return search_all(query, project: project, memory_type: memory_type, limit: limit, **date_opts)
-      end
+      return search_all(criteria) unless @config.vectors_available? && vectors_ready?
 
-      # Get query embedding (convert array to space-joined string for embedding)
-      embed_text = query.is_a?(Array) ? query.join(" ") : query
+      # Get query embedding
+      embed_text = criteria.query_string
       embedding = embedding_client.embed(embed_text)
 
-      # Collect results from both methods
-      fts_results = search_all(query, project: project, memory_type: memory_type, limit: limit * 2, **date_opts)
-      vec_results = vector_search_all(embedding, project: project, limit: limit * 2, **date_opts)
+      # Collect results from both methods using doubled limit
+      expanded_criteria = SearchCriteria.new(
+        query: criteria.query,
+        project: criteria.project,
+        memory_type: criteria.memory_type,
+        limit: criteria.limit * 2,
+        created_after: criteria.created_after,
+        created_before: criteria.created_before
+      )
+      fts_results = search_all(expanded_criteria)
+      vec_results = vector_search_all(embedding, expanded_criteria)
 
       # Merge and rank
-      merge_hybrid_results(fts_results, vec_results, limit)
+      merge_hybrid_results(fts_results, vec_results, criteria.limit)
     end
 
     def list_projects
       @config.projects_dir.glob("*.db").map do |path|
-        sanitized = path.basename(".db").to_s
-        get_project_metadata(sanitized) || sanitized
+        path.basename(".db").to_s
       end.sort
     end
 
@@ -119,80 +114,62 @@ module Recollect
 
     private
 
-    def search_project(query, project, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
-      project = project&.downcase
+    def search_project(criteria)
+      project = criteria.project&.downcase
       db = get_database(project)
-      memories = db.search(query, memory_type: memory_type, limit: limit,
-                                  created_after:, created_before:)
+      memories = db.search(criteria.query,
+                           memory_type: criteria.memory_type,
+                           limit: criteria.limit,
+                           **criteria.date_opts)
       memories.each { |m| m["project"] = project }
       memories
     end
 
-    def search_all_projects(query, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
+    def search_all_projects(criteria)
       results = []
-      date_opts = { created_after:, created_before: }
 
       # Search global
-      results.concat(search_project(query, nil, memory_type: memory_type, limit: limit, **date_opts))
+      results.concat(search_project(criteria.for_project(nil)))
 
       # Search all projects
       list_projects.each do |proj|
-        results.concat(search_project(query, proj, memory_type: memory_type, limit: limit, **date_opts))
+        results.concat(search_project(criteria.for_project(proj)))
       end
 
       results
     end
 
-    def search_project_by_tags(tags, project, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
-      project = project&.downcase
+    def search_project_by_tags(criteria)
+      project = criteria.project&.downcase
       db = get_database(project)
-      memories = db.search_by_tags(tags, memory_type: memory_type, limit: limit,
-                                         created_after:, created_before:)
+      memories = db.search_by_tags(criteria.query,
+                                   memory_type: criteria.memory_type,
+                                   limit: criteria.limit,
+                                   **criteria.date_opts)
       memories.each { |m| m["project"] = project }
       memories
     end
 
-    def search_all_projects_by_tags(tags, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
+    def search_all_projects_by_tags(criteria)
       results = []
-      date_opts = { created_after:, created_before: }
 
       # Search global
-      results.concat(search_project_by_tags(tags, nil, memory_type: memory_type, limit: limit, **date_opts))
+      results.concat(search_project_by_tags(criteria.for_project(nil)))
 
       # Search all projects
       list_projects.each do |proj|
-        results.concat(search_project_by_tags(tags, proj, memory_type: memory_type, limit: limit, **date_opts))
+        results.concat(search_project_by_tags(criteria.for_project(proj)))
       end
 
       results
     end
 
-    def store_project_metadata(project_name)
-      metadata_file = @config.projects_dir.join(".project_names.json")
-      metadata = load_project_metadata
-
-      sanitized = sanitize_name(project_name)
-      metadata[sanitized] = project_name
-
-      File.write(metadata_file, JSON.generate(metadata))
-    end
-
-    def get_project_metadata(sanitized_name)
-      metadata = load_project_metadata
-      metadata[sanitized_name]
-    end
-
-    def load_project_metadata
-      metadata_file = @config.projects_dir.join(".project_names.json")
-      return {} unless metadata_file.exist?
-
-      JSON.parse(metadata_file.read)
-    rescue JSON::ParserError
-      {}
-    end
-
-    def sanitize_name(name)
+    def sanitize_project_name(name)
       name.to_s.gsub(/[^a-zA-Z0-9_]/, "_").downcase
+    end
+
+    def project_db_path(project_name)
+      @config.projects_dir.join("#{project_name}.db")
     end
 
     def aggregate_tag_stats(memory_type: nil)
@@ -230,29 +207,27 @@ module Recollect
       @databases.values.any?(&:vectors_enabled?)
     end
 
-    def vector_search_all(embedding, project: nil, limit: 10, created_after: nil, created_before: nil)
-      project = project&.downcase
-      date_opts = { created_after:, created_before: }
+    def vector_search_all(embedding, criteria)
+      project = criteria.project&.downcase
 
       if project
         db = get_database(project)
-        results = db.vector_search(embedding, limit: limit, **date_opts)
+        results = db.vector_search(embedding, limit: criteria.limit, **criteria.date_opts)
         results.each { |m| m["project"] = project }
       else
         results = []
 
         # Search global
-        global_results = get_database(nil).vector_search(embedding, limit: limit, **date_opts)
+        global_results = get_database(nil).vector_search(embedding, limit: criteria.limit, **criteria.date_opts)
         global_results.each { |m| m["project"] = nil }
         results.concat(global_results)
 
         # Search all projects
         list_projects.each do |proj|
-          proj_results = get_database(proj).vector_search(embedding, limit: limit, **date_opts)
+          proj_results = get_database(proj).vector_search(embedding, limit: criteria.limit, **criteria.date_opts)
           proj_results.each { |m| m["project"] = proj }
           results.concat(proj_results)
         end
-
       end
       results
     end

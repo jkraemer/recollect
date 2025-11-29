@@ -49,29 +49,15 @@ module Recollect
       db.delete(id)
     end
 
-    # rubocop:disable Metrics/ParameterLists
-    def search(query, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
-      @db_manager.hybrid_search(
-        query,
-        project: project&.downcase,
-        memory_type: memory_type,
-        limit: limit,
-        created_after: created_after,
-        created_before: created_before
-      )
+    def search(criteria)
+      criteria = normalize_project_in_criteria(criteria)
+      @db_manager.hybrid_search(criteria)
     end
 
-    def search_by_tags(tags, project: nil, memory_type: nil, limit: 10, created_after: nil, created_before: nil)
-      @db_manager.search_by_tags(
-        tags,
-        project: project&.downcase,
-        memory_type: memory_type,
-        limit: limit,
-        created_after: created_after,
-        created_before: created_before
-      )
+    def search_by_tags(criteria)
+      criteria = normalize_project_in_criteria(criteria)
+      @db_manager.search_by_tags(criteria)
     end
-    # rubocop:enable Metrics/ParameterLists
 
     def list_projects
       @db_manager.list_projects
@@ -81,6 +67,21 @@ module Recollect
       @db_manager.tag_stats(
         project: project&.downcase,
         memory_type: memory_type
+      )
+    end
+
+    private
+
+    def normalize_project_in_criteria(criteria)
+      return criteria unless criteria.project
+
+      SearchCriteria.new(
+        query: criteria.query,
+        project: criteria.project.downcase,
+        memory_type: criteria.memory_type,
+        limit: criteria.limit,
+        created_after: criteria.created_after,
+        created_before: criteria.created_before
       )
     end
   end

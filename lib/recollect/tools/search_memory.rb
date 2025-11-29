@@ -94,9 +94,9 @@ module Recollect
         def call(query:, server_context:, project: nil, memory_type: nil, tags: nil, limit: 10,
                  created_after: nil, created_before: nil)
           service = server_context[:memories_service]
-          search_params = { project: project, memory_type: memory_type, limit: limit,
-                            created_after: created_after, created_before: created_before }
-          results = perform_search(service, query, tags, search_params)
+          tag_search = tags && !tags.empty?
+          criteria = build_criteria(query, tags, project:, memory_type:, limit:, created_after:, created_before:)
+          results = perform_search(service, criteria, tag_search: tag_search)
 
           MCP::Tool::Response.new([{
                                     type: "text",
@@ -111,11 +111,17 @@ module Recollect
 
         private
 
-        def perform_search(service, query, tags, params)
-          if tags && !tags.empty?
-            service.search_by_tags(tags, **params)
+        def build_criteria(query, tags, **)
+          # Use tags as query if searching by tags, otherwise use text query
+          search_query = tags && !tags.empty? ? tags : query
+          SearchCriteria.new(query: search_query, **)
+        end
+
+        def perform_search(service, criteria, tag_search:)
+          if tag_search
+            service.search_by_tags(criteria)
           else
-            service.search(query, **params)
+            service.search(criteria)
           end
         end
       end

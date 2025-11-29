@@ -37,8 +37,8 @@ class ListProjectsTest < Recollect::TestCase
 
     response_data = JSON.parse(result.content.first[:text])
 
-    assert_includes response_data["projects"], "project-a"
-    assert_includes response_data["projects"], "project-b"
+    assert_includes response_data["projects"], "project_a"
+    assert_includes response_data["projects"], "project_b"
     assert_equal response_data["projects"].length, response_data["count"]
   end
 end

@@ -51,7 +51,8 @@ class DatabaseManagerTest < Recollect::TestCase
     db = @manager.get_database("MixedCase")
     db.store(content: "Test content about search")
 
-    results = @manager.search_all("search", project: "MIXEDCASE")
+    criteria = Recollect::SearchCriteria.new(query: "search", project: "MIXEDCASE")
+    results = @manager.search_all(criteria)
 
     assert_equal 1, results.length
     assert_equal "mixedcase", results.first["project"]
@@ -76,7 +77,8 @@ class DatabaseManagerTest < Recollect::TestCase
     global.store(content: "Global memory about Ruby")
 
     # Search specific project
-    results = @manager.search_all("Ruby", project: "search-test")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", project: "search-test")
+    results = @manager.search_all(criteria)
 
     assert_equal 1, results.length
     assert_equal "search-test", results.first["project"]
@@ -93,14 +95,15 @@ class DatabaseManagerTest < Recollect::TestCase
     db.store(content: "Project memory about testing")
 
     # Search all
-    results = @manager.search_all("testing")
+    criteria = Recollect::SearchCriteria.new(query: "testing")
+    results = @manager.search_all(criteria)
 
     assert_equal 2, results.length
 
     projects = results.map { |r| r["project"] }
 
     assert_includes projects, nil # global
-    assert_includes projects, "search-all-test"
+    assert_includes projects, "search_all_test"
   end
 
   # Test search_all respects limit
@@ -108,7 +111,8 @@ class DatabaseManagerTest < Recollect::TestCase
     db = @manager.get_database("limit-test")
     5.times { |i| db.store(content: "Memory #{i} about patterns") }
 
-    results = @manager.search_all("patterns", project: "limit-test", limit: 2)
+    criteria = Recollect::SearchCriteria.new(query: "patterns", project: "limit-test", limit: 2)
+    results = @manager.search_all(criteria)
 
     assert_equal 2, results.length
   end
@@ -119,7 +123,8 @@ class DatabaseManagerTest < Recollect::TestCase
     db.store(content: "A note about bugs", memory_type: "note")
     db.store(content: "A decision about bugs", memory_type: "decision")
 
-    results = @manager.search_all("bugs", project: "type-test", memory_type: "note")
+    criteria = Recollect::SearchCriteria.new(query: "bugs", project: "type-test", memory_type: "note")
+    results = @manager.search_all(criteria)
 
     assert_equal 1, results.length
     assert_equal "note", results.first["memory_type"]
@@ -141,7 +146,8 @@ class DatabaseManagerTest < Recollect::TestCase
       ["2025-01-20T00:00:00Z", id2]
     )
 
-    results = @manager.search_all("testing", project: "date-test", created_after: "2025-01-15")
+    criteria = Recollect::SearchCriteria.new(query: "testing", project: "date-test", created_after: "2025-01-15")
+    results = @manager.search_all(criteria)
 
     assert_equal 1, results.length
     assert_equal id2, results.first["id"]
@@ -165,17 +171,30 @@ class DatabaseManagerTest < Recollect::TestCase
 
     projects = @manager.list_projects
 
-    assert_includes projects, "list-test-project"
+    assert_includes projects, "list_test_project"
+  end
+
+  # Test project names are sanitized consistently
+  def test_project_name_sanitization
+    # All these should map to the same database
+    db1 = @manager.get_database("my-project")
+    db2 = @manager.get_database("my_project")
+    db3 = @manager.get_database("My Project")
+    db4 = @manager.get_database("MY-PROJECT")
+
+    assert_same db1, db2, "Hyphen and underscore should map to same db"
+    assert_same db1, db3, "Space should be sanitized to underscore"
+    assert_same db1, db4, "Should be case-insensitive"
   end
 
   # Test list_projects returns sorted list
   def test_list_projects_returns_sorted
-    @manager.get_database("zzz-project").store(content: "Test")
-    @manager.get_database("aaa-project").store(content: "Test")
+    @manager.get_database("zzz_project").store(content: "Test")
+    @manager.get_database("aaa_project").store(content: "Test")
 
     projects = @manager.list_projects
-    aaa_index = projects.index("aaa-project")
-    zzz_index = projects.index("zzz-project")
+    aaa_index = projects.index("aaa_project")
+    zzz_index = projects.index("zzz_project")
 
     assert_operator aaa_index, :<, zzz_index, "Projects should be sorted alphabetically"
   end
@@ -256,7 +275,8 @@ class DatabaseManagerTest < Recollect::TestCase
     db.store(content: "Ruby programming patterns")
     db.store(content: "Python programming patterns")
 
-    results = @manager.hybrid_search("Ruby", project: "hybrid-fallback")
+    criteria = Recollect::SearchCriteria.new(query: "Ruby", project: "hybrid-fallback")
+    results = @manager.hybrid_search(criteria)
 
     assert_equal 1, results.length
     assert_match(/Ruby/, results.first["content"])
@@ -271,7 +291,8 @@ class DatabaseManagerTest < Recollect::TestCase
     db.store(content: "Python programming patterns")
     db.store(content: "Ruby web framework comparison")
 
-    results = @manager.hybrid_search(%w[Ruby programming], project: "hybrid-array")
+    criteria = Recollect::SearchCriteria.new(query: %w[Ruby programming], project: "hybrid-array")
+    results = @manager.hybrid_search(criteria)
 
     assert_equal 1, results.length
     assert_match(/Ruby programming/, results.first["content"])
@@ -453,7 +474,8 @@ class DatabaseManagerTest < Recollect::TestCase
     db.store(content: "Memory with python tag", tags: ["python"])
     db.store(content: "Memory with both", tags: %w[ruby python])
 
-    results = @manager.search_by_tags(["ruby"], project: "tags-project")
+    criteria = Recollect::SearchCriteria.new(query: ["ruby"], project: "tags-project")
+    results = @manager.search_by_tags(criteria)
 
     assert_equal 2, results.length
     results.each do |result|
@@ -472,14 +494,15 @@ class DatabaseManagerTest < Recollect::TestCase
     db = @manager.get_database("tags-all-projects")
     db.store(content: "Project with shared tag", tags: ["shared"])
 
-    results = @manager.search_by_tags(["shared"])
+    criteria = Recollect::SearchCriteria.new(query: ["shared"])
+    results = @manager.search_by_tags(criteria)
 
     assert_equal 2, results.length
 
     projects = results.map { |r| r["project"] }
 
     assert_includes projects, nil # global
-    assert_includes projects, "tags-all-projects"
+    assert_includes projects, "tags_all_projects"
   end
 
   # Test search_by_tags with memory_type filter
@@ -488,7 +511,8 @@ class DatabaseManagerTest < Recollect::TestCase
     db.store(content: "A note with tag", memory_type: "note", tags: ["important"])
     db.store(content: "A decision with tag", memory_type: "decision", tags: ["important"])
 
-    results = @manager.search_by_tags(["important"], project: "tags-type", memory_type: "note")
+    criteria = Recollect::SearchCriteria.new(query: ["important"], project: "tags-type", memory_type: "note")
+    results = @manager.search_by_tags(criteria)
 
     assert_equal 1, results.length
     assert_equal "note", results.first["memory_type"]
@@ -499,53 +523,10 @@ class DatabaseManagerTest < Recollect::TestCase
     db = @manager.get_database("tags-limit")
     5.times { |i| db.store(content: "Memory #{i}", tags: ["common"]) }
 
-    results = @manager.search_by_tags(["common"], project: "tags-limit", limit: 2)
+    criteria = Recollect::SearchCriteria.new(query: ["common"], project: "tags-limit", limit: 2)
+    results = @manager.search_by_tags(criteria)
 
     assert_equal 2, results.length
-  end
-
-  # ========== Project Metadata Tests ==========
-
-  # Test project names with special characters are preserved
-  def test_project_name_with_special_chars_preserved
-    # Store a memory in a project with special characters
-    @manager.store_with_embedding(
-      project: "my-project/sub",
-      content: "Test content",
-      memory_type: "note",
-      tags: [],
-      metadata: nil
-    )
-
-    # List projects should return the original name
-    projects = @manager.list_projects
-
-    assert_includes projects, "my-project/sub"
-  end
-
-  # Test corrupted project metadata file is handled gracefully
-  def test_corrupted_metadata_file_handled_gracefully
-    # First create a project (sanitized name will be normalproject)
-    db = @manager.get_database("normalproject")
-    db.store(content: "Test")
-
-    # Now corrupt the metadata file
-    metadata_file = @config.projects_dir.join(".project_names.json")
-    File.write(metadata_file, "not valid json")
-
-    # Create a new manager to reload from corrupted file
-    @manager.close_all
-    manager2 = Recollect::DatabaseManager.new(@config)
-
-    begin
-      # list_projects should still work, returning the sanitized name
-      # since metadata is corrupted and can't be parsed
-      projects = manager2.list_projects
-      # Should have the project (uses sanitized name as fallback)
-      assert_includes projects, "normalproject"
-    ensure
-      manager2.close_all
-    end
   end
 
   # ========== Store With Embedding Tests ==========
