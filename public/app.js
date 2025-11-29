@@ -31,6 +31,7 @@ function displayMemories(memories) {
   memories.forEach(mem => {
     const card = document.createElement('div');
     card.className = 'memory-card';
+    card.dataset.id = mem.id;
     card.innerHTML = `
       <div class="memory-header">
         <span class="type type-${mem.memory_type}">${mem.memory_type}</span>
@@ -38,6 +39,9 @@ function displayMemories(memories) {
         <span class="date">${formatDate(mem.created_at)}</span>
       </div>
       <div class="content">${escapeHtml(mem.content)}</div>
+      <div class="memory-actions">
+        <button class="delete-btn" data-id="${mem.id}" data-project="${mem.project || ''}">Delete</button>
+      </div>
     `;
     container.appendChild(card);
   });
@@ -70,10 +74,30 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+async function deleteMemory(id, project) {
+  const params = project ? `?project=${encodeURIComponent(project)}` : '';
+  try {
+    const resp = await fetch(`${API}/memories/${id}${params}`, { method: 'DELETE' });
+    if (resp.ok) {
+      document.querySelector(`.memory-card[data-id="${id}"]`)?.remove();
+    }
+  } catch (err) {
+    console.error('Failed to delete memory:', err);
+  }
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', () => {
   loadProjects();
   loadMemories();
+
+  document.getElementById('memoriesList').addEventListener('click', (e) => {
+    if (e.target.classList.contains('delete-btn')) {
+      const id = e.target.dataset.id;
+      const project = e.target.dataset.project;
+      deleteMemory(id, project);
+    }
+  });
 
   document.getElementById('searchBtn').addEventListener('click', () => {
     const query = document.getElementById('searchBox').value;

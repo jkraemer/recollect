@@ -96,6 +96,26 @@ header h1 {
   white-space: pre-wrap;
 }
 
+.memory-actions {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #eee;
+}
+
+.delete-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.delete-btn:hover {
+  background: #c82333;
+}
+
 .empty {
   text-align: center;
   color: #95a5a6;
