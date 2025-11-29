@@ -86,10 +86,28 @@ async function deleteMemory(id, project) {
   }
 }
 
+function getProjectFromPath() {
+  const match = window.location.pathname.match(/^\/projects\/(.+)$/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+function navigateToProject(project) {
+  const path = project ? `/projects/${encodeURIComponent(project)}` : '/';
+  window.history.replaceState({}, '', path);
+}
+
 // Event listeners
-document.addEventListener('DOMContentLoaded', () => {
-  loadProjects();
-  loadMemories();
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadProjects();
+
+  // Restore project from URL path
+  const savedProject = getProjectFromPath();
+  const projectFilter = document.getElementById('projectFilter');
+  if (savedProject && [...projectFilter.options].some(o => o.value === savedProject)) {
+    projectFilter.value = savedProject;
+  }
+
+  loadMemories(projectFilter.value || null);
 
   document.getElementById('memoriesList').addEventListener('click', (e) => {
     if (e.target.classList.contains('delete-btn')) {
@@ -113,6 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('projectFilter').addEventListener('change', () => {
     const project = document.getElementById('projectFilter').value;
+    navigateToProject(project);
     loadMemories(project || null, null);
   });
 });

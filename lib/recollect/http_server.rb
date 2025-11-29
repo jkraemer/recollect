@@ -256,6 +256,17 @@ module Recollect
 
     # Serve Web UI
     get "/" do
+      send_index
+    end
+
+    # Project-specific view (client-side routing)
+    get "/projects/:project" do
+      send_index
+    end
+
+    private
+
+    def send_index
       index_path = File.join(settings.public_folder, "index.html")
       if File.exist?(index_path)
         send_file index_path
