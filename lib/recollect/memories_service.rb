@@ -6,7 +6,7 @@ module Recollect
       @db_manager = db_manager
     end
 
-    def create(content:, project: nil, memory_type: nil, tags: [], source: "api")
+    def create(content:, project: nil, memory_type: nil, tags: [])
       project = project&.downcase
 
       id = @db_manager.store_with_embedding(
@@ -14,8 +14,7 @@ module Recollect
         content: content,
         memory_type: memory_type || "note",
         tags: tags || [],
-        metadata: nil,
-        source: source
+        metadata: nil
       )
 
       db = @db_manager.get_database(project)

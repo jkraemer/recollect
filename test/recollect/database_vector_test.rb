@@ -30,7 +30,7 @@ module Recollect
 
     def test_store_embedding_noop_when_vectors_disabled
       @db = Database.new(@db_path)
-      memory_id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil, source: "test")
+      memory_id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)
 
       # Should not raise
       @db.store_embedding(memory_id, Array.new(384) { rand })
@@ -42,7 +42,7 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      memory_id = @db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil, source: "test")
+      memory_id = @db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil)
       embedding = Array.new(384) { rand(-1.0..1.0) }
 
       @db.store_embedding(memory_id, embedding)
@@ -65,9 +65,9 @@ module Recollect
       @db = Database.new(@db_path, load_vectors: true)
 
       # Store memories with embeddings
-      id1 = @db.store(content: "ruby programming", memory_type: "note", tags: [], metadata: nil, source: "test")
-      id2 = @db.store(content: "python scripting", memory_type: "note", tags: [], metadata: nil, source: "test")
-      id3 = @db.store(content: "javascript frontend", memory_type: "note", tags: [], metadata: nil, source: "test")
+      id1 = @db.store(content: "ruby programming", memory_type: "note", tags: [], metadata: nil)
+      id2 = @db.store(content: "python scripting", memory_type: "note", tags: [], metadata: nil)
+      id3 = @db.store(content: "javascript frontend", memory_type: "note", tags: [], metadata: nil)
 
       # Create fake embeddings - make id1's embedding similar to query
       query_embedding = normalized_vector(384)
@@ -87,7 +87,7 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      id = @db.store(content: "test content", memory_type: "decision", tags: ["foo"], metadata: nil, source: "test")
+      id = @db.store(content: "test content", memory_type: "decision", tags: ["foo"], metadata: nil)
       embedding = normalized_vector(384)
       @db.store_embedding(id, embedding)
 
@@ -111,7 +111,7 @@ module Recollect
 
     def test_memories_without_embeddings_returns_empty_when_disabled
       @db = Database.new(@db_path)
-      @db.store(content: "test", memory_type: "note", tags: [], metadata: nil, source: "test")
+      @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)
 
       assert_empty @db.memories_without_embeddings
     end
@@ -120,8 +120,8 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil, source: "test")
-      id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil, source: "test")
+      id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)
+      id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)
 
       @db.store_embedding(id1, normalized_vector(384))
 

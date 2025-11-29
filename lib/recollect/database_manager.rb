@@ -29,14 +29,13 @@ module Recollect
       end
     end
 
-    def store_with_embedding(project:, content:, memory_type:, tags:, metadata:, source:)
+    def store_with_embedding(project:, content:, memory_type:, tags:, metadata:)
       db = get_database(project)
       id = db.store(
         content: content,
         memory_type: memory_type,
         tags: tags,
-        metadata: metadata,
-        source: source
+        metadata: metadata
       )
 
       # Queue for embedding generation

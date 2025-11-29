@@ -76,20 +76,6 @@ class StoreMemoryTest < Recollect::TestCase
     assert_equal %w[ruby testing], memory["tags"]
   end
 
-  def test_sets_source_to_mcp
-    result = Recollect::Tools::StoreMemory.call(
-      content: "MCP memory",
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
-    )
-
-    response_data = JSON.parse(result.content.first[:text])
-
-    db = @db_manager.get_database(nil)
-    memory = db.get(response_data["id"])
-
-    assert_equal "mcp", memory["source"]
-  end
-
   def test_rejects_old_type_decision
     assert_raises(::MCP::Tool::InputSchema::ValidationError) do
       Recollect::Tools::StoreMemory.input_schema.validate_arguments(

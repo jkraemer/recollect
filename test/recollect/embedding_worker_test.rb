@@ -48,7 +48,7 @@ module Recollect
 
       # Store a memory first so we have something to attach an embedding to
       db = @db_manager.get_database(nil)
-      memory_id = db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil, source: "test")
+      memory_id = db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil)
 
       @worker.start
       @worker.enqueue(memory_id: memory_id, content: "test memory", project: nil)
@@ -66,7 +66,7 @@ module Recollect
 
       db = @db_manager.get_database(nil)
       ids = 3.times.map do |i|
-        db.store(content: "memory #{i}", memory_type: "note", tags: [], metadata: nil, source: "test")
+        db.store(content: "memory #{i}", memory_type: "note", tags: [], metadata: nil)
       end
 
       @worker.start
@@ -93,7 +93,7 @@ module Recollect
 
       # Store a memory directly in the database (bypassing the worker)
       db = @db_manager.get_database(nil)
-      db.store(content: "orphaned memory", memory_type: "note", tags: [], metadata: nil, source: "test")
+      db.store(content: "orphaned memory", memory_type: "note", tags: [], metadata: nil)
 
       # Verify it has no embedding
       assert_equal 1, db.memories_without_embeddings.size

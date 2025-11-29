@@ -152,14 +152,6 @@ class DatabaseTest < Recollect::TestCase
     assert memory["updated_at"]
   end
 
-  # Test source is stored
-  def test_source_is_stored
-    id = @db.store(content: "Test", source: "mcp")
-    memory = @db.get(id)
-
-    assert_equal "mcp", memory["source"]
-  end
-
   # Test store rejects empty content
   def test_store_rejects_empty_content
     assert_raises(ArgumentError) { @db.store(content: "") }

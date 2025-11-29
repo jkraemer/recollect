@@ -22,8 +22,7 @@ module Recollect
         metadata TEXT,
         embedding BLOB,
         created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-        updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-        source TEXT DEFAULT 'unknown'
+        updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
 
       -- FTS5 virtual table for full-text search
@@ -88,15 +87,15 @@ module Recollect
       @vectors_enabled
     end
 
-    def store(content:, memory_type: "note", tags: nil, metadata: nil, source: "unknown")
+    def store(content:, memory_type: "note", tags: nil, metadata: nil)
       raise ArgumentError, "content cannot be empty" if content.nil? || content.to_s.strip.empty?
 
       # Normalize tags to lowercase
       normalized_tags = tags&.map(&:downcase)
 
-      @db.execute(<<~SQL, [content, memory_type, json_encode(normalized_tags), json_encode(metadata), source])
-        INSERT INTO memories (content, memory_type, tags, metadata, source)
-        VALUES (?, ?, ?, ?, ?)
+      @db.execute(<<~SQL, [content, memory_type, json_encode(normalized_tags), json_encode(metadata)])
+        INSERT INTO memories (content, memory_type, tags, metadata)
+        VALUES (?, ?, ?, ?)
       SQL
       @db.last_insert_row_id
     end
@@ -321,7 +320,6 @@ module Recollect
         "metadata" => json_decode(row["metadata"]),
         "created_at" => row["created_at"],
         "updated_at" => row["updated_at"],
-        "source" => row["source"],
         "rank" => row["rank"]
       }.compact
     end

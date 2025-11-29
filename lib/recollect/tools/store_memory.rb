@@ -79,8 +79,7 @@ module Recollect
             content: content,
             project: project,
             memory_type: memory_type,
-            tags: tags || [],
-            source: "mcp"
+            tags: tags || []
           )
 
           location = memory["project"] ? "project '#{memory["project"]}'" : "global"

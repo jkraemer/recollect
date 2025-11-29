@@ -514,8 +514,7 @@ class DatabaseManagerTest < Recollect::TestCase
       content: "Test content",
       memory_type: "note",
       tags: [],
-      metadata: nil,
-      source: "test"
+      metadata: nil
     )
 
     # List projects should return the original name
@@ -558,8 +557,7 @@ class DatabaseManagerTest < Recollect::TestCase
       content: "Test content",
       memory_type: "note",
       tags: %w[test],
-      metadata: { key: "value" },
-      source: "test"
+      metadata: { key: "value" }
     )
 
     assert_kind_of Integer, id
@@ -573,8 +571,7 @@ class DatabaseManagerTest < Recollect::TestCase
       content: "Verify this content",
       memory_type: "decision",
       tags: %w[verify test],
-      metadata: { reason: "testing" },
-      source: "api"
+      metadata: { reason: "testing" }
     )
 
     db = @manager.get_database("store-verify")
@@ -583,7 +580,6 @@ class DatabaseManagerTest < Recollect::TestCase
     assert_equal "Verify this content", memory["content"]
     assert_equal "decision", memory["memory_type"]
     assert_equal %w[verify test], memory["tags"]
-    assert_equal "api", memory["source"]
   end
 
   # ========== Enqueue Embedding Tests ==========
