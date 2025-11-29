@@ -78,10 +78,9 @@ header h1 {
   font-weight: 500;
 }
 
-.type-decision { background: #3498db; color: white; }
-.type-pattern { background: #2ecc71; color: white; }
-.type-bug { background: #e74c3c; color: white; }
-.type-learning { background: #9b59b6; color: white; }
+.type-note { background: #3498db; color: white; }
+.type-todo { background: #e67e22; color: white; }
+.type-session { background: #16a085; color: white; }
 
 .project {
   color: #7f8c8d;
