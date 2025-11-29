@@ -2,4 +2,5 @@
 /coverage
 /.claude
 /.venv
+/.worktrees
 /bin/start-service
