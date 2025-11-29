@@ -11,6 +11,7 @@ module Recollect
         MEMORY TYPES:
         - note: General information, facts, context (default)
         - todo: Action items, tasks, reminders
+        - session: Session summaries and handoff notes
 
         TAGGING PHILOSOPHY:
         Use tags to add semantic meaning to your memories. Instead of memory types
@@ -55,7 +56,7 @@ module Recollect
           },
           memory_type: {
             type: "string",
-            enum: %w[note todo],
+            enum: %w[note todo session],
             description: "Type of memory (default: note)"
           },
           tags: {

@@ -140,4 +140,21 @@ class StoreMemoryTest < Recollect::TestCase
 
     assert_equal "todo", memory["memory_type"]
   end
+
+  def test_accepts_new_type_session
+    result = Recollect::Tools::StoreMemory.call(
+      content: "Session summary",
+      memory_type: "session",
+      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert response_data["success"]
+
+    db = @db_manager.get_database(nil)
+    memory = db.get(response_data["id"])
+
+    assert_equal "session", memory["memory_type"]
+  end
 end

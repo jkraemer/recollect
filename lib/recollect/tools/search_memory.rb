@@ -64,7 +64,7 @@ module Recollect
           },
           memory_type: {
             type: "string",
-            enum: %w[note todo],
+            enum: %w[note todo session],
             description: "Filter by memory type"
           },
           tags: {
