@@ -56,6 +56,9 @@ function displayMemories(memories) {
     return;
   }
 
+  const currentProject = getSelectedProject();
+  const showProjectLinks = currentProject === '__all__';
+
   memories.forEach(mem => {
     const card = document.createElement('div');
     card.className = 'memory-card';
@@ -66,10 +69,18 @@ function displayMemories(memories) {
       ? '<span class="embedding-pending" title="Pending embedding">⏳</span>'
       : '';
 
+    // Show project as link in "All Projects" view, hide in project views
+    let projectHtml = '';
+    if (showProjectLinks) {
+      const projectName = mem.project || 'global';
+      const projectValue = mem.project || '';
+      projectHtml = `<a href="#" class="project-link" data-project="${projectValue}">${projectName}</a>`;
+    }
+
     card.innerHTML = `
       <div class="memory-header">
         <span class="type type-${mem.memory_type}">${mem.memory_type}</span>
-        <span class="project">${mem.project || 'global'}</span>
+        ${projectHtml}
         ${embeddingIndicator}
         <span class="date">${formatDate(mem.created_at)}</span>
       </div>
@@ -156,6 +167,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       const id = e.target.dataset.id;
       const project = e.target.dataset.project;
       deleteMemory(id, project);
+    } else if (e.target.classList.contains('project-link')) {
+      e.preventDefault();
+      const project = e.target.dataset.project;
+      document.getElementById('projectFilter').value = project;
+      navigateToProject(project);
+      loadVectorStatus(project || null);
+      loadMemories(project || null, null);
     }
   });
 

@@ -86,6 +86,16 @@ header h1 {
   color: #7f8c8d;
 }
 
+.project-link {
+  color: #7f8c8d;
+  text-decoration: none;
+}
+
+.project-link:hover {
+  color: #3498db;
+  text-decoration: underline;
+}
+
 .date {
   color: #95a5a6;
   margin-left: auto;
