@@ -132,6 +132,44 @@ module Recollect
       assert_equal "no embedding", missing.first["content"]
     end
 
+    def test_list_includes_has_embedding_when_vectors_enabled
+      skip_unless_vec_extension_available
+
+      @db = Database.new(@db_path, load_vectors: true)
+      id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)
+      id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)
+
+      @db.store_embedding(id1, normalized_vector(384))
+
+      results = @db.list
+      mem_with = results.find { |m| m["id"] == id1 }
+      mem_without = results.find { |m| m["id"] == id2 }
+
+      assert mem_with["has_embedding"]
+      refute mem_without["has_embedding"]
+    end
+
+    def test_list_does_not_include_has_embedding_when_vectors_disabled
+      @db = Database.new(@db_path)
+      @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)
+
+      results = @db.list
+
+      refute results.first.key?("has_embedding")
+    end
+
+    def test_get_includes_has_embedding_when_vectors_enabled
+      skip_unless_vec_extension_available
+
+      @db = Database.new(@db_path, load_vectors: true)
+      id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)
+      @db.store_embedding(id, normalized_vector(384))
+
+      result = @db.get(id)
+
+      assert result["has_embedding"]
+    end
+
     private
 
     def skip_unless_vec_extension_available

@@ -1,5 +1,26 @@
 const API = '/api';
 
+let vectorsEnabled = false;
+
+async function loadVectorStatus() {
+  try {
+    const resp = await fetch(`${API}/vectors/status`);
+    const data = await resp.json();
+    const statusEl = document.getElementById('embeddingStatus');
+
+    if (data.enabled) {
+      vectorsEnabled = true;
+      statusEl.innerHTML = `🔢 Embeddings: <span class="count">${data.total_embeddings}/${data.total_memories}</span> (${data.coverage}%)`;
+      statusEl.style.display = 'block';
+    } else {
+      vectorsEnabled = false;
+      statusEl.style.display = 'none';
+    }
+  } catch (err) {
+    console.error('Failed to load vector status:', err);
+  }
+}
+
 async function loadMemories(project = null, query = null) {
   const params = new URLSearchParams();
   if (project) params.append('project', project);
@@ -32,10 +53,17 @@ function displayMemories(memories) {
     const card = document.createElement('div');
     card.className = 'memory-card';
     card.dataset.id = mem.id;
+
+    // Show embedding indicator only when vectors enabled and embedding is missing
+    const embeddingIndicator = (vectorsEnabled && mem.has_embedding === false)
+      ? '<span class="embedding-pending" title="Pending embedding">⏳</span>'
+      : '';
+
     card.innerHTML = `
       <div class="memory-header">
         <span class="type type-${mem.memory_type}">${mem.memory_type}</span>
         <span class="project">${mem.project || 'global'}</span>
+        ${embeddingIndicator}
         <span class="date">${formatDate(mem.created_at)}</span>
       </div>
       <div class="content">${escapeHtml(mem.content)}</div>
@@ -98,6 +126,7 @@ function navigateToProject(project) {
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', async () => {
+  await loadVectorStatus();
   await loadProjects();
 
   // Restore project from URL path

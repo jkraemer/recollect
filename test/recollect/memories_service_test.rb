@@ -381,4 +381,56 @@ class MemoriesServiceTest < Recollect::TestCase
 
     assert_equal 1, result["shared"]
   end
+
+  # ========== Embedding Status ==========
+
+  def test_list_does_not_include_has_embedding_when_vectors_disabled
+    skip_if_vectors_enabled
+
+    @service.create(content: "Test memory")
+
+    result = @service.list
+
+    refute result.first.key?("has_embedding"), "Should not include has_embedding when vectors disabled"
+  end
+
+  def test_list_includes_has_embedding_when_vectors_enabled
+    skip_unless_vectors_enabled
+
+    @service.create(content: "Test memory")
+
+    result = @service.list
+
+    assert result.first.key?("has_embedding"), "Should include has_embedding when vectors enabled"
+  end
+
+  def test_get_does_not_include_has_embedding_when_vectors_disabled
+    skip_if_vectors_enabled
+
+    created = @service.create(content: "Test memory")
+
+    result = @service.get(created["id"])
+
+    refute result.key?("has_embedding"), "Should not include has_embedding when vectors disabled"
+  end
+
+  def test_get_includes_has_embedding_when_vectors_enabled
+    skip_unless_vectors_enabled
+
+    created = @service.create(content: "Test memory")
+
+    result = @service.get(created["id"])
+
+    assert result.key?("has_embedding"), "Should include has_embedding when vectors enabled"
+  end
+
+  private
+
+  def skip_unless_vectors_enabled
+    skip "Vectors not enabled" unless @config.vectors_available?
+  end
+
+  def skip_if_vectors_enabled
+    skip "Vectors are enabled" if @config.vectors_available?
+  end
 end

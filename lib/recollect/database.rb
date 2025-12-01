@@ -101,7 +101,17 @@ module Recollect
     end
 
     def get(id)
-      row = @db.get_first_row("SELECT * FROM memories WHERE id = ?", id)
+      if @vectors_enabled
+        sql = <<~SQL
+          SELECT m.*, (v.rowid IS NOT NULL) as has_embedding
+          FROM memories m
+          LEFT JOIN vec_memories v ON v.rowid = m.id
+          WHERE m.id = ?
+        SQL
+        row = @db.get_first_row(sql, id)
+      else
+        row = @db.get_first_row("SELECT * FROM memories WHERE id = ?", id)
+      end
       deserialize(row)
     end
 
@@ -137,15 +147,19 @@ module Recollect
     end
 
     def list(memory_type: nil, limit: 50, offset: 0)
-      sql = "SELECT * FROM memories"
+      sql = if @vectors_enabled
+        +"SELECT m.*, (v.rowid IS NOT NULL) as has_embedding FROM memories m LEFT JOIN vec_memories v ON v.rowid = m.id"
+      else
+        +"SELECT * FROM memories"
+      end
       params = []
 
       if memory_type
-        sql += " WHERE memory_type = ?"
+        sql << (@vectors_enabled ? " WHERE m.memory_type = ?" : " WHERE memory_type = ?")
         params << memory_type
       end
 
-      sql += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+      sql << (@vectors_enabled ? " ORDER BY m.created_at DESC, m.id DESC LIMIT ? OFFSET ?" : " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")
       params.push(limit, offset)
 
       @db.execute(sql, params).map { |row| deserialize(row) }
@@ -312,7 +326,7 @@ module Recollect
     def deserialize(row)
       return nil unless row
 
-      {
+      result = {
         "id" => row["id"],
         "content" => row["content"],
         "memory_type" => row["memory_type"],
@@ -322,6 +336,11 @@ module Recollect
         "updated_at" => row["updated_at"],
         "rank" => row["rank"]
       }.compact
+
+      # Convert SQLite integer (0/1) to boolean if present
+      result["has_embedding"] = row["has_embedding"] == 1 if row.key?("has_embedding")
+
+      result
     end
 
     def deserialize_with_distance(row)
