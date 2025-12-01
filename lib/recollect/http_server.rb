@@ -67,7 +67,16 @@ module Recollect
         halt 400, json_response({error: "Invalid JSON"}, status_code: 400)
       end
 
-      def count_vectors_across_databases
+      def count_vectors_for_project(project)
+        if project == "__all__"
+          count_vectors_across_all_databases
+        else
+          db = db_manager.get_database(project)
+          [db.count, db.embedding_count]
+        end
+      end
+
+      def count_vectors_across_all_databases
         total_memories = 0
         total_embeddings = 0
 
@@ -111,12 +120,20 @@ module Recollect
 
     # List memories
     get "/api/memories" do
-      memories = memories_service.list(
-        project: params["project"],
-        memory_type: params["type"],
-        limit: (params["limit"] || 50).to_i,
-        offset: (params["offset"] || 0).to_i
-      )
+      project = params["project"]
+      limit = (params["limit"] || 50).to_i
+      memory_type = params["type"]
+
+      memories = if project == "__all__"
+        memories_service.list_all(memory_type: memory_type, limit: limit)
+      else
+        memories_service.list(
+          project: project,
+          memory_type: memory_type,
+          limit: limit,
+          offset: (params["offset"] || 0).to_i
+        )
+      end
       json_response(memories)
     end
 
@@ -186,7 +203,7 @@ module Recollect
 
     # List projects
     get "/api/projects" do
-      projects = memories_service.list_projects
+      projects = memories_service.list_projects.reject { |p| p == "__all__" }
       json_response({projects: projects, count: projects.length})
     end
 
@@ -210,14 +227,17 @@ module Recollect
       config = Recollect.config
 
       if config.vectors_available?
-        total_memories, total_embeddings = count_vectors_across_databases
+        project = params["project"]&.downcase
+        project = nil if project&.empty?
+
+        total_memories, total_embeddings = count_vectors_for_project(project)
 
         json_response({
           enabled: true,
           healthy: true,
           total_memories: total_memories,
           total_embeddings: total_embeddings,
-          coverage: total_memories.positive? ? (total_embeddings.to_f / total_memories * 100).round(1) : 0
+          pending: total_memories - total_embeddings
         })
       else
         json_response({

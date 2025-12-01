@@ -43,6 +43,21 @@ module Recollect
       memories
     end
 
+    def list_all(memory_type: nil, limit: 50)
+      results = []
+
+      # Global memories
+      results.concat(list(project: nil, memory_type: memory_type, limit: limit))
+
+      # All project memories
+      @db_manager.list_projects.each do |proj|
+        results.concat(list(project: proj, memory_type: memory_type, limit: limit))
+      end
+
+      # Sort by created_at DESC and apply limit
+      results.sort_by { |m| m["created_at"] || "" }.reverse.take(limit)
+    end
+
     def delete(id, project: nil)
       project = project&.downcase
       db = @db_manager.get_database(project)

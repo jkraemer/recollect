@@ -2,16 +2,23 @@ const API = '/api';
 
 let vectorsEnabled = false;
 
-async function loadVectorStatus() {
+async function loadVectorStatus(project = null) {
   try {
-    const resp = await fetch(`${API}/vectors/status`);
+    const params = new URLSearchParams();
+    if (project !== null) params.append('project', project);
+
+    const resp = await fetch(`${API}/vectors/status?${params}`);
     const data = await resp.json();
     const statusEl = document.getElementById('embeddingStatus');
 
     if (data.enabled) {
       vectorsEnabled = true;
-      statusEl.innerHTML = `🔢 Embeddings: <span class="count">${data.total_embeddings}/${data.total_memories}</span> (${data.coverage}%)`;
-      statusEl.style.display = 'block';
+      if (data.pending > 0) {
+        statusEl.innerHTML = `⏳ <span class="count">${data.pending}</span> memories pending embedding`;
+        statusEl.style.display = 'block';
+      } else {
+        statusEl.style.display = 'none';
+      }
     } else {
       vectorsEnabled = false;
       statusEl.style.display = 'none';
@@ -124,9 +131,13 @@ function navigateToProject(project) {
   window.history.replaceState({}, '', path);
 }
 
+function getSelectedProject() {
+  const value = document.getElementById('projectFilter').value;
+  return value || null;  // "" (global) becomes null, "__all__" stays "__all__"
+}
+
 // Event listeners
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadVectorStatus();
   await loadProjects();
 
   // Restore project from URL path
@@ -136,7 +147,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     projectFilter.value = savedProject;
   }
 
-  loadMemories(projectFilter.value || null);
+  const project = getSelectedProject();
+  await loadVectorStatus(project);
+  loadMemories(project);
 
   document.getElementById('memoriesList').addEventListener('click', (e) => {
     if (e.target.classList.contains('delete-btn')) {
@@ -148,8 +161,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('searchBtn').addEventListener('click', () => {
     const query = document.getElementById('searchBox').value;
-    const project = document.getElementById('projectFilter').value;
-    loadMemories(project || null, query || null);
+    const project = getSelectedProject();
+    loadMemories(project, query || null);
   });
 
   document.getElementById('searchBox').addEventListener('keypress', (e) => {
@@ -159,8 +172,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('projectFilter').addEventListener('change', () => {
-    const project = document.getElementById('projectFilter').value;
+    const project = getSelectedProject();
     navigateToProject(project);
-    loadMemories(project || null, null);
+    loadVectorStatus(project);
+    loadMemories(project, null);
   });
 });

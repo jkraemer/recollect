@@ -382,6 +382,33 @@ class MemoriesServiceTest < Recollect::TestCase
     assert_equal 1, result["shared"]
   end
 
+  # ========== List All Projects ==========
+
+  def test_list_all_returns_memories_from_all_projects
+    @service.create(content: "Global memory")
+    @service.create(content: "Project A memory", project: "project-a")
+    @service.create(content: "Project B memory", project: "project-b")
+
+    result = @service.list_all
+
+    assert_equal 3, result.length
+
+    projects = result.map { |m| m["project"] }
+
+    assert_includes projects, nil
+    assert_includes projects, "project_a"
+    assert_includes projects, "project_b"
+  end
+
+  def test_list_all_respects_limit
+    5.times { |i| @service.create(content: "Memory #{i}") }
+    3.times { |i| @service.create(content: "Project memory #{i}", project: "proj") }
+
+    result = @service.list_all(limit: 4)
+
+    assert_equal 4, result.length
+  end
+
   # ========== Embedding Status ==========
 
   def test_list_does_not_include_has_embedding_when_vectors_disabled
