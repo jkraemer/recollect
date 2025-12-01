@@ -132,6 +132,20 @@ module Recollect
       assert_equal "no embedding", missing.first["content"]
     end
 
+    def test_delete_removes_embedding
+      skip_unless_vec_extension_available
+
+      @db = Database.new(@db_path, load_vectors: true)
+      id = @db.store(content: "will be deleted", memory_type: "note", tags: [], metadata: nil)
+      @db.store_embedding(id, normalized_vector(384))
+
+      assert_equal 1, @db.embedding_count
+
+      @db.delete(id)
+
+      assert_equal 0, @db.embedding_count
+    end
+
     def test_list_includes_has_embedding_when_vectors_enabled
       skip_unless_vec_extension_available
 

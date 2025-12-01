@@ -166,6 +166,7 @@ module Recollect
     end
 
     def delete(id) # rubocop:disable Naming/PredicateMethod
+      @db.execute("DELETE FROM vec_memories WHERE rowid = ?", id) if @vectors_enabled
       @db.execute("DELETE FROM memories WHERE id = ?", id)
       @db.changes.positive?
     end
