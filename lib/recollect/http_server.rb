@@ -142,9 +142,10 @@ module Recollect
       query = params["q"]
       halt 400, json_response({error: 'Query parameter "q" required'}, status_code: 400) unless query
 
+      project = (params["project"] == "__all__") ? nil : params["project"]
       criteria = SearchCriteria.new(
         query: query,
-        project: params["project"],
+        project: project,
         memory_type: params["type"],
         limit: (params["limit"] || 10).to_i
       )
@@ -159,10 +160,11 @@ module Recollect
       halt 400, json_response({error: 'Query parameter "tags" required'}, status_code: 400) unless tags_param
 
       tags = tags_param.split(",").map(&:strip)
+      project = (params["project"] == "__all__") ? nil : params["project"]
 
       criteria = SearchCriteria.new(
         query: tags,
-        project: params["project"],
+        project: project,
         memory_type: params["memory_type"],
         limit: (params["limit"] || 10).to_i
       )

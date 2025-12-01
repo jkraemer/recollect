@@ -295,6 +295,36 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal "Both decision and threading", data["results"][0]["content"]
   end
 
+  def test_get_api_memories_by_tags_with_all_projects
+    # Create memories with the same tag in different projects
+    post "/api/memories", {
+      content: "Global tagged memory",
+      tags: %w[important]
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Project A tagged memory",
+      tags: %w[important],
+      project: "tag-project-a"
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "Project B tagged memory",
+      tags: %w[important],
+      project: "tag-project-b"
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    # Search across all projects
+    get "/api/memories/by-tags", tags: "important", project: "__all__"
+
+    assert_predicate last_response, :ok?
+
+    data = JSON.parse(last_response.body)
+
+    # Should find all 3 memories
+    assert_equal 3, data["count"], "Expected 3 results from all projects, got #{data["count"]}"
+  end
+
   # ========== Vector Search API Tests ==========
 
   # Test vectors/status when vectors disabled (default)
@@ -380,6 +410,26 @@ class HTTPServerTest < Recollect::TestCase
     ensure
       FileUtils.mv(backup_path, index_path) if had_file
     end
+  end
+
+  # Test search across all projects with __all__
+  def test_search_with_all_projects_returns_results_from_multiple_projects
+    # Create memories in different projects
+    post "/api/memories", {content: "Global memory about search"}.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Project A memory about search", project: "project-a"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Project B memory about search", project: "project-b"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    # Search across all projects
+    get "/api/memories/search", q: "search", project: "__all__"
+
+    assert_predicate last_response, :ok?
+
+    data = JSON.parse(last_response.body)
+
+    # Should find all 3 memories
+    assert_equal 3, data["count"], "Expected 3 results from all projects, got #{data["count"]}"
   end
 
   # Test search with project parameter
