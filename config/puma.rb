@@ -2,10 +2,11 @@
 
 require_relative "../lib/recollect"
 
-# Workers (processes)
-workers ENV.fetch("WEB_CONCURRENCY", 2).to_i
+# Single process mode (no forking) - shares one EmbeddingClient/Python process
+# Set WEB_CONCURRENCY > 0 to enable clustered mode if needed
+workers ENV.fetch("WEB_CONCURRENCY", 0).to_i
 
-# Threads per worker
+# Threads per worker - handles concurrent requests
 threads_count = ENV.fetch("PUMA_MAX_THREADS", 5).to_i
 threads threads_count, threads_count
 

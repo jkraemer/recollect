@@ -12,6 +12,10 @@ module Recollect
       yield config
     end
 
+    def embedding_client
+      @embedding_client ||= EmbeddingClient.new
+    end
+
     def root
       Pathname.new(__dir__).parent
     end

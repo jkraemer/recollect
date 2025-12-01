@@ -100,7 +100,6 @@ module Recollect
 
     def close_all
       @embedding_worker&.stop
-      @embedding_client&.shutdown
 
       @mutex.synchronize do
         @databases.each_value(&:close)
@@ -199,7 +198,7 @@ module Recollect
     end
 
     def embedding_client
-      @embedding_client ||= EmbeddingClient.new
+      Recollect.embedding_client
     end
 
     def vectors_ready?
