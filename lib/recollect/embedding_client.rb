@@ -30,7 +30,7 @@ module Recollect
 
       @mutex.synchronize do
         ensure_process_running!
-        send_request({ texts: texts })
+        send_request({texts: texts})
       end
     end
 
@@ -38,7 +38,7 @@ module Recollect
       @mutex.synchronize do
         return false unless process_alive?
 
-        send_request({ ping: true }, timeout: 5)
+        send_request({ping: true}, timeout: 5)
         true
       end
     rescue EmbeddingError

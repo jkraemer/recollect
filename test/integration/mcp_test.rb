@@ -135,7 +135,7 @@ class MCPIntegrationTest < Recollect::TestCase
   # Test delete via MCP
   def test_delete_via_mcp
     # Create via HTTP
-    post "/api/memories", { content: "To be deleted via MCP" }.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "To be deleted via MCP"}.to_json, "CONTENT_TYPE" => "application/json"
     created = JSON.parse(last_response.body)
     memory_id = created["id"]
 
@@ -145,7 +145,7 @@ class MCPIntegrationTest < Recollect::TestCase
       method: "tools/call",
       params: {
         name: "delete_memory",
-        arguments: { id: memory_id }
+        arguments: {id: memory_id}
       },
       id: 4
     }
@@ -179,7 +179,7 @@ class MCPIntegrationTest < Recollect::TestCase
       method: "tools/call",
       params: {
         name: "get_context",
-        arguments: { project: "context-test-project" }
+        arguments: {project: "context-test-project"}
       },
       id: 5
     }

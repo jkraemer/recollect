@@ -31,7 +31,7 @@ module Recollect
     def enqueue(memory_id:, content:, project:)
       return unless @running
 
-      @queue << { memory_id: memory_id, content: content, project: project }
+      @queue << {memory_id: memory_id, content: content, project: project}
     end
 
     def queue_size
@@ -49,7 +49,7 @@ module Recollect
         batch = collect_batch
         process_batch(batch) unless batch.empty?
       end
-    rescue StandardError => e
+    rescue => e
       warn "[EmbeddingWorker] Worker loop crashed: #{e.message}"
     end
 
@@ -89,7 +89,7 @@ module Recollect
     def store_embedding(item, embedding)
       db = @db_manager.get_database(item[:project])
       db.store_embedding(item[:memory_id], embedding)
-    rescue StandardError => e
+    rescue => e
       warn "[EmbeddingWorker] Failed to store embedding for ##{item[:memory_id]}: #{e.message}"
     end
 
@@ -105,7 +105,7 @@ module Recollect
         end
       end
       warn "[EmbeddingWorker] Recovering #{total} missing embeddings" if total.positive?
-    rescue StandardError => e
+    rescue => e
       warn "[EmbeddingWorker] Recovery failed: #{e.message}"
     end
   end

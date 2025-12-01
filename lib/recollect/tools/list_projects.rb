@@ -15,12 +15,12 @@ module Recollect
           projects = service.list_projects
 
           MCP::Tool::Response.new([{
-                                    type: "text",
-                                    text: JSON.generate({
-                                                          projects: projects,
-                                                          count: projects.length
-                                                        })
-                                  }])
+            type: "text",
+            text: JSON.generate({
+              projects: projects,
+              count: projects.length
+            })
+          }])
         end
       end
     end

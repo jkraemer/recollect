@@ -40,10 +40,10 @@ module Recollect
 
     def search_all(criteria)
       results = if criteria.project?
-                  search_project(criteria)
-                else
-                  search_all_projects(criteria)
-                end
+        search_project(criteria)
+      else
+        search_all_projects(criteria)
+      end
 
       # Sort by relevance (rank) and limit
       results.sort_by { |m| m["rank"] || 0 }.take(criteria.limit)
@@ -51,10 +51,10 @@ module Recollect
 
     def search_by_tags(criteria)
       results = if criteria.project?
-                  search_project_by_tags(criteria)
-                else
-                  search_all_projects_by_tags(criteria)
-                end
+        search_project_by_tags(criteria)
+      else
+        search_all_projects_by_tags(criteria)
+      end
 
       # Sort by created_at DESC and limit
       results.sort_by { |m| m["created_at"] || "" }.reverse.take(criteria.limit)
@@ -81,7 +81,7 @@ module Recollect
       vec_results = vector_search_all(embedding, expanded_criteria)
 
       # Merge and rank
-      merge_hybrid_results(fts_results, vec_results, criteria.limit)
+      HybridSearchRanker.merge(fts_results, vec_results, limit: criteria.limit)
     end
 
     def list_projects
@@ -118,9 +118,9 @@ module Recollect
       project = criteria.project&.downcase
       db = get_database(project)
       memories = db.search(criteria.query,
-                           memory_type: criteria.memory_type,
-                           limit: criteria.limit,
-                           **criteria.date_opts)
+        memory_type: criteria.memory_type,
+        limit: criteria.limit,
+        **criteria.date_opts)
       memories.each { |m| m["project"] = project }
       memories
     end
@@ -143,9 +143,9 @@ module Recollect
       project = criteria.project&.downcase
       db = get_database(project)
       memories = db.search_by_tags(criteria.query,
-                                   memory_type: criteria.memory_type,
-                                   limit: criteria.limit,
-                                   **criteria.date_opts)
+        memory_type: criteria.memory_type,
+        limit: criteria.limit,
+        **criteria.date_opts)
       memories.each { |m| m["project"] = project }
       memories
     end
@@ -230,43 +230,6 @@ module Recollect
         end
       end
       results
-    end
-
-    def merge_hybrid_results(fts_results, vec_results, limit)
-      scores = {}
-      score_fts_results(fts_results, scores)
-      score_vector_results(vec_results, scores)
-      combine_and_sort_scores(scores, limit)
-    end
-
-    def score_fts_results(fts_results, scores)
-      max_rank = fts_results.map { |m| (m["rank"] || 0).abs }.max
-      max_rank = 1.0 if max_rank.nil? || max_rank.zero?
-      fts_results.each do |mem|
-        normalized = (mem["rank"] || 0).abs / max_rank
-        scores[mem["id"]] = { memory: mem, fts_score: normalized, vec_score: 0.0 }
-      end
-    end
-
-    def score_vector_results(vec_results, scores)
-      max_distance = vec_results.map { |m| m["distance"] || 0 }.max
-      max_distance = 1.0 if max_distance.nil? || max_distance.zero?
-      vec_results.each do |mem|
-        normalized = 1.0 - ((mem["distance"] || 0) / max_distance)
-        if scores[mem["id"]]
-          scores[mem["id"]][:vec_score] = normalized
-        else
-          scores[mem["id"]] = { memory: mem, fts_score: 0.0, vec_score: normalized }
-        end
-      end
-    end
-
-    def combine_and_sort_scores(scores, limit)
-      scored = scores.values.map do |entry|
-        combined = (entry[:fts_score] * 0.6) + (entry[:vec_score] * 0.4)
-        entry[:memory].merge("combined_score" => combined)
-      end
-      scored.sort_by { |m| -m["combined_score"] }.take(limit)
     end
   end
 end

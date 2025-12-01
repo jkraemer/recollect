@@ -23,7 +23,7 @@ group :development, :test do
   gem "pry"
   gem "rack-test", "~> 2.1"
   gem "rake"
-  gem "rubocop", "~> 1.69", require: false
+  gem "standard", "~> 1.44", require: false
   gem "rubocop-minitest", "~> 0.36", require: false
   gem "rubocop-rake", "~> 0.6", require: false
   gem "simplecov", "~> 0.22", require: false

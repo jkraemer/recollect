@@ -53,8 +53,8 @@ module Recollect
         properties: {
           query: {
             oneOf: [
-              { type: "string" },
-              { type: "array", items: { type: "string" } }
+              {type: "string"},
+              {type: "array", items: {type: "string"}}
             ],
             description: "Search query: string for phrase search, or array of terms for AND search"
           },
@@ -69,7 +69,7 @@ module Recollect
           },
           tags: {
             type: "array",
-            items: { type: "string" },
+            items: {type: "string"},
             description: "Filter by tags (AND logic - memory must have all specified tags)"
           },
           limit: {
@@ -92,20 +92,20 @@ module Recollect
       class << self
         # rubocop:disable Metrics/ParameterLists
         def call(query:, server_context:, project: nil, memory_type: nil, tags: nil, limit: 10,
-                 created_after: nil, created_before: nil)
+          created_after: nil, created_before: nil)
           service = server_context[:memories_service]
           tag_search = tags && !tags.empty?
           criteria = build_criteria(query, tags, project:, memory_type:, limit:, created_after:, created_before:)
           results = perform_search(service, criteria, tag_search: tag_search)
 
           MCP::Tool::Response.new([{
-                                    type: "text",
-                                    text: JSON.generate({
-                                                          results: results,
-                                                          count: results.length,
-                                                          query: query
-                                                        })
-                                  }])
+            type: "text",
+            text: JSON.generate({
+              results: results,
+              count: results.length,
+              query: query
+            })
+          }])
         end
         # rubocop:enable Metrics/ParameterLists
 
@@ -113,7 +113,7 @@ module Recollect
 
         def build_criteria(query, tags, **)
           # Use tags as query if searching by tags, otherwise use text query
-          search_query = tags && !tags.empty? ? tags : query
+          search_query = (tags && !tags.empty?) ? tags : query
           SearchCriteria.new(query: search_query, **)
         end
 

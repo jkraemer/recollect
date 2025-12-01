@@ -28,13 +28,13 @@ module Recollect
           success = service.delete(id, project: project)
 
           MCP::Tool::Response.new([{
-                                    type: "text",
-                                    text: JSON.generate({
-                                                          success: success,
-                                                          deleted_id: success ? id : nil,
-                                                          message: success ? "Memory deleted" : "Memory not found"
-                                                        })
-                                  }])
+            type: "text",
+            text: JSON.generate({
+              success: success,
+              deleted_id: success ? id : nil,
+              message: success ? "Memory deleted" : "Memory not found"
+            })
+          }])
         end
       end
     end

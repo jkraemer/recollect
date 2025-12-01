@@ -20,7 +20,7 @@ class DeleteMemoryTest < Recollect::TestCase
 
     result = Recollect::Tools::DeleteMemory.call(
       id: id,
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     assert_kind_of MCP::Tool::Response, result
@@ -41,7 +41,7 @@ class DeleteMemoryTest < Recollect::TestCase
     result = Recollect::Tools::DeleteMemory.call(
       id: id,
       project: "delete-project",
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -53,7 +53,7 @@ class DeleteMemoryTest < Recollect::TestCase
   def test_returns_failure_for_missing_id
     result = Recollect::Tools::DeleteMemory.call(
       id: 99_999,
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     response_data = JSON.parse(result.content.first[:text])

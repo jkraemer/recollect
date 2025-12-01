@@ -19,7 +19,7 @@ module Recollect
 
     # Returns date filter options as a hash for passing to Database methods
     def date_opts
-      { created_after:, created_before: }
+      {created_after:, created_before:}
     end
 
     # Returns true if a query is present (non-nil, non-empty)

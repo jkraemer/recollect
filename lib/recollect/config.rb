@@ -6,15 +6,15 @@ require "json"
 module Recollect
   class Config
     attr_accessor :data_dir, :host, :port, :max_results,
-                  :enable_vectors, :vector_dimensions, :embed_server_script_path,
-                  :log_wiredumps
+      :enable_vectors, :vector_dimensions, :embed_server_script_path,
+      :log_wiredumps
 
     VECTOR_DIMENSIONS = 384 # all-MiniLM-L6-v2
     TRUTHY_VALUES = %w[true 1 yes on].freeze
 
     def initialize
       @data_dir = Pathname.new(ENV.fetch("RECOLLECT_DATA_DIR",
-                                         File.join(Dir.home, ".recollect")))
+        File.join(Dir.home, ".recollect")))
       @host = ENV.fetch("RECOLLECT_HOST", "127.0.0.1")
       @port = ENV.fetch("RECOLLECT_PORT", "7326").to_i
       @max_results = 100
@@ -30,8 +30,8 @@ module Recollect
       ensure_directories!
     end
 
-    alias log_wiredumps? log_wiredumps
-    alias enable_vectors? enable_vectors
+    alias_method :log_wiredumps?, :log_wiredumps
+    alias_method :enable_vectors?, :enable_vectors
 
     def global_db_path
       data_dir.join("global.db")
@@ -67,14 +67,14 @@ module Recollect
         "Vector embeddings: enabled"
       else
         reason = if !enable_vectors?
-                   "ENABLE_VECTORS not set"
-                 elsif !vec_extension_path
-                   "sqlite-vec extension not found"
-                 elsif !File.executable?(embed_server_script_path)
-                   "embed script not executable"
-                 else
-                   "unknown reason"
-                 end
+          "ENABLE_VECTORS not set"
+        elsif !vec_extension_path
+          "sqlite-vec extension not found"
+        elsif !File.executable?(embed_server_script_path)
+          "embed script not executable"
+        else
+          "unknown reason"
+        end
         "Vector embeddings: disabled (#{reason})"
       end
     end

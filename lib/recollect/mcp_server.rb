@@ -19,7 +19,7 @@ module Recollect
           name: "recollect",
           version: Recollect::VERSION,
           tools: TOOLS,
-          server_context: { db_manager: db_manager, memories_service: memories_service }
+          server_context: {db_manager: db_manager, memories_service: memories_service}
         )
       end
     end

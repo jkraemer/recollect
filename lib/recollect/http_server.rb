@@ -64,7 +64,7 @@ module Recollect
         request.body.rewind
         JSON.parse(request.body.read)
       rescue JSON::ParserError
-        halt 400, json_response({ error: "Invalid JSON" }, status_code: 400)
+        halt 400, json_response({error: "Invalid JSON"}, status_code: 400)
       end
 
       def count_vectors_across_databases
@@ -96,7 +96,7 @@ module Recollect
 
     # Health check
     get "/health" do
-      json_response({ status: "healthy", version: Recollect::VERSION })
+      json_response({status: "healthy", version: Recollect::VERSION})
     end
 
     # MCP endpoint (with and without trailing slash)
@@ -123,7 +123,7 @@ module Recollect
     # Search memories (uses hybrid search when vectors available)
     get "/api/memories/search" do
       query = params["q"]
-      halt 400, json_response({ error: 'Query parameter "q" required' }, status_code: 400) unless query
+      halt 400, json_response({error: 'Query parameter "q" required'}, status_code: 400) unless query
 
       criteria = SearchCriteria.new(
         query: query,
@@ -133,13 +133,13 @@ module Recollect
       )
       results = memories_service.search(criteria)
 
-      json_response({ results: results, count: results.length, query: query })
+      json_response({results: results, count: results.length, query: query})
     end
 
     # Search by tags
     get "/api/memories/by-tags" do
       tags_param = params["tags"]
-      halt 400, json_response({ error: 'Query parameter "tags" required' }, status_code: 400) unless tags_param
+      halt 400, json_response({error: 'Query parameter "tags" required'}, status_code: 400) unless tags_param
 
       tags = tags_param.split(",").map(&:strip)
 
@@ -151,13 +151,13 @@ module Recollect
       )
       results = memories_service.search_by_tags(criteria)
 
-      json_response({ results: results, count: results.length, tags: tags })
+      json_response({results: results, count: results.length, tags: tags})
     end
 
     # Get single memory
     get "/api/memories/:id" do
       memory = memories_service.get(params["id"].to_i, project: params["project"])
-      halt 404, json_response({ error: "Memory not found" }, status_code: 404) unless memory
+      halt 404, json_response({error: "Memory not found"}, status_code: 404) unless memory
 
       json_response(memory)
     end
@@ -179,15 +179,15 @@ module Recollect
     # Delete memory
     delete "/api/memories/:id" do
       success = memories_service.delete(params["id"].to_i, project: params["project"])
-      halt 404, json_response({ error: "Memory not found" }, status_code: 404) unless success
+      halt 404, json_response({error: "Memory not found"}, status_code: 404) unless success
 
-      json_response({ deleted: params["id"].to_i })
+      json_response({deleted: params["id"].to_i})
     end
 
     # List projects
     get "/api/projects" do
       projects = memories_service.list_projects
-      json_response({ projects: projects, count: projects.length })
+      json_response({projects: projects, count: projects.length})
     end
 
     # Tag statistics
@@ -200,7 +200,7 @@ module Recollect
       total = tags.values.sum
       unique = tags.size
 
-      json_response({ tags: tags, total: total, unique: unique })
+      json_response({tags: tags, total: total, unique: unique})
     end
 
     # ========== Vector Search API ==========
@@ -213,24 +213,24 @@ module Recollect
         total_memories, total_embeddings = count_vectors_across_databases
 
         json_response({
-                        enabled: true,
-                        healthy: true,
-                        total_memories: total_memories,
-                        total_embeddings: total_embeddings,
-                        coverage: total_memories.positive? ? (total_embeddings.to_f / total_memories * 100).round(1) : 0
-                      })
+          enabled: true,
+          healthy: true,
+          total_memories: total_memories,
+          total_embeddings: total_embeddings,
+          coverage: total_memories.positive? ? (total_embeddings.to_f / total_memories * 100).round(1) : 0
+        })
       else
         json_response({
-                        enabled: false,
-                        reason: determine_vector_unavailable_reason
-                      })
+          enabled: false,
+          reason: determine_vector_unavailable_reason
+        })
       end
     end
 
     # Backfill embeddings for existing memories
     post "/api/vectors/backfill" do
       unless Recollect.config.vectors_available?
-        halt 400, json_response({ error: "Vector search not enabled" }, status_code: 400)
+        halt 400, json_response({error: "Vector search not enabled"}, status_code: 400)
       end
 
       project = params["project"]&.downcase
@@ -248,10 +248,10 @@ module Recollect
       end
 
       json_response({
-                      success: true,
-                      queued: pending.length,
-                      message: "Queued #{pending.length} memories for embedding generation"
-                    })
+        success: true,
+        queued: pending.length,
+        message: "Queued #{pending.length} memories for embedding generation"
+      })
     end
 
     # Serve Web UI
@@ -271,13 +271,13 @@ module Recollect
       if File.exist?(index_path)
         send_file index_path
       else
-        halt 404, json_response({ error: "Web UI not installed" }, status_code: 404)
+        halt 404, json_response({error: "Web UI not installed"}, status_code: 404)
       end
     end
 
     # Error handling
     error do
-      json_response({ error: env["sinatra.error"].message }, status_code: 500)
+      json_response({error: env["sinatra.error"].message}, status_code: 500)
     end
   end
 end

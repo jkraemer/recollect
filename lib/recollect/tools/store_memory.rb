@@ -61,7 +61,7 @@ module Recollect
           },
           tags: {
             type: "array",
-            items: { type: "string" },
+            items: {type: "string"},
             description: "Tags for categorization (e.g., decision, pattern, bug, learning)"
           },
           project: {
@@ -86,14 +86,14 @@ module Recollect
           location = memory["project"] ? "project '#{memory["project"]}'" : "global"
 
           MCP::Tool::Response.new([{
-                                    type: "text",
-                                    text: JSON.generate({
-                                                          success: true,
-                                                          id: memory["id"],
-                                                          stored_in: location,
-                                                          message: "Memory stored successfully in #{location}"
-                                                        })
-                                  }])
+            type: "text",
+            text: JSON.generate({
+              success: true,
+              id: memory["id"],
+              stored_in: location,
+              message: "Memory stored successfully in #{location}"
+            })
+          }])
         end
       end
     end

@@ -24,7 +24,7 @@ class GetContextTest < Recollect::TestCase
   def test_returns_project_context
     result = Recollect::Tools::GetContext.call(
       project: "context-project",
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     assert_kind_of MCP::Tool::Response, result
@@ -38,7 +38,7 @@ class GetContextTest < Recollect::TestCase
   def test_returns_memories_by_type
     result = Recollect::Tools::GetContext.call(
       project: "context-project",
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     response_data = JSON.parse(result.content.first[:text])
@@ -52,7 +52,7 @@ class GetContextTest < Recollect::TestCase
   def test_returns_recent_memories
     result = Recollect::Tools::GetContext.call(
       project: "context-project",
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     response_data = JSON.parse(result.content.first[:text])

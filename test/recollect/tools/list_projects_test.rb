@@ -16,7 +16,7 @@ class ListProjectsTest < Recollect::TestCase
 
   def test_returns_empty_list_initially
     result = Recollect::Tools::ListProjects.call(
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     assert_kind_of MCP::Tool::Response, result
@@ -32,7 +32,7 @@ class ListProjectsTest < Recollect::TestCase
     @db_manager.get_database("project-b").store(content: "Test")
 
     result = Recollect::Tools::ListProjects.call(
-      server_context: { db_manager: @db_manager, memories_service: @memories_service }
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
     response_data = JSON.parse(result.content.first[:text])

@@ -27,14 +27,14 @@ class DatabaseTest < Recollect::TestCase
       content: "Test",
       memory_type: "decision",
       tags: %w[ruby test],
-      metadata: { key: "value" }
+      metadata: {key: "value"}
     )
 
     memory = @db.get(id)
 
     assert_equal "decision", memory["memory_type"]
     assert_equal %w[ruby test], memory["tags"]
-    assert_equal({ "key" => "value" }, memory["metadata"])
+    assert_equal({"key" => "value"}, memory["metadata"])
   end
 
   # Test get returns nil for non-existent id

@@ -45,7 +45,7 @@ module Recollect
       else
         say @pastel.red("Error: #{response.message}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -70,7 +70,7 @@ module Recollect
       else
         say @pastel.red("Error: #{response.message}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -93,7 +93,7 @@ module Recollect
       else
         say @pastel.red("Error: #{response.message}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -114,7 +114,7 @@ module Recollect
       else
         say @pastel.red("Error: #{response.message}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -136,7 +136,7 @@ module Recollect
       else
         say @pastel.red("Error: #{response.message}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -161,7 +161,7 @@ module Recollect
       else
         say @pastel.red("Error: #{response.message}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -175,7 +175,7 @@ module Recollect
       else
         say @pastel.red("Server is not responding")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Server unreachable: #{e.message}")
     end
 
@@ -198,7 +198,7 @@ module Recollect
       else
         say @pastel.red("Error: #{response.message}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -219,12 +219,12 @@ module Recollect
       else
         error = begin
           JSON.parse(response.body)["error"]
-        rescue StandardError
+        rescue
           response.message
         end
         say @pastel.red("Error: #{error}")
       end
-    rescue StandardError => e
+    rescue => e
       say @pastel.red("Error: #{e.message}")
     end
 
@@ -274,7 +274,7 @@ module Recollect
     def truncate(text, length)
       return "" unless text
 
-      text.length > length ? "#{text[0...length]}..." : text
+      (text.length > length) ? "#{text[0...length]}..." : text
     end
 
     def display_tags(tags, top_n)

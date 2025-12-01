@@ -51,15 +51,15 @@ module Recollect
           normalized_project = memories.first&.dig("project") || project&.downcase
 
           MCP::Tool::Response.new([{
-                                    type: "text",
-                                    text: JSON.generate({
-                                                          project: normalized_project,
-                                                          total_memories: memories.length,
-                                                          recent_count: recent.length,
-                                                          by_type: by_type.transform_values(&:length),
-                                                          recent_memories: recent.take(20)
-                                                        })
-                                  }])
+            type: "text",
+            text: JSON.generate({
+              project: normalized_project,
+              total_memories: memories.length,
+              recent_count: recent.length,
+              by_type: by_type.transform_values(&:length),
+              recent_memories: recent.take(20)
+            })
+          }])
         end
       end
     end

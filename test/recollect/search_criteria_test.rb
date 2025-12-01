@@ -56,7 +56,7 @@ class SearchCriteriaTest < Recollect::TestCase
       created_before: "2025-06-01"
     )
 
-    expected = { created_after: "2025-01-01", created_before: "2025-06-01" }
+    expected = {created_after: "2025-01-01", created_before: "2025-06-01"}
 
     assert_equal expected, criteria.date_opts
   end
@@ -65,7 +65,7 @@ class SearchCriteriaTest < Recollect::TestCase
   def test_date_opts_with_nil_values
     criteria = Recollect::SearchCriteria.new(query: "test")
 
-    expected = { created_after: nil, created_before: nil }
+    expected = {created_after: nil, created_before: nil}
 
     assert_equal expected, criteria.date_opts
   end

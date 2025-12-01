@@ -45,7 +45,7 @@ class HTTPServerTest < Recollect::TestCase
 
   def test_list_memories_with_project
     # Create a memory in a project first
-    post "/api/memories", { content: "Test", project: "http-test" }.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Test", project: "http-test"}.to_json, "CONTENT_TYPE" => "application/json"
 
     get "/api/memories", project: "http-test"
 
@@ -69,7 +69,7 @@ class HTTPServerTest < Recollect::TestCase
 
   def test_search_returns_results
     # Create searchable memory
-    post "/api/memories", { content: "Ruby threading patterns" }.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Ruby threading patterns"}.to_json, "CONTENT_TYPE" => "application/json"
 
     get "/api/memories/search", q: "threading"
 
@@ -90,7 +90,7 @@ class HTTPServerTest < Recollect::TestCase
 
   def test_get_memory_returns_memory
     # Create a memory
-    post "/api/memories", { content: "Get test" }.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Get test"}.to_json, "CONTENT_TYPE" => "application/json"
     created = JSON.parse(last_response.body)
 
     get "/api/memories/#{created["id"]}"
@@ -104,7 +104,7 @@ class HTTPServerTest < Recollect::TestCase
 
   # Create memory
   def test_create_memory_returns_201
-    post "/api/memories", { content: "New memory" }.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "New memory"}.to_json, "CONTENT_TYPE" => "application/json"
 
     assert_equal 201, last_response.status
 
@@ -133,7 +133,7 @@ class HTTPServerTest < Recollect::TestCase
   # Delete memory
   def test_delete_memory_succeeds
     # Create first
-    post "/api/memories", { content: "To delete" }.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "To delete"}.to_json, "CONTENT_TYPE" => "application/json"
     created = JSON.parse(last_response.body)
 
     delete "/api/memories/#{created["id"]}"
@@ -338,8 +338,8 @@ class HTTPServerTest < Recollect::TestCase
 
   # Test vectors/backfill with project parameter (still returns 400 when disabled)
   def test_vectors_backfill_with_project_returns_400_when_disabled
-    post "/api/vectors/backfill", { project: "test-project", limit: 50 }.to_json,
-         "CONTENT_TYPE" => "application/json"
+    post "/api/vectors/backfill", {project: "test-project", limit: 50}.to_json,
+      "CONTENT_TYPE" => "application/json"
 
     assert_equal 400, last_response.status
 
@@ -385,9 +385,9 @@ class HTTPServerTest < Recollect::TestCase
   # Test search with project parameter
   def test_search_with_project_filter
     # Create memories in different places
-    post "/api/memories", { content: "Global memory about Ruby" }.to_json, "CONTENT_TYPE" => "application/json"
-    post "/api/memories", { content: "Project memory about Ruby", project: "search-project" }.to_json,
-         "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Global memory about Ruby"}.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Project memory about Ruby", project: "search-project"}.to_json,
+      "CONTENT_TYPE" => "application/json"
 
     # Search only in project
     get "/api/memories/search", q: "Ruby", project: "search-project"
@@ -403,10 +403,10 @@ class HTTPServerTest < Recollect::TestCase
 
   # Test search with memory_type filter
   def test_search_with_type_filter
-    post "/api/memories", { content: "A note about Ruby", memory_type: "note" }.to_json,
-         "CONTENT_TYPE" => "application/json"
-    post "/api/memories", { content: "A decision about Ruby", memory_type: "decision" }.to_json,
-         "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "A note about Ruby", memory_type: "note"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "A decision about Ruby", memory_type: "decision"}.to_json,
+      "CONTENT_TYPE" => "application/json"
 
     get "/api/memories/search", q: "Ruby", type: "note"
 
@@ -421,7 +421,7 @@ class HTTPServerTest < Recollect::TestCase
   # Test search with limit parameter
   def test_search_respects_limit_parameter
     5.times do |i|
-      post "/api/memories", { content: "Memory #{i} about patterns" }.to_json, "CONTENT_TYPE" => "application/json"
+      post "/api/memories", {content: "Memory #{i} about patterns"}.to_json, "CONTENT_TYPE" => "application/json"
     end
 
     get "/api/memories/search", q: "patterns", limit: "2"
@@ -446,9 +446,9 @@ class HTTPServerTest < Recollect::TestCase
 
   # Test list memories with type filter
   def test_list_memories_with_type_filter
-    post "/api/memories", { content: "A note", memory_type: "note" }.to_json, "CONTENT_TYPE" => "application/json"
-    post "/api/memories", { content: "A decision", memory_type: "decision" }.to_json,
-         "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "A note", memory_type: "note"}.to_json, "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "A decision", memory_type: "decision"}.to_json,
+      "CONTENT_TYPE" => "application/json"
 
     get "/api/memories", type: "note"
 
@@ -462,7 +462,7 @@ class HTTPServerTest < Recollect::TestCase
 
   # Test list memories with limit and offset
   def test_list_memories_with_pagination
-    5.times { |i| post "/api/memories", { content: "Memory #{i}" }.to_json, "CONTENT_TYPE" => "application/json" }
+    5.times { |i| post "/api/memories", {content: "Memory #{i}"}.to_json, "CONTENT_TYPE" => "application/json" }
 
     get "/api/memories", limit: "2", offset: "2"
 
@@ -476,8 +476,8 @@ class HTTPServerTest < Recollect::TestCase
   # Test get memory with project parameter
   def test_get_memory_with_project_returns_project_field
     # Create a memory in a project
-    post "/api/memories", { content: "Project memory", project: "get-project" }.to_json,
-         "CONTENT_TYPE" => "application/json"
+    post "/api/memories", {content: "Project memory", project: "get-project"}.to_json,
+      "CONTENT_TYPE" => "application/json"
     created = JSON.parse(last_response.body)
 
     get "/api/memories/#{created["id"]}", project: "get-project"
