@@ -179,6 +179,18 @@ problems solved, and next steps. This creates a "session" memory type.
 When starting a new session, use `resume_session` to retrieve the last session log and
 recent memories, providing context for continuing where you left off.
 
+#### resume_session Details
+
+The `resume_session` prompt takes an optional `project` argument:
+
+- **With project**: Retrieves the last session log and 10 most recent memories (notes/todos)
+  for that project, then asks the AI to summarize and propose next steps
+- **Without project**: Provides guidance for the AI to determine the project from context
+  (working directory, conversation, or by calling `get_context` without parameters)
+
+This makes it easy to pick up where you left off, even if you don't remember the exact
+project name or what you were working on.
+
 ## Configuration
 
 | Environment Variable | Default | Description |
