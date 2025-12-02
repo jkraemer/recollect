@@ -155,8 +155,11 @@ module Recollect
       params = []
 
       if memory_type
-        sql << (@vectors_enabled ? " WHERE m.memory_type = ?" : " WHERE memory_type = ?")
-        params << memory_type
+        types = Array(memory_type)
+        placeholders = types.map { "?" }.join(", ")
+        column = @vectors_enabled ? "m.memory_type" : "memory_type"
+        sql << " WHERE #{column} IN (#{placeholders})"
+        params.concat(types)
       end
 
       sql << (@vectors_enabled ? " ORDER BY m.created_at DESC, m.id DESC LIMIT ? OFFSET ?" : " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")

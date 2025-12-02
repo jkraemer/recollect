@@ -95,6 +95,19 @@ class DatabaseTest < Recollect::TestCase
     results.each { |r| assert_equal "note", r["memory_type"] }
   end
 
+  # Test list filters by array of types
+  def test_list_filters_by_array_of_types
+    @db.store(content: "Note 1", memory_type: "note")
+    @db.store(content: "Todo 1", memory_type: "todo")
+    @db.store(content: "Session 1", memory_type: "session")
+    @db.store(content: "Note 2", memory_type: "note")
+
+    results = @db.list(memory_type: %w[note todo])
+
+    assert_equal 3, results.length
+    results.each { |r| assert_includes %w[note todo], r["memory_type"] }
+  end
+
   # Test list with offset (pagination)
   def test_list_with_offset
     3.times { |i| @db.store(content: "Memory #{i}") }

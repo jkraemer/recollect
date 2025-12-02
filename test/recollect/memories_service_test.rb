@@ -136,6 +136,17 @@ class MemoriesServiceTest < Recollect::TestCase
     assert_equal "note", result.first["memory_type"]
   end
 
+  def test_list_filters_by_array_of_memory_types
+    @service.create(content: "A note", memory_type: "note")
+    @service.create(content: "A todo", memory_type: "todo")
+    @service.create(content: "A session", memory_type: "session")
+
+    result = @service.list(memory_type: %w[note todo])
+
+    assert_equal 2, result.length
+    result.each { |r| assert_includes %w[note todo], r["memory_type"] }
+  end
+
   # ========== Delete ==========
 
   def test_delete_returns_true_on_success
