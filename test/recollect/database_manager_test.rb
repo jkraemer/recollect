@@ -14,6 +14,19 @@ class DatabaseManagerTest < Recollect::TestCase
     super
   end
 
+  private
+
+  def run_with_recency_env(aging_factor: "1.0", half_life_days: "7")
+    ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = aging_factor
+    ENV["RECOLLECT_RECENCY_HALF_LIFE_DAYS"] = half_life_days
+    yield
+  ensure
+    ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+    ENV.delete("RECOLLECT_RECENCY_HALF_LIFE_DAYS")
+  end
+
+  public
+
   # Test get_database returns global database when project is nil
   def test_get_database_returns_global_for_nil
     db = @manager.get_database(nil)
@@ -415,5 +428,76 @@ class DatabaseManagerTest < Recollect::TestCase
 
     # vectors_ready? should return false since vectors are disabled
     refute @manager.send(:vectors_ready?)
+  end
+
+  # ========== Recency Ranking Tests ==========
+
+  def test_hybrid_search_applies_recency_when_enabled
+    skip "Vectors not available" unless Recollect.config.vectors_available?
+
+    run_with_recency_env do
+      config = Recollect::Config.new
+      manager = Recollect::DatabaseManager.new(config)
+
+      begin
+        db = manager.get_database("recency-test")
+        db.store(content: "old memory about Ruby programming")
+        id_new = db.store(content: "new memory about Ruby programming")
+
+        # Backdate the first memory
+        db.instance_variable_get(:@db).execute(
+          "UPDATE memories SET created_at = ? WHERE id = 1",
+          ["2024-01-01T00:00:00Z"]
+        )
+
+        criteria = Recollect::SearchCriteria.new(query: "Ruby", project: "recency-test")
+        results = manager.hybrid_search(criteria)
+
+        # New memory should rank higher due to recency
+        assert_equal id_new, results.first["id"]
+        assert results.first.key?("recency_factor")
+      ensure
+        manager&.close_all
+      end
+    end
+  end
+
+  def test_search_all_applies_recency_when_enabled
+    run_with_recency_env do
+      config = Recollect::Config.new
+      manager = Recollect::DatabaseManager.new(config)
+
+      begin
+        db = manager.get_database("recency-fts-test")
+        db.store(content: "old memory about Python coding")
+        id_new = db.store(content: "new memory about Python coding")
+
+        # Backdate the first memory
+        db.instance_variable_get(:@db).execute(
+          "UPDATE memories SET created_at = ? WHERE id = 1",
+          ["2024-01-01T00:00:00Z"]
+        )
+
+        criteria = Recollect::SearchCriteria.new(query: "Python", project: "recency-fts-test")
+        results = manager.search_all(criteria)
+
+        # New memory should rank higher due to recency
+        assert_equal id_new, results.first["id"]
+        assert results.first.key?("recency_factor")
+      ensure
+        manager&.close_all
+      end
+    end
+  end
+
+  def test_search_all_no_recency_when_disabled
+    db = @manager.get_database("no-recency-test")
+    db.store(content: "memory about patterns")
+
+    criteria = Recollect::SearchCriteria.new(query: "patterns", project: "no-recency-test")
+    results = @manager.search_all(criteria)
+
+    # Should NOT have recency_factor since it's disabled by default
+    refute results.first&.key?("recency_factor")
   end
 end

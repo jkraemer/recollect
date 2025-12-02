@@ -7,10 +7,13 @@ module Recollect
   class Config
     attr_accessor :data_dir, :host, :port, :max_results,
       :enable_vectors, :vector_dimensions, :embed_server_script_path,
-      :log_wiredumps, :max_vector_distance
+      :log_wiredumps, :max_vector_distance,
+      :recency_aging_factor, :recency_half_life_days
 
     VECTOR_DIMENSIONS = 384 # all-MiniLM-L6-v2
     DEFAULT_MAX_VECTOR_DISTANCE = 1.0
+    DEFAULT_RECENCY_AGING_FACTOR = 0.0
+    DEFAULT_RECENCY_HALF_LIFE_DAYS = 30.0
     TRUTHY_VALUES = %w[true 1 yes on].freeze
 
     def initialize
@@ -29,11 +32,21 @@ module Recollect
       # Debug logging
       @log_wiredumps = env_truthy?("RECOLLECT_LOG_WIREDUMPS")
 
+      # Recency ranking configuration
+      @recency_aging_factor = ENV.fetch("RECOLLECT_RECENCY_AGING_FACTOR",
+        DEFAULT_RECENCY_AGING_FACTOR).to_f.clamp(0.0, 1.0)
+      @recency_half_life_days = ENV.fetch("RECOLLECT_RECENCY_HALF_LIFE_DAYS",
+        DEFAULT_RECENCY_HALF_LIFE_DAYS).to_f
+
       ensure_directories!
     end
 
     alias_method :log_wiredumps?, :log_wiredumps
     alias_method :enable_vectors?, :enable_vectors
+
+    def recency_enabled?
+      @recency_aging_factor > 0.0
+    end
 
     def global_db_path
       data_dir.join("global.db")

@@ -268,5 +268,64 @@ module Recollect
     ensure
       ENV.delete("RECOLLECT_MAX_VECTOR_DISTANCE")
     end
+
+    # Recency ranking tests
+
+    def test_default_recency_aging_factor
+      assert_in_delta 0.0, @config.recency_aging_factor
+    end
+
+    def test_default_recency_half_life_days
+      assert_in_delta 30.0, @config.recency_half_life_days
+    end
+
+    def test_recency_disabled_by_default
+      refute_predicate @config, :recency_enabled?
+    end
+
+    def test_recency_aging_factor_from_env
+      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "0.7"
+      config = Config.new
+
+      assert_in_delta 0.7, config.recency_aging_factor
+    ensure
+      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+    end
+
+    def test_recency_aging_factor_clamped_high
+      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "1.5"
+      config = Config.new
+
+      assert_in_delta 1.0, config.recency_aging_factor
+    ensure
+      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+    end
+
+    def test_recency_aging_factor_clamped_low
+      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "-0.5"
+      config = Config.new
+
+      assert_in_delta 0.0, config.recency_aging_factor
+    ensure
+      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+    end
+
+    def test_recency_half_life_days_from_env
+      ENV["RECOLLECT_RECENCY_HALF_LIFE_DAYS"] = "14"
+      config = Config.new
+
+      assert_in_delta 14.0, config.recency_half_life_days
+    ensure
+      ENV.delete("RECOLLECT_RECENCY_HALF_LIFE_DAYS")
+    end
+
+    def test_recency_enabled_when_aging_factor_positive
+      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "0.5"
+      config = Config.new
+
+      assert_predicate config, :recency_enabled?
+    ensure
+      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+    end
   end
 end

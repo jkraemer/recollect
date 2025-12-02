@@ -45,8 +45,16 @@ module Recollect
         search_all_projects(criteria)
       end
 
-      # Sort by relevance (rank) and limit
-      results.sort_by { |m| m["rank"] || 0 }.take(criteria.limit)
+      # Get more results when recency enabled for re-ranking
+      effective_limit = recency_enabled? ? criteria.limit * 2 : criteria.limit
+      sorted = results.sort_by { |m| m["rank"] || 0 }.take(effective_limit)
+
+      # Apply recency ranking if enabled
+      if recency_enabled?
+        sorted = apply_recency_ranking(sorted, score_field: "rank")
+      end
+
+      sorted.take(criteria.limit)
     end
 
     def search_by_tags(criteria)
@@ -68,20 +76,26 @@ module Recollect
       embed_text = criteria.query_string
       embedding = embedding_client.embed(embed_text)
 
-      # Collect results from both methods using doubled limit
+      # Collect results from both methods using expanded limit
+      expand_factor = recency_enabled? ? 3 : 2
       expanded_criteria = SearchCriteria.new(
         query: criteria.query,
         project: criteria.project,
         memory_type: criteria.memory_type,
-        limit: criteria.limit * 2,
+        limit: criteria.limit * expand_factor,
         created_after: criteria.created_after,
         created_before: criteria.created_before
       )
       fts_results = search_all(expanded_criteria)
       vec_results = vector_search_all(embedding, expanded_criteria)
 
-      # Merge and rank
-      HybridSearchRanker.merge(fts_results, vec_results, limit: criteria.limit)
+      # Merge and rank with optional recency
+      HybridSearchRanker.merge(
+        fts_results,
+        vec_results,
+        limit: criteria.limit,
+        recency_ranker: recency_enabled? ? build_recency_ranker : nil
+      )
     end
 
     def list_projects
@@ -229,6 +243,43 @@ module Recollect
         end
       end
       results
+    end
+
+    def recency_enabled?
+      @config.recency_enabled?
+    end
+
+    def build_recency_ranker
+      RecencyRanker.new(
+        aging_factor: @config.recency_aging_factor,
+        half_life_days: @config.recency_half_life_days
+      )
+    end
+
+    def apply_recency_ranking(results, score_field:)
+      return results unless recency_enabled?
+
+      # For FTS rank (negative scores), convert to positive scores
+      # by taking absolute value and normalizing
+      if score_field == "rank"
+        # Normalize FTS ranks to positive scores (0-1)
+        max_rank = results.map { |m| (m["rank"] || 0).abs }.max
+        max_rank = 1.0 if max_rank.nil? || max_rank.zero?
+
+        normalized_results = results.map do |m|
+          normalized_score = (m["rank"] || 0).abs / max_rank
+          m.merge("normalized_score" => normalized_score)
+        end
+
+        # Apply recency ranking on normalized score
+        ranked = build_recency_ranker.apply(normalized_results, score_field: "normalized_score")
+
+        # Remove temporary normalized_score field
+        ranked.each { |m| m.delete("normalized_score") }
+        ranked
+      else
+        build_recency_ranker.apply(results, score_field: score_field)
+      end
     end
   end
 end

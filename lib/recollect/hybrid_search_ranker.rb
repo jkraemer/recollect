@@ -7,11 +7,17 @@ module Recollect
     FTS_WEIGHT = 0.6
     VECTOR_WEIGHT = 0.4
 
-    def self.merge(fts_results, vec_results, limit:)
+    def self.merge(fts_results, vec_results, limit:, recency_ranker: nil)
       scores = {}
       score_fts_results(fts_results, scores)
       score_vector_results(vec_results, scores)
-      combine_and_sort(scores, limit)
+      results = combine_and_sort(scores, recency_ranker ? limit * 2 : limit)
+
+      if recency_ranker
+        results = recency_ranker.apply(results, score_field: "combined_score")
+      end
+
+      results.take(limit)
     end
 
     def self.score_fts_results(fts_results, scores)

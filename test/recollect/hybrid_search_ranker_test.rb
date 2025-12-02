@@ -94,4 +94,50 @@ class HybridSearchRankerTest < Recollect::TestCase
     assert_equal 1, results.length
     assert_in_delta 1.0, results.first["combined_score"], 0.01
   end
+
+  def test_merge_with_recency_ranker
+    reference_time = Time.parse("2025-01-15T12:00:00Z")
+    recency_ranker = Recollect::RecencyRanker.new(
+      aging_factor: 1.0,
+      half_life_days: 7,
+      reference_time: reference_time
+    )
+
+    fts_results = [
+      {"id" => 1, "content" => "old but relevant", "rank" => -10.0,
+       "created_at" => "2025-01-01T12:00:00Z"}, # 14 days old = 2 half-lives
+      {"id" => 2, "content" => "recent but less relevant", "rank" => -5.0,
+       "created_at" => "2025-01-14T12:00:00Z"}  # 1 day old
+    ]
+    vec_results = []
+
+    results = Recollect::HybridSearchRanker.merge(
+      fts_results, vec_results,
+      limit: 10,
+      recency_ranker: recency_ranker
+    )
+
+    # Recent item should be boosted higher despite lower initial score
+    assert_equal 2, results.first["id"]
+    assert results.first.key?("recency_factor")
+  end
+
+  def test_merge_without_recency_ranker_unchanged
+    fts_results = [
+      {"id" => 1, "content" => "relevant", "rank" => -10.0,
+       "created_at" => "2025-01-01T12:00:00Z"},
+      {"id" => 2, "content" => "less relevant", "rank" => -5.0,
+       "created_at" => "2025-01-14T12:00:00Z"}
+    ]
+    vec_results = []
+
+    results = Recollect::HybridSearchRanker.merge(
+      fts_results, vec_results,
+      limit: 10
+    )
+
+    # Without recency, order by original relevance
+    assert_equal 1, results.first["id"]
+    refute results.first.key?("recency_factor")
+  end
 end

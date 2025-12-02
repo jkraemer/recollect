@@ -81,6 +81,8 @@ bundle exec rubocop
 | `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
 | `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
 | `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
+| `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
+| `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |
 
 ## Before Committing
 

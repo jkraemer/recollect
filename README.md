@@ -13,6 +13,7 @@ enabling AI coding assistants to maintain context across sessions.
 
 - **MCP Protocol Support**: Standard MCP tools for storing and retrieving memories
 - **Full-Text Search**: SQLite FTS5 for fast, relevant search results
+- **Recency Ranking**: Optional time-decay scoring to prefer newer memories
 - **Project Isolation**: Separate database per project, plus a global database
 - **REST API**: HTTP endpoints for the Web UI and CLI
 - **Web Interface**: Browse and search memories in your browser
@@ -52,6 +53,22 @@ Then set the environment variable when starting the server:
 ```bash
 RECOLLECT_ENABLE_VECTORS=true ./bin/server
 ```
+
+### Optional: Enable Recency Ranking
+
+Recency ranking applies time-decay scoring to search results, preferring newer memories
+over older ones with similar relevance. This is useful when recent context is more
+valuable than historical information.
+
+```bash
+RECOLLECT_RECENCY_AGING_FACTOR=0.5 RECOLLECT_RECENCY_HALF_LIFE_DAYS=30 ./bin/server
+```
+
+- **Aging Factor** (0.0-1.0): How much recency affects ranking. 0=disabled, 1=full effect.
+- **Half-Life Days**: Days until a memory's recency score decays to 50%.
+
+With `aging_factor=0.5` and `half_life_days=30`, a 30-day-old memory keeps 75% of its
+relevance score, while a brand-new memory keeps 100%.
 
 ## Usage
 
@@ -145,6 +162,23 @@ Open `http://localhost:7326` in your browser to browse and search memories.
 
 For semantic categorization (decisions, patterns, bugs, learnings), use **tags** instead of memory types. This provides more flexible filtering and allows memories to have multiple categories.
 
+## MCP Prompts
+
+Prompts are reusable templates that guide AI assistants through common workflows.
+
+| Prompt | Description |
+|--------|-------------|
+| `session_log` | Create a structured session summary and store it for future retrieval |
+| `resume_session` | Resume work using the last session log and recent memories |
+
+### Session Workflow
+
+At the end of a session, use `session_log` to capture what was worked on, decisions made,
+problems solved, and next steps. This creates a "session" memory type.
+
+When starting a new session, use `resume_session` to retrieve the last session log and
+recent memories, providing context for continuing where you left off.
+
 ## Configuration
 
 | Environment Variable | Default | Description |
@@ -156,6 +190,8 @@ For semantic categorization (decisions, patterns, bugs, learnings), use **tags**
 | `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
 | `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
 | `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
+| `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
+| `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |
 | `WEB_CONCURRENCY` | `1` | Puma worker processes |
 | `PUMA_MAX_THREADS` | `5` | Threads per worker |
 
