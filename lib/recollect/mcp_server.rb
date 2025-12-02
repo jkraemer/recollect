@@ -13,7 +13,8 @@ module Recollect
     ].freeze
 
     PROMPTS = [
-      Prompts::SessionLog
+      Prompts::SessionLog,
+      Prompts::ResumeSession
     ].freeze
 
     class << self
