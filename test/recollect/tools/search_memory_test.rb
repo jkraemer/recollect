@@ -189,6 +189,28 @@ class SearchMemoryTest < Recollect::TestCase
     assert_equal "session", response_data["results"].first["memory_type"]
   end
 
+  def test_filters_by_array_of_memory_types
+    db = @db_manager.get_database(nil)
+    db.store(content: "A session about testing", memory_type: "session")
+    db.store(content: "A note about testing", memory_type: "note")
+    db.store(content: "A todo about testing", memory_type: "todo")
+
+    result = Recollect::Tools::SearchMemory.call(
+      query: "testing",
+      memory_type: %w[note session],
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
+    )
+
+    response_data = JSON.parse(result.content.first[:text])
+
+    assert_equal 2, response_data["count"]
+    types = response_data["results"].map { |r| r["memory_type"] }
+
+    assert_includes types, "note"
+    assert_includes types, "session"
+    refute_includes types, "todo"
+  end
+
   def test_filters_by_date_range
     db = @db_manager.get_database(nil)
     id1 = db.store(content: "Old memory about testing")

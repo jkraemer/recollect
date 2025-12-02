@@ -134,8 +134,10 @@ module Recollect
       params = [safe_query]
 
       if memory_type
-        sql += " AND memories.memory_type = ?"
-        params << memory_type
+        types = Array(memory_type)
+        placeholders = types.map { "?" }.join(", ")
+        sql += " AND memories.memory_type IN (#{placeholders})"
+        params.concat(types)
       end
 
       append_date_filters(sql, params, created_after, created_before, column: "memories.created_at")
@@ -198,8 +200,10 @@ module Recollect
       end
 
       if memory_type
-        sql += " AND memory_type = ?"
-        params << memory_type
+        types = Array(memory_type)
+        placeholders = types.map { "?" }.join(", ")
+        sql += " AND memory_type IN (#{placeholders})"
+        params.concat(types)
       end
 
       append_date_filters(sql, params, created_after, created_before)

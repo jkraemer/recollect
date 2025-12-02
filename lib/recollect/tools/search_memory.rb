@@ -63,9 +63,11 @@ module Recollect
             description: "Limit search to specific project (omit to search all)"
           },
           memory_type: {
-            type: "string",
-            enum: %w[note todo session],
-            description: "Filter by memory type"
+            oneOf: [
+              {type: "string", enum: %w[note todo session]},
+              {type: "array", items: {type: "string", enum: %w[note todo session]}}
+            ],
+            description: "Filter by memory type (string or array of types)"
           },
           tags: {
             type: "array",

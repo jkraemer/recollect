@@ -26,7 +26,7 @@ class ResumeSessionPromptTest < Recollect::TestCase
     refute project_arg.required
   end
 
-  def test_template_without_project_instructs_agent_to_determine_project
+  def test_template_without_project_instructs_agent_to_use_get_context
     result = Recollect::Prompts::ResumeSession.template({}, server_context: @server_context)
 
     assert_instance_of MCP::Prompt::Result, result
@@ -36,8 +36,8 @@ class ResumeSessionPromptTest < Recollect::TestCase
 
     assert_equal "user", message.role
     assert_match(/Resume Session/i, message.content.text)
-    assert_match(/use your best judgement/i, message.content.text)
-    assert_match(/retrieve the most recent session log/i, message.content.text)
+    assert_match(/get_context/i, message.content.text)
+    assert_match(/best.*guess|determine.*project/i, message.content.text)
   end
 
   def test_template_with_project_and_session_logs

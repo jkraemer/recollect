@@ -6,13 +6,18 @@ module Recollect
   module Tools
     class GetContext < MCP::Tool
       description <<~DESC
-        Get comprehensive context for a project.
+        Get comprehensive context for a project or recent cross-project activity.
+
+        Returns:
+        - For a specific project: last session log + 10 most recent notes/todos
+        - Without project: recent sessions + notes/todos across all projects
 
         AUTOMATIC TRIGGERING - Use this tool:
 
         At Session Start:
         - User mentions a project name
         - User says "let's work on X project"
+        - Use without project param to see recent activity across all projects
 
         When Switching Context:
         - User changes to different project
@@ -20,7 +25,7 @@ module Recollect
 
         For Status Updates:
         - User asks about project status
-        - User wants overview of decisions
+        - User wants overview of recent work
 
         This is your "load project state" tool. Use it liberally
         when starting work on any named project.
@@ -30,34 +35,58 @@ module Recollect
         properties: {
           project: {
             type: "string",
-            description: "Project name"
+            description: "Project name (omit for cross-project context)"
           }
         },
-        required: ["project"]
+        required: []
       )
 
       class << self
-        def call(project:, server_context:)
+        def call(server_context:, project: nil)
           service = server_context[:memories_service]
 
-          memories = service.list(project: project, limit: 100)
-          by_type = memories.group_by { |m| m["memory_type"] }
+          if project
+            build_project_context(service, project)
+          else
+            build_cross_project_context(service)
+          end
+        end
 
-          # Get recent (last 7 days)
-          cutoff = (Time.now - (7 * 24 * 60 * 60)).strftime("%Y-%m-%dT%H:%M:%SZ")
-          recent = memories.select { |m| m["created_at"] > cutoff }
+        private
 
-          # Use normalized project name from service
-          normalized_project = memories.first&.dig("project") || project&.downcase
+        def build_project_context(service, project)
+          project = project.downcase
+
+          # Get last session
+          sessions = service.list(project: project, memory_type: "session", limit: 1)
+          last_session = sessions.first
+
+          # Get 10 most recent notes and todos
+          notes_todos = service.list(project: project, memory_type: %w[note todo], limit: 10)
 
           MCP::Tool::Response.new([{
             type: "text",
             text: JSON.generate({
-              project: normalized_project,
-              total_memories: memories.length,
-              recent_count: recent.length,
-              by_type: by_type.transform_values(&:length),
-              recent_memories: recent.take(20)
+              project: project,
+              last_session: last_session,
+              recent_notes_todos: notes_todos
+            })
+          }])
+        end
+
+        def build_cross_project_context(service)
+          # Get recent sessions across all projects
+          recent_sessions = service.list_all(memory_type: "session", limit: 5)
+
+          # Get recent notes/todos across all projects
+          notes_todos = service.list_all(memory_type: %w[note todo], limit: 10)
+
+          MCP::Tool::Response.new([{
+            type: "text",
+            text: JSON.generate({
+              project: nil,
+              recent_sessions: recent_sessions,
+              recent_notes_todos: notes_todos
             })
           }])
         end

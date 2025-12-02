@@ -17,9 +17,11 @@ module Recollect
 
       class << self
         def template(args, server_context:)
-          project = args[:project]&.downcase
-          memories_service = server_context[:memories_service]
+          project = args[:project].to_s.strip.downcase
+          project = nil if project.empty?
 
+          memories_service = server_context[:memories_service]
+          recent_memories = []
           if project
             last_session = fetch_last_session(memories_service, project)
             recent_memories = fetch_recent_memories(memories_service, project)
@@ -75,7 +77,15 @@ module Recollect
             end
             parts << "Review the session log and recent memories above to understand the context of previous work.\n\n"
           else
-            parts << "No project was specified, use your best judgement to determine what project we're working on, and retrieve the most recent session log and the 10 most recent notes and todos from your long term memory.\n\n"
+            parts << <<~NO_PROJECT
+              No project was specified. Use the `get_context` tool with your best guess for the project name based on:
+              - The current working directory and any instructions therein
+              - Recent conversation context
+              - Any files or code mentioned
+
+              If you're unsure which project, call `get_context` without a project parameter to see recent activity across all projects, then use that to determine the most likely project.
+
+            NO_PROJECT
           end
 
           parts << "## Instructions\n\n"

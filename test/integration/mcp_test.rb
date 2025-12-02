@@ -165,13 +165,23 @@ class MCPIntegrationTest < Recollect::TestCase
   # Test get_context via MCP
   def test_get_context_via_mcp
     # Create some memories in a project
-    3.times do |i|
-      post "/api/memories", {
-        content: "Context test memory #{i}",
-        project: "context-test-project",
-        memory_type: i.even? ? "note" : "decision"
-      }.to_json, "CONTENT_TYPE" => "application/json"
-    end
+    post "/api/memories", {
+      content: "Latest session log",
+      project: "context-test-project",
+      memory_type: "session"
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "A note",
+      project: "context-test-project",
+      memory_type: "note"
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    post "/api/memories", {
+      content: "A todo item",
+      project: "context-test-project",
+      memory_type: "todo"
+    }.to_json, "CONTENT_TYPE" => "application/json"
 
     # Get context via MCP
     mcp_request = {
@@ -189,9 +199,8 @@ class MCPIntegrationTest < Recollect::TestCase
     result_content = JSON.parse(mcp_response["result"]["content"].first["text"])
 
     assert_equal "context-test-project", result_content["project"]
-    assert_equal 3, result_content["total_memories"]
-    assert_operator result_content["by_type"]["note"], :>=, 1
-    assert_operator result_content["by_type"]["decision"], :>=, 1
+    assert_equal "Latest session log", result_content["last_session"]["content"]
+    assert_equal 2, result_content["recent_notes_todos"].length
   end
 
   def test_prompts_list
