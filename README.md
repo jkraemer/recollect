@@ -50,7 +50,7 @@ python3 -m venv .venv
 Then set the environment variable when starting the server:
 
 ```bash
-ENABLE_VECTORS=true ./bin/server
+RECOLLECT_ENABLE_VECTORS=true ./bin/server
 ```
 
 ## Usage
@@ -137,7 +137,10 @@ Open `http://localhost:7326` in your browser to browse and search memories.
 | `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
 | `RECOLLECT_PORT` | `7326` | Server port |
 | `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
-| `WEB_CONCURRENCY` | `2` | Puma worker processes |
+| `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
+| `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
+| `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
+| `WEB_CONCURRENCY` | `1` | Puma worker processes |
 | `PUMA_MAX_THREADS` | `5` | Threads per worker |
 
 ## Running as a systemd Service

@@ -104,12 +104,12 @@ module Recollect
     end
 
     def test_vectors_enabled_from_env
-      ENV["ENABLE_VECTORS"] = "true"
+      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
       config = Config.new
 
       assert config.enable_vectors
     ensure
-      ENV.delete("ENABLE_VECTORS")
+      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_vector_dimensions
@@ -139,7 +139,7 @@ module Recollect
     end
 
     def test_vectors_available_false_when_extension_missing
-      ENV["ENABLE_VECTORS"] = "true"
+      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
       config = Config.new
 
       # Stub vec_extension_path to return nil
@@ -149,17 +149,17 @@ module Recollect
 
       refute_predicate config, :vectors_available?
     ensure
-      ENV.delete("ENABLE_VECTORS")
+      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_vectors_available_false_when_embed_script_missing
-      ENV["ENABLE_VECTORS"] = "true"
+      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
       config = Config.new
       config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
 
       refute_predicate config, :vectors_available?
     ensure
-      ENV.delete("ENABLE_VECTORS")
+      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_python_path_uses_venv_when_available
@@ -204,11 +204,11 @@ module Recollect
 
     def test_vector_status_message_when_disabled_by_env
       refute @config.enable_vectors
-      assert_equal "Vector embeddings: disabled (ENABLE_VECTORS not set)", @config.vector_status_message
+      assert_equal "Vector embeddings: disabled (RECOLLECT_ENABLE_VECTORS not set)", @config.vector_status_message
     end
 
     def test_vector_status_message_when_extension_missing
-      ENV["ENABLE_VECTORS"] = "true"
+      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
       config = Config.new
 
       def config.vec_extension_path
@@ -217,11 +217,11 @@ module Recollect
 
       assert_equal "Vector embeddings: disabled (sqlite-vec extension not found)", config.vector_status_message
     ensure
-      ENV.delete("ENABLE_VECTORS")
+      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_vector_status_message_when_embed_script_not_executable
-      ENV["ENABLE_VECTORS"] = "true"
+      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
       config = Config.new
       config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
 
@@ -232,11 +232,11 @@ module Recollect
 
       assert_equal "Vector embeddings: disabled (embed script not executable)", config.vector_status_message
     ensure
-      ENV.delete("ENABLE_VECTORS")
+      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_vector_status_message_when_enabled
-      ENV["ENABLE_VECTORS"] = "true"
+      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
       config = Config.new
 
       # Stub all conditions to be true
@@ -251,7 +251,22 @@ module Recollect
 
       assert_equal "Vector embeddings: enabled", config.vector_status_message
     ensure
-      ENV.delete("ENABLE_VECTORS")
+      ENV.delete("RECOLLECT_ENABLE_VECTORS")
+    end
+
+    # max_vector_distance tests
+
+    def test_default_max_vector_distance
+      assert_in_delta 1.0, @config.max_vector_distance
+    end
+
+    def test_max_vector_distance_from_env
+      ENV["RECOLLECT_MAX_VECTOR_DISTANCE"] = "0.5"
+      config = Config.new
+
+      assert_in_delta 0.5, config.max_vector_distance
+    ensure
+      ENV.delete("RECOLLECT_MAX_VECTOR_DISTANCE")
     end
   end
 end

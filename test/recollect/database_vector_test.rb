@@ -69,11 +69,12 @@ module Recollect
       id2 = @db.store(content: "python scripting", memory_type: "note", tags: [], metadata: nil)
       id3 = @db.store(content: "javascript frontend", memory_type: "note", tags: [], metadata: nil)
 
-      # Create fake embeddings - make id1's embedding similar to query
+      # Create fake embeddings - all similar to query but with varying degrees
+      # Using small noise levels to ensure all results are within the distance threshold
       query_embedding = normalized_vector(384)
-      @db.store_embedding(id1, similar_vector(query_embedding, 0.1))  # Very similar
-      @db.store_embedding(id2, similar_vector(query_embedding, 0.5))  # Moderately similar
-      @db.store_embedding(id3, normalized_vector(384))                # Random, likely dissimilar
+      @db.store_embedding(id1, similar_vector(query_embedding, 0.01))  # Very similar
+      @db.store_embedding(id2, similar_vector(query_embedding, 0.05))  # Similar
+      @db.store_embedding(id3, similar_vector(query_embedding, 0.10))  # Moderately similar
 
       results = @db.vector_search(query_embedding, limit: 10)
 
@@ -146,6 +147,29 @@ module Recollect
       assert_equal 0, @db.embedding_count
     end
 
+    def test_vector_search_filters_out_low_relevance_results
+      skip_unless_vec_extension_available
+
+      @db = Database.new(@db_path, load_vectors: true)
+
+      # Store memories with embeddings
+      id1 = @db.store(content: "relevant result", memory_type: "note", tags: [], metadata: nil)
+      id2 = @db.store(content: "completely unrelated", memory_type: "note", tags: [], metadata: nil)
+
+      # Create a query embedding and store embeddings:
+      # - id1 gets a similar embedding (low distance, high relevance)
+      # - id2 gets an orthogonal/opposite embedding (high distance, low relevance)
+      query_embedding = normalized_vector(384)
+      @db.store_embedding(id1, similar_vector(query_embedding, 0.1)) # Very similar
+      @db.store_embedding(id2, opposite_vector(query_embedding))     # Opposite/unrelated
+
+      results = @db.vector_search(query_embedding, limit: 10)
+
+      # Should only return the relevant result, not the unrelated one
+      assert_equal 1, results.length, "Should filter out low-relevance results"
+      assert_equal id1, results.first["id"]
+    end
+
     def test_list_includes_has_embedding_when_vectors_enabled
       skip_unless_vec_extension_available
 
@@ -200,6 +224,11 @@ module Recollect
       vec = base.map { |x| x + rand(-noise_level..noise_level) }
       norm = Math.sqrt(vec.sum { |x| x**2 })
       vec.map { |x| x / norm }
+    end
+
+    def opposite_vector(base)
+      # Negate the vector to get maximum cosine distance (~2.0)
+      base.map { |x| -x }
     end
   end
 end

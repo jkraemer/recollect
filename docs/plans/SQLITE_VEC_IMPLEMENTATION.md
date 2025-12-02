@@ -5,7 +5,7 @@
 Add semantic vector search to Recollect using sqlite-vec extension and local Python embeddings. Hybrid search combines FTS5 keyword matching with vector similarity for better results.
 
 **Key Design Decisions:**
-- **Opt-in feature**: Controlled by `ENABLE_VECTORS=true` environment variable
+- **Opt-in feature**: Controlled by `RECOLLECT_ENABLE_VECTORS=true` environment variable
 - **Local embeddings**: Python CLI script using sentence-transformers (no cloud APIs)
 - **Out-of-band processing**: Background worker thread with queue for embedding generation
 - **Graceful degradation**: Everything works without Python/sqlite-vec installed
@@ -95,7 +95,7 @@ attr_accessor :enable_vectors, :vector_dimensions, :embed_script_path
 def initialize
   # ... existing config ...
 
-  @enable_vectors = ENV.fetch('ENABLE_VECTORS', 'false') == 'true'
+  @enable_vectors = ENV.fetch('RECOLLECT_ENABLE_VECTORS', 'false') == 'true'
   @vector_dimensions = 384  # all-MiniLM-L6-v2
   @embed_script_path = Recollect.root.join('bin', 'embed')
 end
@@ -121,7 +121,7 @@ end
 ```
 
 **Tests:**
-- `vectors_available?` returns false when ENABLE_VECTORS not set
+- `vectors_available?` returns false when RECOLLECT_ENABLE_VECTORS not set
 - `vectors_available?` returns false when extension missing
 - `vectors_available?` returns false when embed script missing
 - `vec_extension_path` finds extension in standard locations
@@ -698,7 +698,7 @@ private
 
 def determine_vector_unavailable_reason
   config = Recollect.config
-  return 'ENABLE_VECTORS not set' unless config.enable_vectors
+  return 'RECOLLECT_ENABLE_VECTORS not set' unless config.enable_vectors
   return 'sqlite-vec extension not found' unless config.vec_extension_path
   return 'embed script not found' unless File.exist?(config.embed_script_path)
   'unknown'
@@ -829,9 +829,9 @@ end
 
 ### Manual Testing Checklist
 
-- [ ] `ENABLE_VECTORS=false` - server works normally
-- [ ] `ENABLE_VECTORS=true` without extension - graceful failure
-- [ ] `ENABLE_VECTORS=true` with extension - vectors enabled
+- [ ] `RECOLLECT_ENABLE_VECTORS=false` - server works normally
+- [ ] `RECOLLECT_ENABLE_VECTORS=true` without extension - graceful failure
+- [ ] `RECOLLECT_ENABLE_VECTORS=true` with extension - vectors enabled
 - [ ] Store memory - embedding appears after short delay
 - [ ] Search finds semantically similar results
 - [ ] `vector-status` shows correct coverage
@@ -863,7 +863,7 @@ end
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ENABLE_VECTORS` | `false` | Enable vector search feature |
+| `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search feature |
 
 ---
 
@@ -879,4 +879,4 @@ end
 8. **Phase 9**: HTTP API updates
 9. **Phase 10**: CLI updates
 
-Each phase should be tested before moving to the next. The system should remain fully functional with `ENABLE_VECTORS=false` at all times.
+Each phase should be tested before moving to the next. The system should remain fully functional with `RECOLLECT_ENABLE_VECTORS=false` at all times.

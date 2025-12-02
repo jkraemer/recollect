@@ -270,7 +270,9 @@ module Recollect
 
       sql += " ORDER BY v.distance"
 
-      @db.execute(sql, params).map { |row| deserialize_with_distance(row) }
+      results = @db.execute(sql, params).map { |row| deserialize_with_distance(row) }
+      # Filter out low-relevance results (distance > threshold means unrelated)
+      results.select { |r| r["distance"] <= Recollect.config.max_vector_distance }
     end
 
     def embedding_count

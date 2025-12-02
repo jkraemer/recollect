@@ -7,9 +7,10 @@ module Recollect
   class Config
     attr_accessor :data_dir, :host, :port, :max_results,
       :enable_vectors, :vector_dimensions, :embed_server_script_path,
-      :log_wiredumps
+      :log_wiredumps, :max_vector_distance
 
     VECTOR_DIMENSIONS = 384 # all-MiniLM-L6-v2
+    DEFAULT_MAX_VECTOR_DISTANCE = 1.0
     TRUTHY_VALUES = %w[true 1 yes on].freeze
 
     def initialize
@@ -20,12 +21,13 @@ module Recollect
       @max_results = 100
 
       # Vector search configuration
-      @enable_vectors = env_truthy?("ENABLE_VECTORS")
+      @enable_vectors = env_truthy?("RECOLLECT_ENABLE_VECTORS")
       @vector_dimensions = VECTOR_DIMENSIONS
       @embed_server_script_path = Recollect.root.join("bin", "embed-server")
+      @max_vector_distance = ENV.fetch("RECOLLECT_MAX_VECTOR_DISTANCE", DEFAULT_MAX_VECTOR_DISTANCE).to_f
 
       # Debug logging
-      @log_wiredumps = env_truthy?("LOG_WIREDUMPS")
+      @log_wiredumps = env_truthy?("RECOLLECT_LOG_WIREDUMPS")
 
       ensure_directories!
     end
@@ -67,7 +69,7 @@ module Recollect
         "Vector embeddings: enabled"
       else
         reason = if !enable_vectors?
-          "ENABLE_VECTORS not set"
+          "RECOLLECT_ENABLE_VECTORS not set"
         elsif !vec_extension_path
           "sqlite-vec extension not found"
         elsif !File.executable?(embed_server_script_path)

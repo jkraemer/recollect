@@ -54,9 +54,10 @@ Configure in the systemd unit file using `Environment=` directives:
 | `RECOLLECT_DATA_DIR` | `~/.recollect` | Data storage directory |
 | `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
 | `RECOLLECT_PORT` | `7326` | Server port |
+| `RECOLLECT_ENABLE_VECTORS` | `false` | Enable semantic vector search |
+| `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance for vector results |
 | `WEB_CONCURRENCY` | `2` | Puma worker processes |
 | `PUMA_MAX_THREADS` | `5` | Threads per worker |
-| `ENABLE_VECTORS` | (not set) | Enable semantic vector search |
 
 Example:
 

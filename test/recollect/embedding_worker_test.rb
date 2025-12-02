@@ -84,7 +84,7 @@ module Recollect
       skip_unless_vectors_available
 
       # Create fresh db_manager with vectors enabled
-      ENV["ENABLE_VECTORS"] = "true"
+      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
       config = Config.new
       @db_manager&.close_all
       @worker&.stop
@@ -111,7 +111,7 @@ module Recollect
       # Embedding should now exist
       assert_equal 0, db.memories_without_embeddings.size
     ensure
-      ENV.delete("ENABLE_VECTORS")
+      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     private

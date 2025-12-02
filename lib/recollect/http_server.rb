@@ -95,7 +95,7 @@ module Recollect
 
       def determine_vector_unavailable_reason
         config = Recollect.config
-        return "ENABLE_VECTORS not set" unless config.enable_vectors
+        return "RECOLLECT_ENABLE_VECTORS not set" unless config.enable_vectors
         return "sqlite-vec extension not found" unless config.vec_extension_path
         return "embed script not executable" unless File.executable?(config.embed_server_script_path)
 
