@@ -68,7 +68,7 @@ bundle exec rubocop
 - **HTTP-only transport**: No stdio; single Puma server simplifies SQLite concurrency
 - **MCP via handle_json**: MCP protocol exposed at `/mcp` endpoint
 - **Project isolation**: Separate database per project, plus global database
-- **Embedding-ready**: Schema includes BLOB column for future vector search
+- **Vector search**: Optional hybrid FTS5 + vector similarity search via sqlite-vec extension
 
 ## Environment Variables
 
@@ -78,6 +78,9 @@ bundle exec rubocop
 | `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
 | `RECOLLECT_PORT` | `7326` | Server port |
 | `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
+| `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
+| `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
+| `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
 
 ## Before Committing
 

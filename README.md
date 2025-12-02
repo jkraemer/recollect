@@ -123,11 +123,11 @@ Open `http://localhost:7326` in your browser to browse and search memories.
 
 ### Memory Types
 
-- `note` (default)
-- `decision`
-- `pattern`
-- `bug`
-- `learning`
+- `note` (default) - General information, facts, context
+- `todo` - Action items, tasks, reminders
+- `session` - Session summaries and handoff notes
+
+For semantic categorization (decisions, patterns, bugs, learnings), use **tags** instead of memory types. This provides more flexible filtering and allows memories to have multiple categories.
 
 ## Configuration
 
