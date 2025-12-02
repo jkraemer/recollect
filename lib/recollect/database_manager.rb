@@ -72,6 +72,9 @@ module Recollect
       # If vectors not available, fall back to FTS5 only
       return search_all(criteria) unless @config.vectors_available? && vectors_ready?
 
+      # Wildcard query: skip vector search, just use FTS/list
+      return search_all(criteria) if criteria.query == "*"
+
       # Get query embedding
       embed_text = criteria.query_string
       embedding = embedding_client.embed(embed_text)

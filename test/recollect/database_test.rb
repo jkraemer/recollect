@@ -405,4 +405,62 @@ class DatabaseTest < Recollect::TestCase
     assert_equal 1, results.length
     assert_equal id2, results.first["id"]
   end
+
+  # Test search with wildcard returns all records in reverse chronological order
+  def test_search_wildcard_returns_all_records
+    @db.store(content: "First memory")
+    @db.store(content: "Second memory")
+    @db.store(content: "Third memory")
+
+    results = @db.search("*")
+
+    assert_equal 3, results.length
+    # Newest first
+    assert_equal "Third memory", results.first["content"]
+    assert_equal "First memory", results.last["content"]
+  end
+
+  # Test wildcard with memory_type filter
+  def test_search_wildcard_with_memory_type_filter
+    @db.store(content: "Note 1", memory_type: "note")
+    @db.store(content: "Decision 1", memory_type: "decision")
+    @db.store(content: "Note 2", memory_type: "note")
+
+    results = @db.search("*", memory_type: "note")
+
+    assert_equal 2, results.length
+    results.each { |r| assert_equal "note", r["memory_type"] }
+  end
+
+  # Test wildcard with date filters
+  def test_search_wildcard_with_date_filters
+    id1 = @db.store(content: "Old memory")
+    id2 = @db.store(content: "New memory")
+
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-01T00:00:00Z", id1]
+    )
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET created_at = ? WHERE id = ?",
+      ["2025-01-20T00:00:00Z", id2]
+    )
+
+    results = @db.search("*", created_after: "2025-01-15")
+
+    assert_equal 1, results.length
+    assert_equal id2, results.first["id"]
+  end
+
+  # Test wildcard respects limit and offset
+  def test_search_wildcard_respects_limit_and_offset
+    5.times { |i| @db.store(content: "Memory #{i}") }
+
+    results = @db.search("*", limit: 2, offset: 1)
+
+    assert_equal 2, results.length
+    # Skip newest (Memory 4), get Memory 3 and Memory 2
+    assert_equal "Memory 3", results.first["content"]
+    assert_equal "Memory 2", results.last["content"]
+  end
 end

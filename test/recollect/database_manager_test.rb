@@ -311,6 +311,23 @@ class DatabaseManagerTest < Recollect::TestCase
     assert_match(/Ruby programming/, results.first["content"])
   end
 
+  # Test hybrid_search with wildcard skips vector search and returns all records
+  def test_hybrid_search_wildcard_skips_vectors_and_returns_all
+    db = @manager.get_database("hybrid-wildcard")
+    db.store(content: "First memory")
+    db.store(content: "Second memory")
+    db.store(content: "Third memory")
+
+    criteria = Recollect::SearchCriteria.new(query: "*", project: "hybrid-wildcard")
+    results = @manager.hybrid_search(criteria)
+
+    # Should return all records in newest-first order
+    assert_equal 3, results.length
+    assert_equal "Third memory", results.first["content"]
+    # Should NOT have combined_score since vectors weren't used
+    refute results.first.key?("combined_score")
+  end
+
   # ========== Search By Tags Tests ==========
 
   # Test search_by_tags for specific project

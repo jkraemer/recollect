@@ -12,9 +12,10 @@ module Recollect
         1. Full-text search: Use query parameter to search content
         2. Tag filtering: Use tags parameter to filter by specific tags (AND logic)
         3. Combined: Use both for precise results
+        4. List all: Use query="*" to return all records matching filters (newest first)
 
         TAG-BASED SEARCHING:
-        Tags now carry semantic meaning. Search by tags to find:
+        Tags carry semantic meaning. Search by tags to find:
         - Decisions: tags=["decision"]
         - Patterns: tags=["pattern"]
         - Bugs: tags=["bug"]

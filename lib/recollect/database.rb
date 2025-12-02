@@ -116,6 +116,26 @@ module Recollect
     end
 
     def search(query, memory_type: nil, limit: 10, offset: 0, created_after: nil, created_before: nil)
+      # Handle wildcard query - return all records matching filters
+      if query == "*"
+        sql = +"SELECT * FROM memories WHERE 1=1"
+        params = []
+
+        if memory_type
+          types = Array(memory_type)
+          placeholders = types.map { "?" }.join(", ")
+          sql += " AND memory_type IN (#{placeholders})"
+          params.concat(types)
+        end
+
+        append_date_filters(sql, params, created_after, created_before)
+
+        sql += " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?"
+        params.push(limit, offset)
+
+        return @db.execute(sql, params).map { |row| deserialize(row) }
+      end
+
       # Build FTS5 query based on input type
       safe_query = if query.is_a?(Array)
         # Array: AND semantics - each term quoted and joined (implicit AND)
