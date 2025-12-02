@@ -26,7 +26,7 @@ class ResumeSessionPromptTest < Recollect::TestCase
     refute project_arg.required
   end
 
-  def test_template_without_project_and_no_sessions
+  def test_template_without_project_instructs_agent_to_determine_project
     result = Recollect::Prompts::ResumeSession.template({}, server_context: @server_context)
 
     assert_instance_of MCP::Prompt::Result, result
@@ -36,7 +36,8 @@ class ResumeSessionPromptTest < Recollect::TestCase
 
     assert_equal "user", message.role
     assert_match(/Resume Session/i, message.content.text)
-    assert_match(/no previous session/i, message.content.text)
+    assert_match(/use your best judgement/i, message.content.text)
+    assert_match(/retrieve the most recent session log/i, message.content.text)
   end
 
   def test_template_with_project_and_session_logs
@@ -89,20 +90,5 @@ class ResumeSessionPromptTest < Recollect::TestCase
 
     # Should include memories (exact count depends on implementation)
     assert_match(/Memory/, message.content.text)
-  end
-
-  def test_template_with_global_project
-    @memories_service.create(
-      content: "Global session summary",
-      project: nil,
-      memory_type: "session",
-      tags: []
-    )
-
-    result = Recollect::Prompts::ResumeSession.template({}, server_context: @server_context)
-
-    message = result.messages.first
-
-    assert_match(/Global session summary/, message.content.text)
   end
 end

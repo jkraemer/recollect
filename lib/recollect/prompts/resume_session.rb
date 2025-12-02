@@ -20,8 +20,10 @@ module Recollect
           project = args[:project]&.downcase
           memories_service = server_context[:memories_service]
 
-          last_session = fetch_last_session(memories_service, project)
-          recent_memories = fetch_recent_memories(memories_service, project)
+          if project
+            last_session = fetch_last_session(memories_service, project)
+            recent_memories = fetch_recent_memories(memories_service, project)
+          end
 
           prompt_text = build_prompt(project, last_session, recent_memories)
 
@@ -38,45 +40,46 @@ module Recollect
         private
 
         def fetch_last_session(memories_service, project)
-          sessions = memories_service.list(project: project, memory_type: "session", limit: 1)
+          sessions = memories_service.list(project:, memory_type: "session", limit: 1)
           sessions.first
         end
 
         def fetch_recent_memories(memories_service, project)
           # Get recent non-session memories for additional context
-          memories = memories_service.list(project: project, memory_type: nil, limit: 20)
-          memories.reject { |m| m["memory_type"] == "session" }.take(10)
+          memories_service.list(project:, memory_type: %w[note todo], limit: 10)
         end
 
         def build_prompt(project, last_session, recent_memories)
-          project_label = project || "global"
-
           parts = ["# Resume Session\n"]
-          parts << "Project: #{project_label}\n\n"
 
-          parts << "## Last Session Log\n\n"
-          if last_session
-            parts << last_session["content"]
-            parts << "\n\n"
-            if last_session["created_at"]
-              parts << "_Recorded: #{last_session["created_at"]}_\n\n"
+          if project
+            parts << "Project: #{project}\n\n"
+            parts << "## Last Session Log\n\n"
+            if last_session
+              parts << last_session["content"]
+              parts << "\n\n"
+              if last_session["created_at"]
+                parts << "_Recorded: #{last_session["created_at"]}_\n\n"
+              end
+            else
+              parts << "_No previous session log found for this project._\n\n"
             end
-          else
-            parts << "_No previous session log found for this project._\n\n"
-          end
 
-          if recent_memories.any?
-            parts << "## Recent Memories\n\n"
-            recent_memories.each do |memory|
-              parts << format_memory(memory)
+            if recent_memories.any?
+              parts << "## Recent Memories\n\n"
+              recent_memories.each do |memory|
+                parts << format_memory(memory)
+                parts << "\n"
+              end
               parts << "\n"
             end
-            parts << "\n"
+            parts << "Review the session log and recent memories above to understand the context of previous work.\n\n"
+          else
+            parts << "No project was specified, use your best judgement to determine what project we're working on, and retrieve the most recent session log and the 10 most recent notes and todos from your long term memory.\n\n"
           end
 
           parts << "## Instructions\n\n"
           parts << <<~INSTRUCTIONS
-            Review the session log and recent memories above to understand the context of previous work.
 
             Based on this context:
             1. Summarize what was being worked on
