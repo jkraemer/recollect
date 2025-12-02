@@ -12,6 +12,10 @@ module Recollect
       Tools::DeleteMemory
     ].freeze
 
+    PROMPTS = [
+      Prompts::SessionLog
+    ].freeze
+
     class << self
       def build(db_manager)
         memories_service = MemoriesService.new(db_manager)
@@ -19,6 +23,7 @@ module Recollect
           name: "recollect",
           version: Recollect::VERSION,
           tools: TOOLS,
+          prompts: PROMPTS,
           server_context: {db_manager: db_manager, memories_service: memories_service}
         )
       end

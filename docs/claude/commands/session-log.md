@@ -37,7 +37,7 @@ Date: [Current UTC timestamp]
 ### Context for Continuation
 [Anything a future session needs to know to continue seamlessly]
 
-3. Store the summary using the memory tool:
+3. Store the summary using the store_memory tool:
    - memory_type: "session"
    - tags: [relevant topic tags]
    - project: current project name (or omit for cross-project sessions)

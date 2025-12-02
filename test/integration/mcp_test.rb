@@ -193,4 +193,66 @@ class MCPIntegrationTest < Recollect::TestCase
     assert_operator result_content["by_type"]["note"], :>=, 1
     assert_operator result_content["by_type"]["decision"], :>=, 1
   end
+
+  def test_prompts_list
+    mcp_request = {
+      jsonrpc: "2.0",
+      method: "prompts/list",
+      id: 10
+    }
+
+    post "/mcp", mcp_request.to_json, "CONTENT_TYPE" => "application/json"
+
+    assert_predicate last_response, :ok?
+
+    mcp_response = JSON.parse(last_response.body)
+    prompts = mcp_response["result"]["prompts"]
+
+    assert prompts.any? { |p| p["name"] == "session_log" }
+  end
+
+  def test_prompts_get_session_log
+    mcp_request = {
+      jsonrpc: "2.0",
+      method: "prompts/get",
+      params: {
+        name: "session_log",
+        arguments: {}
+      },
+      id: 11
+    }
+
+    post "/mcp", mcp_request.to_json, "CONTENT_TYPE" => "application/json"
+
+    assert_predicate last_response, :ok?
+
+    mcp_response = JSON.parse(last_response.body)
+    result = mcp_response["result"]
+
+    assert result["messages"]
+    assert_equal 1, result["messages"].size
+    assert_equal "user", result["messages"].first["role"]
+    assert_match(/Session Log/, result["messages"].first["content"]["text"])
+  end
+
+  def test_prompts_get_session_log_with_project
+    mcp_request = {
+      jsonrpc: "2.0",
+      method: "prompts/get",
+      params: {
+        name: "session_log",
+        arguments: {project: "test-project"}
+      },
+      id: 12
+    }
+
+    post "/mcp", mcp_request.to_json, "CONTENT_TYPE" => "application/json"
+
+    assert_predicate last_response, :ok?
+
+    mcp_response = JSON.parse(last_response.body)
+    result = mcp_response["result"]
+
+    assert_match(/"test-project"/, result["messages"].first["content"]["text"])
+  end
 end
