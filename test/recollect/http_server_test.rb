@@ -539,5 +539,21 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal "get-project", data["project"]
     assert_equal "Project memory", data["content"]
   end
+
+  # Test singleton behavior - verifies fix for file descriptor leak
+  def test_db_manager_is_singleton_across_requests
+    # Capture the db_manager instance after first request
+    get "/health"
+    first_manager = Recollect::HTTPServer.db_manager
+
+    # Make several more requests
+    post "/api/memories", {content: "Test 1"}.to_json, "CONTENT_TYPE" => "application/json"
+    get "/api/memories"
+    post "/mcp", '{"jsonrpc":"2.0","method":"initialize","id":1}', "CONTENT_TYPE" => "application/json"
+
+    # The db_manager should still be the same instance
+    assert_same first_manager, Recollect::HTTPServer.db_manager,
+      "DatabaseManager should be a singleton across requests to prevent file descriptor leaks"
+  end
 end
 # rubocop:enable Naming/VariableNumber

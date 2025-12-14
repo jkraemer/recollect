@@ -35,6 +35,9 @@ module Recollect
     include Rack::Test::Methods
 
     def setup
+      # Reset HTTP server singletons to ensure fresh state
+      HTTPServer.reset_db_manager!
+
       # Clean databases between tests
       Dir.glob(File.join(TEST_DATA_DIR, "**/*.db*")).each do |f|
         FileUtils.rm_f(f)

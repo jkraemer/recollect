@@ -15,6 +15,30 @@ module Recollect
       use Rack::CommonLogger, $stdout
     end
 
+    # Class-level singletons to avoid file descriptor leaks.
+    # Previously, helpers used per-request instance variables (@db_manager ||= ...)
+    # which created new DatabaseManager instances (and SQLite connections) per request.
+    class << self
+      def db_manager
+        @db_manager ||= DatabaseManager.new(Recollect.config)
+      end
+
+      def memories_service
+        @memories_service ||= MemoriesService.new(db_manager)
+      end
+
+      def mcp_server
+        @mcp_server ||= MCPServer.build(db_manager)
+      end
+
+      def reset_db_manager!
+        @db_manager&.close_all
+        @db_manager = nil
+        @memories_service = nil
+        @mcp_server = nil
+      end
+    end
+
     # Wire dump logging for debugging
     before do
       if Recollect.config.log_wiredumps?
@@ -43,15 +67,15 @@ module Recollect
       end
 
       def db_manager
-        @db_manager ||= DatabaseManager.new(Recollect.config)
+        self.class.db_manager
       end
 
       def memories_service
-        @memories_service ||= MemoriesService.new(db_manager)
+        self.class.memories_service
       end
 
       def mcp_server
-        @mcp_server ||= MCPServer.build(db_manager)
+        self.class.mcp_server
       end
 
       def json_response(data, status_code: 200)
