@@ -105,7 +105,7 @@ add an instruction to your project's CLAUDE.md:
 Without this, different sessions might use inconsistent names (directory basename,
 repo name, etc.) which fragments memories across separate databases.
 
-### Claude Code Skill & Command
+### Claude Code Skill
 
 For effective memory usage, install the `using-long-term-memory` skill in your
 `~/.claude/skills/` directory. This skill enforces two core disciplines:
@@ -115,11 +115,7 @@ For effective memory usage, install the `using-long-term-memory` skill in your
 2. **Store before moving on** - When decisions are made, lessons learned, or bugs
    solved, store them immediately with appropriate tags
 
-See [docs/using-long-term-memory-skill.md](docs/using-long-term-memory-skill.md) for the full skill.
-
-Additionally, the `/recollect:session-log` command creates structured session
-summaries that capture what was worked on, key decisions, problems solved, and
-next steps. Run it at the end of a session to preserve context for future work.
+See [docs/claude/skills/using-long-term-memory/SKILL.md](docs/claude/skills/using-long-term-memory/SKILL.md) for the full skill.
 
 ### CLI Commands
 
