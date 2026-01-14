@@ -116,7 +116,7 @@ class DatabaseManagerTest < Recollect::TestCase
     projects = results.map { |r| r["project"] }
 
     assert_includes projects, nil # global
-    assert_includes projects, "search_all_test"
+    assert_includes projects, "search-all-test"
   end
 
   # Test search_all respects limit
@@ -184,20 +184,27 @@ class DatabaseManagerTest < Recollect::TestCase
 
     projects = @manager.list_projects
 
-    assert_includes projects, "list_test_project"
+    assert_includes projects, "list-test-project"
   end
 
   # Test project names are sanitized consistently
   def test_project_name_sanitization
-    # All these should map to the same database
+    db1 = @manager.get_database("My Project")
+    db2 = @manager.get_database("my_project")
+    db3 = @manager.get_database("MY_PROJECT")
+
+    assert_same db1, db2, "Space should be sanitized to underscore"
+    assert_same db1, db3, "Should be case-insensitive"
+  end
+
+  # Test hyphens are preserved in project names
+  def test_project_name_preserves_hyphens
     db1 = @manager.get_database("my-project")
     db2 = @manager.get_database("my_project")
-    db3 = @manager.get_database("My Project")
-    db4 = @manager.get_database("MY-PROJECT")
+    db3 = @manager.get_database("MY-PROJECT")
 
-    assert_same db1, db2, "Hyphen and underscore should map to same db"
-    assert_same db1, db3, "Space should be sanitized to underscore"
-    assert_same db1, db4, "Should be case-insensitive"
+    refute_same db1, db2, "Hyphen and underscore should be different projects"
+    assert_same db1, db3, "Hyphenated names should be case-insensitive"
   end
 
   # Test list_projects returns sorted list
@@ -365,7 +372,7 @@ class DatabaseManagerTest < Recollect::TestCase
     projects = results.map { |r| r["project"] }
 
     assert_includes projects, nil # global
-    assert_includes projects, "tags_all_projects"
+    assert_includes projects, "tags-all-projects"
   end
 
   # Test search_by_tags with memory_type filter

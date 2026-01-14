@@ -181,7 +181,7 @@ module Recollect
     end
 
     def sanitize_project_name(name)
-      name.to_s.gsub(/[^a-zA-Z0-9_]/, "_").downcase
+      name.to_s.gsub(/[^a-zA-Z0-9_-]/, "_").downcase
     end
 
     def project_db_path(project_name)

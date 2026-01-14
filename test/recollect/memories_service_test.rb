@@ -358,8 +358,8 @@ class MemoriesServiceTest < Recollect::TestCase
 
     result = @service.list_projects
 
-    assert_includes result, "project_a"
-    assert_includes result, "project_b"
+    assert_includes result, "project-a"
+    assert_includes result, "project-b"
   end
 
   # ========== Tag Stats ==========
@@ -407,8 +407,8 @@ class MemoriesServiceTest < Recollect::TestCase
     projects = result.map { |m| m["project"] }
 
     assert_includes projects, nil
-    assert_includes projects, "project_a"
-    assert_includes projects, "project_b"
+    assert_includes projects, "project-a"
+    assert_includes projects, "project-b"
   end
 
   def test_list_all_respects_limit
