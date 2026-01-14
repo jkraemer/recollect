@@ -22,10 +22,5 @@ preload_app!
 # Log startup configuration
 puts "[Recollect] #{Recollect.config.vector_status_message}"
 
-# Lifecycle hooks
-before_worker_boot do
-  # Each worker gets fresh DB connections via lazy initialization
-end
-
 # Allow puma to be restarted by `bin/puma --restart`
 plugin :tmp_restart
