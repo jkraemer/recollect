@@ -297,6 +297,29 @@ class DatabaseTest < Recollect::TestCase
     assert_equal 2, results.length
   end
 
+  # Test search_by_tags handles special characters in tags
+  def test_search_by_tags_with_special_characters
+    @db.store(content: "Bug fix memory", tags: ['bug"fix', "testing"])
+    @db.store(content: "Normal memory", tags: %w[bugfix testing])
+
+    # Should find the memory with the quoted tag
+    results = @db.search_by_tags(['bug"fix'])
+
+    assert_equal 1, results.length
+    assert_equal "Bug fix memory", results.first["content"]
+  end
+
+  # Test search_by_tags handles backslash in tags
+  def test_search_by_tags_with_backslash
+    @db.store(content: "Path memory", tags: ['path\\to\\file', "filesystem"])
+    @db.store(content: "Other memory", tags: %w[path other])
+
+    results = @db.search_by_tags(['path\\to\\file'])
+
+    assert_equal 1, results.length
+    assert_equal "Path memory", results.first["content"]
+  end
+
   # Test search with offset
   def test_search_respects_offset
     5.times { |i| @db.store(content: "Test search #{i}") }

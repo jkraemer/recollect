@@ -213,10 +213,10 @@ module Recollect
       sql = +"SELECT * FROM memories WHERE 1=1"
       params = []
 
-      # Build WHERE clause to match all tags (AND logic)
+      # Build WHERE clause to match all tags (AND logic) using json_each for robust matching
       normalized_tags.each do |tag|
-        sql += " AND tags LIKE ?"
-        params << "%\"#{tag}\"%"
+        sql += " AND EXISTS (SELECT 1 FROM json_each(tags) WHERE LOWER(value) = ?)"
+        params << tag
       end
 
       if memory_type
