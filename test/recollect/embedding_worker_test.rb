@@ -114,6 +114,41 @@ module Recollect
       ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
+    def test_process_batch_validates_embedding_count
+      # This tests that mismatched embedding counts are detected and logged
+      # rather than silently misaligning embeddings with memories
+
+      db = @db_manager.get_database(nil)
+      id1 = db.store(content: "memory one", memory_type: "note", tags: [], metadata: nil)
+      id2 = db.store(content: "memory two", memory_type: "note", tags: [], metadata: nil)
+
+      batch = [
+        {memory_id: id1, content: "memory one", project: nil},
+        {memory_id: id2, content: "memory two", project: nil}
+      ]
+
+      # Mock client that returns wrong number of embeddings (1 instead of 2)
+      mock_client = Minitest::Mock.new
+      mock_client.expect(:embed_batch, [[0.1] * 384], [%w[memory\ one memory\ two]])
+
+      original_client = @worker.instance_variable_get(:@client)
+      warnings = []
+      begin
+        @worker.stub(:warn, ->(msg) { warnings << msg }) do
+          @worker.instance_variable_set(:@client, mock_client)
+          @worker.send(:process_batch, batch)
+        end
+      ensure
+        @worker.instance_variable_set(:@client, original_client)
+      end
+
+      mock_client.verify
+
+      # Should have logged a warning about the mismatch
+      assert warnings.any? { |w| w.include?("mismatch") },
+        "Expected warning about count mismatch, got: #{warnings.inspect}"
+    end
+
     private
 
     def skip_unless_vectors_available

@@ -79,6 +79,11 @@ module Recollect
 
       embeddings = @client.embed_batch(texts)
 
+      if embeddings.length != batch.length
+        warn "[EmbeddingWorker] Embedding count mismatch: expected #{batch.length}, got #{embeddings.length}. Skipping batch."
+        return
+      end
+
       batch.zip(embeddings).each do |item, embedding|
         store_embedding(item, embedding)
       end
