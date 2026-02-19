@@ -111,7 +111,7 @@ module Recollect
         if response.success?
           text = response.body.dig("content", 0, "text") || ""
           indices = text.scan(/\d+/).map(&:to_i)
-          
+
           # Reorder candidates based on LLM output
           ranked = indices.map { |i| candidates[i] }.compact
           # Append any missing candidates at the end

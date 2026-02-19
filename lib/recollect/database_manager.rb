@@ -44,7 +44,7 @@ module Recollect
               content: chunk_content,
               memory_type: "_chunk",
               tags: tags,
-              metadata: { "parent_id" => parent_id, "chunk_index" => idx }
+              metadata: {"parent_id" => parent_id, "chunk_index" => idx}
             )
             @embedding_worker.enqueue(memory_id: chunk_id, content: chunk_content, project: project)
           end
@@ -110,15 +110,15 @@ module Recollect
           created_after: criteria.created_after,
           created_before: criteria.created_before
         )
-        
+
         # Get query embedding for each (could be optimized with batching)
         embedding = embedding_client.embed(q_text)
-        
+
         all_fts_results << search_all(expanded_criteria)
-        
+
         # Get raw vector results (might contain chunks)
         raw_vec_results = vector_search_all(embedding, expanded_criteria)
-        
+
         # Resolve chunks to parents
         resolved_vec_results = raw_vec_results.map do |mem|
           if mem["memory_type"] == "_chunk" && mem["metadata"] && mem["metadata"]["parent_id"]
@@ -134,7 +134,7 @@ module Recollect
             mem
           end
         end
-        
+
         all_vec_results << resolved_vec_results
       end
 

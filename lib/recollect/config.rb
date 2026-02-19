@@ -35,7 +35,7 @@ module Recollect
       # LLM configuration
       @llm_provider = ENV.fetch("RECOLLECT_LLM_PROVIDER", DEFAULT_LLM_PROVIDER).downcase
       @anthropic_api_key = ENV.fetch("ANTHROPIC_API_KEY", nil)
-      @anthropic_model = ENV.fetch("RECOLLECT_ANTHROPIC_MODEL", @llm_provider == "anthropic" ? DEFAULT_ANTHROPIC_MODEL : nil)
+      @anthropic_model = ENV.fetch("RECOLLECT_ANTHROPIC_MODEL", (@llm_provider == "anthropic") ? DEFAULT_ANTHROPIC_MODEL : nil)
 
       # Debug logging
       @log_wiredumps = env_truthy?("RECOLLECT_LOG_WIREDUMPS")
