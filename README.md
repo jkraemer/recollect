@@ -12,8 +12,11 @@ enabling AI coding assistants to maintain context across sessions.
 ## Features
 
 - **MCP Protocol Support**: Standard MCP tools for storing and retrieving memories
-- **Full-Text Search**: SQLite FTS5 for fast, relevant search results
+- **Hybrid Search**: Combines BM25 full-text search with vector semantic search using **Reciprocal Rank Fusion (RRF)** for superior relevance
+- **Smart Markdown Chunking**: Automatically splits large documents into semantic chunks (~700 words) with overlap for precise vector matching
+- **Parent-Child Retrieval**: Transparently resolves chunk-level search matches back to the full original document
 - **Recency Ranking**: Optional time-decay scoring to prefer newer memories
+- **LLM-Powered (Optional)**: Query expansion and re-ranking using Anthropic Claude models
 - **Project Isolation**: Separate database per project, plus a global database
 - **REST API**: HTTP endpoints for the Web UI and CLI
 - **Web Interface**: Browse and search memories in your browser
@@ -30,6 +33,20 @@ For semantic vector search (hybrid FTS5 + vector similarity):
 
 - Python >= 3.8
 - sqlite-vec extension (e.g., `pacman -S sqlite-vec` on Arch Linux)
+
+### Optional: LLM Integration (Expansion & Re-ranking)
+
+Recollect can use a remote LLM (like Anthropic's Claude 3 Haiku) to improve search quality through:
+- **Query Expansion**: Generating alternative search terms to find conceptually related memories
+- **Semantic Re-ranking**: Re-ordering the top results based on actual semantic relevance to your query
+
+This is particularly powerful on slim hardware where running a large local embedding model isn't feasible.
+
+```bash
+export RECOLLECT_LLM_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=your_key_here
+export RECOLLECT_ANTHROPIC_MODEL=claude-3-haiku-20240307
+```
 
 ## Installation
 
@@ -200,6 +217,9 @@ project name or what you were working on.
 | `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
 | `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
 | `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |
+| `RECOLLECT_LLM_PROVIDER` | `none` | LLM provider (`none`, `anthropic`) |
+| `ANTHROPIC_API_KEY` | | API key for Anthropic provider |
+| `RECOLLECT_ANTHROPIC_MODEL` | `claude-3-haiku-20240307` | Model to use for Anthropic |
 | `WEB_CONCURRENCY` | `1` | Puma worker processes |
 | `PUMA_MAX_THREADS` | `5` | Threads per worker |
 

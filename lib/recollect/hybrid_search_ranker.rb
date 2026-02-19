@@ -6,12 +6,11 @@ module Recollect
   class HybridSearchRanker
     FTS_WEIGHT = 0.6
     VECTOR_WEIGHT = 0.4
+    RRF_K = 60
 
     def self.merge(fts_results, vec_results, limit:, recency_ranker: nil)
-      scores = {}
-      score_fts_results(fts_results, scores)
-      score_vector_results(vec_results, scores)
-      results = combine_and_sort(scores, recency_ranker ? limit * 2 : limit)
+      # Switch to RRF merge
+      results = rrf_merge(fts_results, vec_results, limit: limit * 2)
 
       if recency_ranker
         results = recency_ranker.apply(results, score_field: "combined_score")
@@ -20,38 +19,30 @@ module Recollect
       results.take(limit)
     end
 
-    def self.score_fts_results(fts_results, scores)
-      max_rank = fts_results.map { |m| (m["rank"] || 0).abs }.max
-      max_rank = 1.0 if max_rank.nil? || max_rank.zero?
+    def self.rrf_merge(fts_results, vec_results, limit:)
+      scores = {}
 
-      fts_results.each do |mem|
-        normalized = (mem["rank"] || 0).abs / max_rank
-        scores[mem["id"]] = {memory: mem, fts_score: normalized, vec_score: 0.0}
+      # fts_results are already sorted by rank (BM25)
+      fts_results.each_with_index do |mem, idx|
+        rank = idx + 1
+        scores[mem["id"]] ||= {memory: mem, score: 0.0}
+        scores[mem["id"]][:score] += FTS_WEIGHT * (1.0 / (RRF_K + rank))
       end
-    end
 
-    def self.score_vector_results(vec_results, scores)
-      max_distance = vec_results.map { |m| m["distance"] || 0 }.max
-      max_distance = 1.0 if max_distance.nil? || max_distance.zero?
-
-      vec_results.each do |mem|
-        normalized = 1.0 - ((mem["distance"] || 0) / max_distance)
-        if scores[mem["id"]]
-          scores[mem["id"]][:vec_score] = normalized
-        else
-          scores[mem["id"]] = {memory: mem, fts_score: 0.0, vec_score: normalized}
-        end
+      # vec_results are already sorted by distance (ascending)
+      vec_results.each_with_index do |mem, idx|
+        rank = idx + 1
+        scores[mem["id"]] ||= {memory: mem, score: 0.0}
+        scores[mem["id"]][:score] += VECTOR_WEIGHT * (1.0 / (RRF_K + rank))
       end
-    end
 
-    def self.combine_and_sort(scores, limit)
       scored = scores.values.map do |entry|
-        combined = (entry[:fts_score] * FTS_WEIGHT) + (entry[:vec_score] * VECTOR_WEIGHT)
-        entry[:memory].merge("combined_score" => combined)
+        entry[:memory].merge("combined_score" => entry[:score])
       end
+
       scored.sort_by { |m| -m["combined_score"] }.take(limit)
     end
 
-    private_class_method :score_fts_results, :score_vector_results, :combine_and_sort
+    private_class_method :rrf_merge
   end
 end

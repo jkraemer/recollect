@@ -8,12 +8,15 @@ module Recollect
     attr_accessor :data_dir, :host, :port, :max_results,
       :enable_vectors, :vector_dimensions, :embed_server_script_path,
       :log_wiredumps, :max_vector_distance,
-      :recency_aging_factor, :recency_half_life_days
+      :recency_aging_factor, :recency_half_life_days,
+      :llm_provider, :anthropic_api_key, :anthropic_model
 
     VECTOR_DIMENSIONS = 384 # all-MiniLM-L6-v2
     DEFAULT_MAX_VECTOR_DISTANCE = 1.0
     DEFAULT_RECENCY_AGING_FACTOR = 0.0
     DEFAULT_RECENCY_HALF_LIFE_DAYS = 30.0
+    DEFAULT_LLM_PROVIDER = "none"
+    DEFAULT_ANTHROPIC_MODEL = "claude-3-haiku-20240307"
     TRUTHY_VALUES = %w[true 1 yes on].freeze
 
     def initialize
@@ -28,6 +31,11 @@ module Recollect
       @vector_dimensions = VECTOR_DIMENSIONS
       @embed_server_script_path = Recollect.root.join("bin", "embed-server")
       @max_vector_distance = ENV.fetch("RECOLLECT_MAX_VECTOR_DISTANCE", DEFAULT_MAX_VECTOR_DISTANCE).to_f
+
+      # LLM configuration
+      @llm_provider = ENV.fetch("RECOLLECT_LLM_PROVIDER", DEFAULT_LLM_PROVIDER).downcase
+      @anthropic_api_key = ENV.fetch("ANTHROPIC_API_KEY", nil)
+      @anthropic_model = ENV.fetch("RECOLLECT_ANTHROPIC_MODEL", @llm_provider == "anthropic" ? DEFAULT_ANTHROPIC_MODEL : nil)
 
       # Debug logging
       @log_wiredumps = env_truthy?("RECOLLECT_LOG_WIREDUMPS")

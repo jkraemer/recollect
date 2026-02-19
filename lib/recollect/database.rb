@@ -150,6 +150,7 @@ module Recollect
         FROM memories_fts
         JOIN memories ON memories.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
+          AND memories.memory_type NOT LIKE '\\_%' ESCAPE '\\'
       SQL
       params = [safe_query]
 
@@ -170,9 +171,9 @@ module Recollect
 
     def list(memory_type: nil, limit: 50, offset: 0)
       sql = if @vectors_enabled
-        +"SELECT m.*, (v.rowid IS NOT NULL) as has_embedding FROM memories m LEFT JOIN vec_memories v ON v.rowid = m.id"
+        +"SELECT m.*, (v.rowid IS NOT NULL) as has_embedding FROM memories m LEFT JOIN vec_memories v ON v.rowid = m.id WHERE m.memory_type NOT LIKE '\\_%' ESCAPE '\\'"
       else
-        +"SELECT * FROM memories"
+        +"SELECT * FROM memories WHERE memory_type NOT LIKE '\\_%' ESCAPE '\\'"
       end
       params = []
 
@@ -180,7 +181,7 @@ module Recollect
         types = Array(memory_type)
         placeholders = types.map { "?" }.join(", ")
         column = @vectors_enabled ? "m.memory_type" : "memory_type"
-        sql << " WHERE #{column} IN (#{placeholders})"
+        sql << " AND #{column} IN (#{placeholders})"
         params.concat(types)
       end
 

@@ -7,6 +7,7 @@ module Recollect
       @databases = {}
       @mutex = Mutex.new
       @embedding_worker = nil
+      @llm_client = LlmClient.build(@config)
 
       start_embedding_worker if @config.vectors_available?
     end
@@ -25,17 +26,34 @@ module Recollect
 
     def store_with_embedding(project:, content:, memory_type:, tags:, metadata:)
       db = get_database(project)
-      id = db.store(
+
+      # 1. Store full document (Parent)
+      parent_id = db.store(
         content: content,
         memory_type: memory_type,
         tags: tags,
         metadata: metadata
       )
 
-      # Queue for embedding generation
-      @embedding_worker&.enqueue(memory_id: id, content: content, project: project)
+      # 2. Chunk and queue for embedding (only when vectors are enabled)
+      if @embedding_worker
+        chunks = MarkdownChunker.chunk(content)
+        if chunks.size > 1
+          chunks.each_with_index do |chunk_content, idx|
+            chunk_id = db.store(
+              content: chunk_content,
+              memory_type: "_chunk",
+              tags: tags,
+              metadata: { "parent_id" => parent_id, "chunk_index" => idx }
+            )
+            @embedding_worker.enqueue(memory_id: chunk_id, content: chunk_content, project: project)
+          end
+        else
+          @embedding_worker.enqueue(memory_id: parent_id, content: content, project: project)
+        end
+      end
 
-      id
+      parent_id
     end
 
     def search_all(criteria)
@@ -72,33 +90,71 @@ module Recollect
       # If vectors not available, fall back to FTS5 only
       return search_all(criteria) unless @config.vectors_available? && vectors_ready?
 
-      # Wildcard query: skip vector search, just use FTS/list
+      # Wildcard query: skip expansion/vector search, just use FTS/list
       return search_all(criteria) if criteria.query == "*"
 
-      # Get query embedding
-      embed_text = criteria.query_string
-      embedding = embedding_client.embed(embed_text)
+      # 1. Query Expansion (optional)
+      queries = @llm_client.expand_query(criteria.query_string)
 
-      # Collect results from both methods using expanded limit
+      # 2. FTS + Vector retrieval for all expanded queries
+      all_fts_results = []
+      all_vec_results = []
+
       expand_factor = recency_enabled? ? 3 : 2
-      expanded_criteria = SearchCriteria.new(
-        query: criteria.query,
-        project: criteria.project,
-        memory_type: criteria.memory_type,
-        limit: criteria.limit * expand_factor,
-        created_after: criteria.created_after,
-        created_before: criteria.created_before
-      )
-      fts_results = search_all(expanded_criteria)
-      vec_results = vector_search_all(embedding, expanded_criteria)
+      queries.each do |q_text|
+        expanded_criteria = SearchCriteria.new(
+          query: q_text,
+          project: criteria.project,
+          memory_type: criteria.memory_type,
+          limit: criteria.limit * expand_factor,
+          created_after: criteria.created_after,
+          created_before: criteria.created_before
+        )
+        
+        # Get query embedding for each (could be optimized with batching)
+        embedding = embedding_client.embed(q_text)
+        
+        all_fts_results << search_all(expanded_criteria)
+        
+        # Get raw vector results (might contain chunks)
+        raw_vec_results = vector_search_all(embedding, expanded_criteria)
+        
+        # Resolve chunks to parents
+        resolved_vec_results = raw_vec_results.map do |mem|
+          if mem["memory_type"] == "_chunk" && mem["metadata"] && mem["metadata"]["parent_id"]
+            parent = get_database(mem["project"]).get(mem["metadata"]["parent_id"])
+            if parent
+              parent["project"] = mem["project"]
+              parent["distance"] = mem["distance"]
+              parent
+            else
+              mem
+            end
+          else
+            mem
+          end
+        end
+        
+        all_vec_results << resolved_vec_results
+      end
 
-      # Merge and rank with optional recency
-      HybridSearchRanker.merge(
-        fts_results,
-        vec_results,
-        limit: criteria.limit,
+      # 3. Merge and rank with RRF.
+      # Flattening means a parent resolved from multiple matching chunks appears
+      # multiple times in the vector list, accumulating higher RRF score — intentional,
+      # as more chunk matches indicate greater relevance, but it does bias toward longer docs.
+      merged = HybridSearchRanker.merge(
+        all_fts_results.flatten,
+        all_vec_results.flatten,
+        limit: [criteria.limit * 3, 30].max, # Keep more for re-ranking
         recency_ranker: recency_enabled? ? build_recency_ranker : nil
       )
+
+      # 4. LLM Re-ranking (optional)
+      if merged.any? && @llm_client.available?
+        @llm_client.rerank(criteria.query_string, merged, limit: criteria.limit)
+      else
+        merged.take(criteria.limit)
+      end
     end
 
     def list_projects

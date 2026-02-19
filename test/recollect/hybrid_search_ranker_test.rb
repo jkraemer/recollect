@@ -51,7 +51,10 @@ class HybridSearchRankerTest < Recollect::TestCase
     results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
 
     assert_equal 1, results.first["id"], "Item with dual presence and good scores should win"
-    assert_in_delta 0.73, results.first["combined_score"], 0.05
+    # FTS: id 1 is rank 1 -> 0.6 * (1/61) = 0.009836
+    # Vec: id 1 is rank 1 -> 0.4 * (1/61) = 0.006557
+    # Total: 0.016393
+    assert_in_delta 0.016393, results.first["combined_score"], 0.001
   end
 
   # Test limit is respected
@@ -88,11 +91,9 @@ class HybridSearchRankerTest < Recollect::TestCase
 
     results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
 
-    # FTS: rank -1 normalized to 1.0 (only item), * 0.6 = 0.6
-    # Vec: distance 0 normalized to 1.0 (best possible), * 0.4 = 0.4
-    # Total: 1.0
+    # RRF rank 1 for both: 0.6 * (1/61) + 0.4 * (1/61) = 1.0 / 61 = 0.016393
     assert_equal 1, results.length
-    assert_in_delta 1.0, results.first["combined_score"], 0.01
+    assert_in_delta 0.016393, results.first["combined_score"], 0.001
   end
 
   def test_merge_with_recency_ranker

@@ -9,6 +9,8 @@ gem "mcp"
 gem "puma", "~> 7.0"
 gem "sinatra", "~> 4.0"
 gem "sqlite3", "~> 2.0"
+gem "faraday", "~> 2.10"
+gem "faraday-retry", "~> 2.2"
 
 # CLI
 gem "pastel", "~> 0.8"
