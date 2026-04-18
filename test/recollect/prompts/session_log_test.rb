@@ -40,4 +40,20 @@ class SessionLogPromptTest < Recollect::TestCase
     assert_match(/"myproject"/, message.content.text)
     refute_match(/current project name/, message.content.text)
   end
+
+  def test_template_with_empty_project_string
+    result = Recollect::Prompts::SessionLog.template({project: ""}, server_context: {})
+
+    message = result.messages.first
+
+    assert_match(/current project name/, message.content.text)
+  end
+
+  def test_template_with_whitespace_project_string
+    result = Recollect::Prompts::SessionLog.template({project: "   "}, server_context: {})
+
+    message = result.messages.first
+
+    assert_match(/current project name/, message.content.text)
+  end
 end

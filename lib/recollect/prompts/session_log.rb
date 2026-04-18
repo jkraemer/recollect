@@ -17,7 +17,8 @@ module Recollect
 
       class << self
         def template(args, server_context:)
-          project = args[:project]
+          project = args[:project].to_s.strip.downcase
+          project = nil if project.empty?
           prompt_text = build_prompt(project)
 
           MCP::Prompt::Result.new(

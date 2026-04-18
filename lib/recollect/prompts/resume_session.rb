@@ -10,7 +10,7 @@ module Recollect
       arguments [
         MCP::Prompt::Argument.new(
           name: "project",
-          description: "Project name to resume (omit for global/cross-project sessions)",
+          description: "Project name to resume (omit for auto-detection)",
           required: false
         )
       ]
