@@ -49,14 +49,8 @@ module Recollect
         DELETE FROM memories_fts WHERE rowid = old.id;
       END;
 
-      CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories
-      WHEN NEW.deleted_at IS NULL
-      BEGIN
-        INSERT INTO memories_fts(memories_fts, rowid, content, tags, memory_type)
-        VALUES('delete', old.id, old.content, old.tags, old.memory_type);
-        INSERT INTO memories_fts(rowid, content, tags, memory_type)
-        VALUES (new.id, new.content, new.tags, new.memory_type);
-      END;
+      -- memories_au (AFTER UPDATE) is defined in migrate_sync_columns
+      -- since its definition depends on the sync-related columns.
     SQL
 
     def initialize(db_path, load_vectors: false)
@@ -364,8 +358,8 @@ module Recollect
 
       # Replace memories_au with the soft-delete-aware version. Existing user
       # databases may have the older trigger that fires on every UPDATE; left in
-      # place it would race the tombstone trigger below and corrupt the FTS5
-      # contentless-external-content index.
+      # place it would fire alongside the tombstone trigger below and corrupt
+      # the FTS5 contentless-external-content index.
       @db.execute("DROP TRIGGER IF EXISTS memories_au")
       @db.execute(<<~SQL)
         CREATE TRIGGER memories_au AFTER UPDATE ON memories
@@ -384,6 +378,15 @@ module Recollect
         WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
         BEGIN
           DELETE FROM memories_fts WHERE rowid = NEW.id;
+        END;
+      SQL
+
+      @db.execute(<<~SQL)
+        CREATE TRIGGER IF NOT EXISTS memories_no_resurrect
+        BEFORE UPDATE ON memories
+        WHEN OLD.deleted_at IS NOT NULL AND NEW.deleted_at IS NULL
+        BEGIN
+          SELECT RAISE(ABORT, 'cannot resurrect a tombstoned memory');
         END;
       SQL
     end

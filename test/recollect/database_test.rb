@@ -562,4 +562,27 @@ class DatabaseTest < Recollect::TestCase
     refute_includes ids, id1
     assert_includes ids, id2
   end
+
+  def test_resurrection_is_rejected_and_fts_remains_intact
+    raw = @db.instance_variable_get(:@db)
+    id = @db.store(content: "marker", memory_type: "note")
+
+    # Tombstone the row
+    raw.execute("UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", id])
+
+    refute_empty raw.execute("SELECT 1 FROM memories WHERE id = ?", id)
+
+    # Attempt to resurrect — must be rejected
+    assert_raises(SQLite3::ConstraintException) do
+      raw.execute("UPDATE memories SET deleted_at = NULL, deleted_by_peer = NULL WHERE id = ?", [id])
+    end
+
+    # The row remains tombstoned and FTS is still consistent (no corruption)
+    row = raw.get_first_row("SELECT deleted_at FROM memories WHERE id = ?", id)
+
+    refute_nil row["deleted_at"]
+    # FTS index lookup must not error (would error if corrupted)
+    assert_equal 0, raw.get_first_value("SELECT COUNT(*) FROM memories_fts_docsize WHERE id = ?", id)
+  end
 end
