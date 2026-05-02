@@ -64,6 +64,7 @@ module Recollect
 
       configure_database
       create_schema
+      migrate_sync_columns
 
       load_vector_extension if load_vectors
     end
@@ -336,6 +337,26 @@ module Recollect
 
     def create_schema
       @db.execute_batch(SCHEMA)
+    end
+
+    def migrate_sync_columns
+      cols = @db.execute("PRAGMA table_info(memories)").map { |c| c["name"] }
+      unless cols.include?("global_id")
+        @db.execute("ALTER TABLE memories ADD COLUMN global_id TEXT")
+      end
+      unless cols.include?("origin_peer")
+        @db.execute("ALTER TABLE memories ADD COLUMN origin_peer TEXT")
+      end
+      unless cols.include?("deleted_at")
+        @db.execute("ALTER TABLE memories ADD COLUMN deleted_at TEXT")
+      end
+      unless cols.include?("deleted_by_peer")
+        @db.execute("ALTER TABLE memories ADD COLUMN deleted_by_peer TEXT")
+      end
+
+      @db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_global_id ON memories(global_id) WHERE global_id IS NOT NULL")
+      @db.execute("CREATE INDEX IF NOT EXISTS idx_memories_origin_created ON memories(origin_peer, created_at)")
+      @db.execute("CREATE INDEX IF NOT EXISTS idx_memories_deleted ON memories(deleted_at) WHERE deleted_at IS NOT NULL")
     end
 
     def json_encode(value)

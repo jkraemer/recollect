@@ -486,4 +486,27 @@ class DatabaseTest < Recollect::TestCase
     assert_equal "Memory 3", results.first["content"]
     assert_equal "Memory 2", results.last["content"]
   end
+
+  def test_memories_table_has_sync_columns
+    cols = @db.instance_variable_get(:@db).execute("PRAGMA table_info(memories)")
+    names = cols.map { |c| c["name"] }
+
+    assert_includes names, "global_id"
+    assert_includes names, "origin_peer"
+    assert_includes names, "deleted_at"
+    assert_includes names, "deleted_by_peer"
+  end
+
+  def test_global_id_is_unique_when_present
+    @db.instance_variable_get(:@db).execute(
+      "INSERT INTO memories (content, memory_type, global_id) VALUES (?, ?, ?)",
+      ["a", "note", "uuid-x"]
+    )
+    assert_raises(SQLite3::ConstraintException) do
+      @db.instance_variable_get(:@db).execute(
+        "INSERT INTO memories (content, memory_type, global_id) VALUES (?, ?, ?)",
+        ["b", "note", "uuid-x"]
+      )
+    end
+  end
 end
