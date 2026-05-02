@@ -524,4 +524,42 @@ class DatabaseTest < Recollect::TestCase
       )
     end
   end
+
+  def test_tombstone_removes_row_from_fts
+    id = @db.store(content: "haystack needle marker", memory_type: "note")
+    # Confirm searchable
+    refute_empty @db.search("marker")
+    # Tombstone
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", id]
+    )
+    # FTS index entry removed (memories_fts_docsize is the FTS5 shadow table
+    # that tracks indexed rows; querying memories_fts directly reflects the
+    # underlying content table, which still has the soft-deleted row).
+    docsize_count = @db.instance_variable_get(:@db).get_first_value(
+      "SELECT COUNT(*) FROM memories_fts_docsize WHERE id = ?", id
+    )
+
+    assert_equal 0, docsize_count
+  end
+
+  def test_tombstone_does_not_corrupt_fts_when_other_columns_unchanged
+    # Soft-delete via UPDATE that touches only deleted_at fields.
+    # Both memories_au (now WHEN-guarded) and memories_tombstone_fts will be considered;
+    # only memories_tombstone_fts should fire. FTS must stay consistent.
+    id1 = @db.store(content: "alpha bravo charlie", memory_type: "note")
+    id2 = @db.store(content: "alpha delta echo", memory_type: "note")
+
+    raw = @db.instance_variable_get(:@db)
+    raw.execute("UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", id1])
+
+    # FTS still answers correctly for the surviving row
+    results = @db.search("alpha")
+    ids = results.map { |r| r["id"] }
+
+    refute_includes ids, id1
+    assert_includes ids, id2
+  end
 end

@@ -49,7 +49,9 @@ module Recollect
         DELETE FROM memories_fts WHERE rowid = old.id;
       END;
 
-      CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
+      CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories
+      WHEN NEW.deleted_at IS NULL
+      BEGIN
         INSERT INTO memories_fts(memories_fts, rowid, content, tags, memory_type)
         VALUES('delete', old.id, old.content, old.tags, old.memory_type);
         INSERT INTO memories_fts(rowid, content, tags, memory_type)
@@ -359,6 +361,31 @@ module Recollect
       @db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_global_id ON memories(global_id) WHERE global_id IS NOT NULL")
       @db.execute("CREATE INDEX IF NOT EXISTS idx_memories_origin_created ON memories(origin_peer, created_at)")
       @db.execute("CREATE INDEX IF NOT EXISTS idx_memories_deleted ON memories(deleted_at) WHERE deleted_at IS NOT NULL")
+
+      # Replace memories_au with the soft-delete-aware version. Existing user
+      # databases may have the older trigger that fires on every UPDATE; left in
+      # place it would race the tombstone trigger below and corrupt the FTS5
+      # contentless-external-content index.
+      @db.execute("DROP TRIGGER IF EXISTS memories_au")
+      @db.execute(<<~SQL)
+        CREATE TRIGGER memories_au AFTER UPDATE ON memories
+        WHEN NEW.deleted_at IS NULL
+        BEGIN
+          INSERT INTO memories_fts(memories_fts, rowid, content, tags, memory_type)
+          VALUES('delete', OLD.id, OLD.content, OLD.tags, OLD.memory_type);
+          INSERT INTO memories_fts(rowid, content, tags, memory_type)
+          VALUES (NEW.id, NEW.content, NEW.tags, NEW.memory_type);
+        END;
+      SQL
+
+      @db.execute(<<~SQL)
+        CREATE TRIGGER IF NOT EXISTS memories_tombstone_fts
+        AFTER UPDATE ON memories
+        WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+        BEGIN
+          DELETE FROM memories_fts WHERE rowid = NEW.id;
+        END;
+      SQL
     end
 
     def json_encode(value)
