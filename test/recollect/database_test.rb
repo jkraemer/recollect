@@ -497,6 +497,21 @@ class DatabaseTest < Recollect::TestCase
     assert_includes names, "deleted_by_peer"
   end
 
+  def test_store_assigns_global_id_and_origin_peer
+    id = @db.store(content: "hello", memory_type: "note", origin_peer: "test-peer")
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT global_id, origin_peer FROM memories WHERE id = ?", id)
+
+    assert_match(/\A[0-9a-f-]{36}\z/, row["global_id"])
+    assert_equal "test-peer", row["origin_peer"]
+  end
+
+  def test_store_default_origin_peer_is_local
+    id = @db.store(content: "hello", memory_type: "note")
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT origin_peer FROM memories WHERE id = ?", id)
+
+    assert_equal "local", row["origin_peer"]
+  end
+
   def test_global_id_is_unique_when_present
     @db.instance_variable_get(:@db).execute(
       "INSERT INTO memories (content, memory_type, global_id) VALUES (?, ?, ?)",

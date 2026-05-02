@@ -3,6 +3,7 @@
 require "sqlite3"
 require "json"
 require "date"
+require "securerandom"
 
 module Recollect
   class Database
@@ -88,15 +89,16 @@ module Recollect
       @vectors_enabled
     end
 
-    def store(content:, memory_type: "note", tags: nil, metadata: nil)
+    def store(content:, memory_type: "note", tags: nil, metadata: nil, origin_peer: "local")
       raise ArgumentError, "content cannot be empty" if content.nil? || content.to_s.strip.empty?
 
       # Normalize tags to lowercase
       normalized_tags = tags&.map(&:downcase)
+      global_id = SecureRandom.uuid_v7
 
-      @db.execute(<<~SQL, [content, memory_type, json_encode(normalized_tags), json_encode(metadata)])
-        INSERT INTO memories (content, memory_type, tags, metadata)
-        VALUES (?, ?, ?, ?)
+      @db.execute(<<~SQL, [content, memory_type, json_encode(normalized_tags), json_encode(metadata), global_id, origin_peer])
+        INSERT INTO memories (content, memory_type, tags, metadata, global_id, origin_peer)
+        VALUES (?, ?, ?, ?, ?, ?)
       SQL
       @db.last_insert_row_id
     end
