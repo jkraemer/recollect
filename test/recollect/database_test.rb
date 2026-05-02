@@ -563,6 +563,21 @@ class DatabaseTest < Recollect::TestCase
     assert_includes ids, id2
   end
 
+  def test_tombstone_removes_row_from_vec_when_vectors_loaded
+    skip "vectors not available" unless @db.vectors_enabled?
+    id = @db.store(content: "x", memory_type: "note")
+    raw = @db.instance_variable_get(:@db)
+    # Insert a fake embedding row
+    raw.execute("INSERT INTO vec_memories(rowid, embedding) VALUES (?, ?)", [id, "\0" * (4 * 384)])
+
+    assert_equal 1, raw.get_first_value("SELECT COUNT(*) FROM vec_memories WHERE rowid = ?", id)
+    # Tombstone
+    raw.execute("UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", id])
+
+    assert_equal 0, raw.get_first_value("SELECT COUNT(*) FROM vec_memories WHERE rowid = ?", id)
+  end
+
   def test_resurrection_is_rejected_and_fts_remains_intact
     raw = @db.instance_variable_get(:@db)
     id = @db.store(content: "marker", memory_type: "note")

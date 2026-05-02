@@ -75,6 +75,16 @@ module Recollect
       @db.enable_load_extension(false)
 
       @db.execute_batch(VECTOR_SCHEMA)
+
+      @db.execute(<<~SQL)
+        CREATE TRIGGER IF NOT EXISTS memories_tombstone_vec
+        AFTER UPDATE ON memories
+        WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL
+        BEGIN
+          DELETE FROM vec_memories WHERE rowid = NEW.id;
+        END;
+      SQL
+
       @vectors_enabled = true
     rescue SQLite3::Exception => e
       warn "[Database] Failed to load sqlite-vec: #{e.message}"
