@@ -19,6 +19,8 @@ gem "tty-table", "~> 0.12"
 
 # Utilities
 gem "zeitwerk", "~> 2.6" # Autoloading
+gem "ed25519", "~> 1.3" # Sync request signatures
+gem "base58", "~> 0.2" # peer_id encoding
 
 group :development, :test do
   gem "minitest", "~> 5.25"
