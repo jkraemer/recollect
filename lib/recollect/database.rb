@@ -201,9 +201,11 @@ module Recollect
       @db.execute(sql, params).map { |row| deserialize(row) }
     end
 
-    def delete(id) # rubocop:disable Naming/PredicateMethod
-      @db.execute("DELETE FROM vec_memories WHERE rowid = ?", id) if @vectors_enabled
-      @db.execute("DELETE FROM memories WHERE id = ?", id)
+    def delete(id, deleted_by_peer: "local") # rubocop:disable Naming/PredicateMethod
+      @db.execute(
+        "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ? AND deleted_at IS NULL",
+        [Time.now.utc.iso8601(3), deleted_by_peer, id]
+      )
       @db.changes.positive?
     end
 

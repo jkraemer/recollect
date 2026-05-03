@@ -131,6 +131,34 @@ class DatabaseTest < Recollect::TestCase
     refute @db.delete(99_999)
   end
 
+  def test_delete_tombstones_row_instead_of_hard_delete
+    id = @db.store(content: "doomed", memory_type: "note")
+    @db.delete(id, deleted_by_peer: "local")
+    raw = @db.instance_variable_get(:@db)
+    row = raw.get_first_row("SELECT id, content, deleted_at, deleted_by_peer FROM memories WHERE id = ?", id)
+
+    refute_nil row, "row should still exist physically (tombstone, not hard delete)"
+    refute_nil row["deleted_at"], "deleted_at should be set"
+    assert_equal "local", row["deleted_by_peer"]
+  end
+
+  def test_delete_returns_true_when_row_existed
+    id = @db.store(content: "x", memory_type: "note")
+
+    assert(@db.delete(id, deleted_by_peer: "local"))
+  end
+
+  def test_delete_returns_false_when_row_missing
+    refute(@db.delete(99_999, deleted_by_peer: "local"))
+  end
+
+  def test_delete_idempotent_on_already_deleted
+    id = @db.store(content: "x", memory_type: "note")
+    @db.delete(id, deleted_by_peer: "local")
+    # Second call should not raise; should be no-op (returns false because deleted_at is unchanged)
+    refute(@db.delete(id, deleted_by_peer: "local"))
+  end
+
   # Test count returns total
   def test_count_returns_total
     3.times { |i| @db.store(content: "Memory #{i}") }
