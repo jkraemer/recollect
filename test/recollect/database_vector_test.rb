@@ -147,6 +147,24 @@ module Recollect
       assert_equal 0, @db.embedding_count
     end
 
+    def test_tombstone_removes_row_from_vec_index
+      skip_unless_vec_extension_available
+
+      @db = Database.new(@db_path, load_vectors: true)
+      memory_id = @db.store(content: "tombstone target", memory_type: "note", tags: [], metadata: nil)
+      @db.store_embedding(memory_id, Array.new(384) { rand(-1.0..1.0) })
+
+      assert_equal 1, @db.embedding_count
+
+      raw = @db.instance_variable_get(:@db)
+      raw.execute(
+        "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+        [Time.now.utc.iso8601, "local", memory_id]
+      )
+
+      assert_equal 0, @db.embedding_count
+    end
+
     def test_vector_search_filters_out_low_relevance_results
       skip_unless_vec_extension_available
 
