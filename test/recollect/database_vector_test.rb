@@ -133,6 +133,22 @@ module Recollect
       assert_equal "no embedding", missing.first["content"]
     end
 
+    def test_memories_without_embeddings_excludes_tombstoned
+      skip_unless_vec_extension_available
+
+      @db = Database.new(@db_path, load_vectors: true)
+      alive = @db.store(content: "alive", memory_type: "note", tags: [], metadata: nil)
+      dead = @db.store(content: "dead", memory_type: "note", tags: [], metadata: nil)
+      @db.instance_variable_get(:@db).execute(
+        "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+        [Time.now.utc.iso8601, "local", dead]
+      )
+      ids = @db.memories_without_embeddings(limit: 100).map { |r| r["id"] }
+
+      assert_includes ids, alive
+      refute_includes ids, dead
+    end
+
     def test_delete_removes_embedding
       skip_unless_vec_extension_available
 

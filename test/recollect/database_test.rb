@@ -148,6 +148,17 @@ class DatabaseTest < Recollect::TestCase
     assert_equal 1, @db.count(memory_type: "decision")
   end
 
+  def test_count_excludes_tombstoned
+    @db.store(content: "alive", memory_type: "note")
+    dead = @db.store(content: "dead", memory_type: "note")
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", dead]
+    )
+
+    assert_equal 1, @db.count
+  end
+
   # Test default memory_type is 'note'
   def test_default_memory_type
     id = @db.store(content: "Test")

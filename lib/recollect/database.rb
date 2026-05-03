@@ -209,9 +209,12 @@ module Recollect
 
     def count(memory_type: nil)
       if memory_type
-        @db.get_first_value("SELECT COUNT(*) FROM memories WHERE memory_type = ?", memory_type)
+        @db.get_first_value(
+          "SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL AND memory_type = ?",
+          memory_type
+        )
       else
-        @db.get_first_value("SELECT COUNT(*) FROM memories")
+        @db.get_first_value("SELECT COUNT(*) FROM memories WHERE deleted_at IS NULL")
       end
     end
 
@@ -325,7 +328,8 @@ module Recollect
 
       sql = <<~SQL
         SELECT id, content FROM memories
-        WHERE id NOT IN (SELECT rowid FROM vec_memories)
+        WHERE deleted_at IS NULL
+          AND id NOT IN (SELECT rowid FROM vec_memories)
         ORDER BY created_at DESC
         LIMIT ?
       SQL
