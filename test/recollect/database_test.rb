@@ -563,6 +563,42 @@ class DatabaseTest < Recollect::TestCase
     assert_includes ids, id2
   end
 
+  def test_get_returns_nil_for_tombstoned
+    id = @db.store(content: "x", memory_type: "note")
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", id]
+    )
+
+    assert_nil @db.get(id)
+  end
+
+  def test_list_excludes_tombstoned
+    alive = @db.store(content: "alive", memory_type: "note")
+    dead = @db.store(content: "dead", memory_type: "note")
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", dead]
+    )
+    ids = @db.list.map { |r| r["id"] }
+
+    assert_includes ids, alive
+    refute_includes ids, dead
+  end
+
+  def test_search_excludes_tombstoned
+    alive = @db.store(content: "needle alive", memory_type: "note")
+    dead = @db.store(content: "needle dead", memory_type: "note")
+    @db.instance_variable_get(:@db).execute(
+      "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+      [Time.now.utc.iso8601, "local", dead]
+    )
+    ids = @db.search("needle").map { |r| r["id"] }
+
+    assert_includes ids, alive
+    refute_includes ids, dead
+  end
+
   def test_resurrection_is_rejected_and_fts_remains_intact
     raw = @db.instance_variable_get(:@db)
     id = @db.store(content: "marker", memory_type: "note")

@@ -115,11 +115,11 @@ module Recollect
           SELECT m.*, (v.rowid IS NOT NULL) as has_embedding
           FROM memories m
           LEFT JOIN vec_memories v ON v.rowid = m.id
-          WHERE m.id = ?
+          WHERE m.id = ? AND m.deleted_at IS NULL
         SQL
         row = @db.get_first_row(sql, id)
       else
-        row = @db.get_first_row("SELECT * FROM memories WHERE id = ?", id)
+        row = @db.get_first_row("SELECT * FROM memories WHERE id = ? AND deleted_at IS NULL", id)
       end
       deserialize(row)
     end
@@ -127,7 +127,7 @@ module Recollect
     def search(query, memory_type: nil, limit: 10, offset: 0, created_after: nil, created_before: nil)
       # Handle wildcard query - return all records matching filters
       if query == "*"
-        sql = +"SELECT * FROM memories WHERE 1=1"
+        sql = +"SELECT * FROM memories WHERE deleted_at IS NULL"
         params = []
 
         if memory_type
@@ -160,6 +160,7 @@ module Recollect
         JOIN memories ON memories.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
           AND memories.memory_type NOT LIKE '\\_%' ESCAPE '\\'
+          AND memories.deleted_at IS NULL
       SQL
       params = [safe_query]
 
@@ -180,9 +181,9 @@ module Recollect
 
     def list(memory_type: nil, limit: 50, offset: 0)
       sql = if @vectors_enabled
-        +"SELECT m.*, (v.rowid IS NOT NULL) as has_embedding FROM memories m LEFT JOIN vec_memories v ON v.rowid = m.id WHERE m.memory_type NOT LIKE '\\_%' ESCAPE '\\'"
+        +"SELECT m.*, (v.rowid IS NOT NULL) as has_embedding FROM memories m LEFT JOIN vec_memories v ON v.rowid = m.id WHERE m.memory_type NOT LIKE '\\_%' ESCAPE '\\' AND m.deleted_at IS NULL"
       else
-        +"SELECT * FROM memories WHERE memory_type NOT LIKE '\\_%' ESCAPE '\\'"
+        +"SELECT * FROM memories WHERE memory_type NOT LIKE '\\_%' ESCAPE '\\' AND deleted_at IS NULL"
       end
       params = []
 
@@ -220,7 +221,7 @@ module Recollect
       # Normalize tag_filters to lowercase
       normalized_tags = tag_filters.map(&:downcase)
 
-      sql = +"SELECT * FROM memories WHERE 1=1"
+      sql = +"SELECT * FROM memories WHERE deleted_at IS NULL"
       params = []
 
       # Build WHERE clause to match all tags (AND logic) using json_each for robust matching
@@ -245,11 +246,11 @@ module Recollect
     end
 
     def get_tag_stats(memory_type: nil)
-      sql = "SELECT tags FROM memories"
+      sql = "SELECT tags FROM memories WHERE deleted_at IS NULL"
       params = []
 
       if memory_type
-        sql += " WHERE memory_type = ?"
+        sql += " AND memory_type = ?"
         params << memory_type
       end
 
@@ -300,6 +301,7 @@ module Recollect
         JOIN memories m ON m.id = v.rowid
         WHERE v.embedding MATCH ?
           AND k = ?
+          AND m.deleted_at IS NULL
       SQL
       params = [query_blob, limit]
 
