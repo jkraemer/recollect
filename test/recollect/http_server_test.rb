@@ -544,6 +544,23 @@ class HTTPServerTest < Recollect::TestCase
     assert_kind_of Recollect::Sync::Store, Recollect::HTTPServer.sync_store
   end
 
+  def test_pairing_create_returns_code_for_loopback
+    post "/pairing/create"
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    assert_match(/\A[A-Z0-9]{4}-[A-Z0-9]{4}\z/, body["code"])
+    refute_nil body["expires_at"]
+    refute_nil body["endpoint"]
+  end
+
+  def test_pairing_create_rejects_non_loopback
+    post "/pairing/create", {}, "REMOTE_ADDR" => "8.8.8.8"
+
+    assert_equal 403, last_response.status
+  end
+
   def test_local_identity_is_available
     identity = Recollect::HTTPServer.local_identity
 

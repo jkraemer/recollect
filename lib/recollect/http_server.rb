@@ -136,6 +136,15 @@ module Recollect
 
         "unknown"
       end
+
+      def loopback_request?
+        addr = request.env["REMOTE_ADDR"]
+        %w[127.0.0.1 ::1].include?(addr)
+      end
+
+      def pairing_codes
+        @pairing_codes ||= Recollect::Sync::PairingCodes.new(self.class.sync_store)
+      end
     end
 
     # Health check
@@ -149,6 +158,17 @@ module Recollect
       body = request.body.read
       content_type :json
       mcp_server.handle_json(body)
+    end
+
+    # ========== Pairing API (local-only) ==========
+
+    post "/pairing/create" do
+      halt 403, {error: "local-only endpoint"}.to_json unless loopback_request?
+
+      result = pairing_codes.generate
+      endpoint = Recollect::Sync::Endpoint.discover(port: Recollect.config.port)
+      content_type :json
+      {code: result[:code], expires_at: result[:expires_at].iso8601, endpoint: endpoint}.to_json
     end
 
     # ========== REST API ==========
