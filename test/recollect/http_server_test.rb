@@ -682,6 +682,30 @@ class HTTPServerTest < Recollect::TestCase
     refute_nil identity.peer_id
   end
 
+  def test_local_identity_is_singleton_under_concurrent_access
+    # Reset to force a fresh init
+    Recollect::HTTPServer.reset_db_manager!
+
+    identities = []
+    mutex = Mutex.new
+    threads = 8.times.map do
+      Thread.new do
+        peer = Recollect::HTTPServer.local_identity.peer_id
+        mutex.synchronize { identities << peer }
+      end
+    end
+    threads.each(&:join)
+
+    assert_equal 1, identities.uniq.size,
+      "concurrent first-touch must produce a single identity, got: #{identities.uniq.inspect}"
+
+    # And only one row in local_identity
+    raw = Recollect::HTTPServer.sync_store.instance_variable_get(:@db)
+    count = raw.get_first_value("SELECT COUNT(*) FROM local_identity")
+
+    assert_equal 1, count
+  end
+
   # Test singleton behavior - verifies fix for file descriptor leak
   def test_db_manager_is_singleton_across_requests
     # Capture the db_manager instance after first request

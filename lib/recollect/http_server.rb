@@ -6,6 +6,10 @@ require "faraday"
 
 module Recollect
   class HTTPServer < Sinatra::Base
+    # Initialized eagerly so concurrent first calls share one mutex
+    # instead of each thread making its own and locking nothing.
+    @init_mutex = Mutex.new
+
     configure do
       set :public_folder, proc { Recollect.root.join("public") }
       set :views, proc { Recollect.root.join("views") }
@@ -19,17 +23,36 @@ module Recollect
     # Class-level singletons to avoid file descriptor leaks.
     # Previously, helpers used per-request instance variables (@db_manager ||= ...)
     # which created new DatabaseManager instances (and SQLite connections) per request.
+    #
+    # Under Puma threading, bare ||= lazy init has a race window where two
+    # concurrent first requests can each pass the nil check and initialize
+    # separately. For local_identity, this would mint distinct Ed25519 keys
+    # and INSERT separate local_identity rows. Subsequent reads (LIMIT 1 with
+    # undefined order) could flip identities and silently invalidate pairings.
+    # Double-checked locking keeps the hot path lock-free after first init.
     class << self
+      attr_reader :init_mutex
+
       def sync_store
-        @sync_store ||= Sync::Store.new(Recollect.config.sync_db_path)
+        return @sync_store if @sync_store
+
+        init_mutex.synchronize { @sync_store ||= Sync::Store.new(Recollect.config.sync_db_path) }
       end
 
       def local_identity
-        @local_identity ||= Sync::Identity.ensure!(sync_store)
+        return @local_identity if @local_identity
+
+        # Resolve sync_store outside the lock to avoid recursive acquisition.
+        store = sync_store
+        init_mutex.synchronize { @local_identity ||= Sync::Identity.ensure!(store) }
       end
 
       def db_manager
-        @db_manager ||= DatabaseManager.new(Recollect.config, local_peer_id: local_identity.peer_id)
+        return @db_manager if @db_manager
+
+        # Resolve local_identity outside the lock to avoid recursive acquisition.
+        identity = local_identity
+        init_mutex.synchronize { @db_manager ||= DatabaseManager.new(Recollect.config, local_peer_id: identity.peer_id) }
       end
 
       def memories_service
@@ -41,13 +64,15 @@ module Recollect
       end
 
       def reset_db_manager!
-        @db_manager&.close_all
-        @db_manager = nil
-        @memories_service = nil
-        @mcp_server = nil
-        @sync_store&.close
-        @sync_store = nil
-        @local_identity = nil
+        init_mutex.synchronize do
+          @db_manager&.close_all
+          @db_manager = nil
+          @memories_service = nil
+          @mcp_server = nil
+          @sync_store&.close
+          @sync_store = nil
+          @local_identity = nil
+        end
       end
     end
 

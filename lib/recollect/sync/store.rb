@@ -45,7 +45,8 @@ module Recollect
         CREATE TABLE IF NOT EXISTS peer_db_subscriptions (
           peer_id TEXT NOT NULL,
           db_name TEXT NOT NULL,
-          PRIMARY KEY (peer_id, db_name)
+          PRIMARY KEY (peer_id, db_name),
+          FOREIGN KEY (peer_id) REFERENCES known_peers(peer_id) ON DELETE CASCADE
         );
       SQL
 

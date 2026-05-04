@@ -56,4 +56,29 @@ class Recollect::Sync::PeersTest < Recollect::TestCase
 
     assert_equal ["global"], @peers.subscriptions("p1")
   end
+
+  def test_subscribing_unknown_peer_is_rejected_by_fk
+    # Subscribing a peer_id that doesn't exist in known_peers must fail
+    assert_raises(SQLite3::ConstraintException) do
+      @peers.subscribe("nonexistent-peer", "global")
+    end
+  end
+
+  def test_blocking_peer_does_not_cascade_delete_subscriptions
+    # Block != delete; subscriptions should remain so the policy doesn't silently change
+    @peers.add(**peer_attrs("p1"), default_subscription: "global")
+    @peers.block("p1")
+
+    assert_equal ["global"], @peers.subscriptions("p1")
+  end
+
+  def test_deleting_peer_cascades_subscriptions
+    # If a known_peers row is deleted (admin SQL only -- not a normal code path),
+    # subscriptions are removed. Locks in the ON DELETE CASCADE behavior.
+    @peers.add(**peer_attrs("p1"), default_subscription: "global")
+    raw = @store.instance_variable_get(:@db)
+    raw.execute("DELETE FROM known_peers WHERE peer_id = ?", "p1")
+
+    assert_empty @peers.subscriptions("p1")
+  end
 end
