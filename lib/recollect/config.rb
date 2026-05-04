@@ -64,6 +64,10 @@ module Recollect
       data_dir.join("projects")
     end
 
+    def sync_db_path
+      data_dir.join("sync.db")
+    end
+
     def vec_extension_path
       paths = [
         "/usr/lib/vec0.so",                        # Arch Linux package
