@@ -665,6 +665,53 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal 403, last_response.status
   end
 
+  def test_api_sync_peers_join_stores_remote_peer_on_success
+    # Stub Faraday.post to return a synthetic 200 with a remote-peer payload
+    remote_pub = ("\x77" * 32).b
+    remote_response = Struct.new(:status, :body, :success?).new(
+      200,
+      {
+        peer_id: "remote-peer-1",
+        display_name: "Remote",
+        public_key: Base64.strict_encode64(remote_pub),
+        endpoint: "http://remote:7327"
+      }.to_json,
+      true
+    )
+
+    Faraday.stub(:post, ->(*_args, &_block) { remote_response }) do
+      post "/api/sync/peers/join",
+        {code: "ABCD-1234", endpoint: "http://remote:7327"}.to_json,
+        "CONTENT_TYPE" => "application/json"
+    end
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    assert_equal "remote-peer-1", body["peer_id"]
+    assert_equal "trusted", body["status"]
+
+    peers = Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store)
+    remote = peers.find("remote-peer-1")
+
+    refute_nil remote
+    assert_equal "trusted", remote[:status]
+    assert_equal "http://remote:7327", remote[:endpoint]
+    assert_equal ["global"], peers.subscriptions("remote-peer-1")
+  end
+
+  def test_api_sync_peers_join_propagates_remote_failure
+    remote_response = Struct.new(:status, :body, :success?).new(401, '{"error":"bad code"}', false)
+
+    Faraday.stub(:post, ->(*_args, &_block) { remote_response }) do
+      post "/api/sync/peers/join",
+        {code: "WRONG", endpoint: "http://remote:7327"}.to_json,
+        "CONTENT_TYPE" => "application/json"
+    end
+
+    assert_equal 401, last_response.status
+  end
+
   def test_pairing_join_with_invalid_code_rejected
     payload = {
       code: "ZZZZ-ZZZZ", peer_id: "x", display_name: "x",

@@ -34,7 +34,7 @@ module Recollect
                 p["endpoint"],
                 p["status"],
                 p["last_seen_at"] || "-",
-                p["subscriptions"].join(",")
+                (p["subscriptions"] || []).join(",")
               ]
             end
           )

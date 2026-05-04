@@ -40,4 +40,26 @@ class Recollect::Sync::EndpointTest < Minitest::Test
       end
     end
   end
+
+  def test_raises_when_public_url_lacks_scheme
+    ENV["RECOLLECT_PUBLIC_URL"] = "no-scheme.example:9000"
+    err = assert_raises(Recollect::Sync::Endpoint::DiscoveryError) do
+      Recollect::Sync::Endpoint.discover(port: @port)
+    end
+
+    assert_match(/scheme/, err.message)
+  ensure
+    ENV.delete("RECOLLECT_PUBLIC_URL")
+  end
+
+  def test_raises_on_invalid_public_url
+    ENV["RECOLLECT_PUBLIC_URL"] = "ht!tp://bad url with spaces"
+    err = assert_raises(Recollect::Sync::Endpoint::DiscoveryError) do
+      Recollect::Sync::Endpoint.discover(port: @port)
+    end
+
+    assert_match(/RECOLLECT_PUBLIC_URL/, err.message)
+  ensure
+    ENV.delete("RECOLLECT_PUBLIC_URL")
+  end
 end

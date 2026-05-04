@@ -3,6 +3,7 @@
 require "json"
 require "open3"
 require "socket"
+require "uri"
 
 module Recollect
   module Sync
@@ -13,7 +14,7 @@ module Recollect
 
       def discover(port:)
         if (env = ENV["RECOLLECT_PUBLIC_URL"]) && !env.empty?
-          return env
+          return validate_url!(env)
         end
         if (name = tailscale_dns_name)
           return "http://#{name}:#{port}"
@@ -23,6 +24,17 @@ module Recollect
         end
 
         raise DiscoveryError, "Could not auto-detect a reachable URL. Set RECOLLECT_PUBLIC_URL or pass --endpoint."
+      end
+
+      def validate_url!(url)
+        uri = URI.parse(url)
+        unless %w[http https].include?(uri.scheme)
+          raise DiscoveryError, "RECOLLECT_PUBLIC_URL must include a scheme (http:// or https://). Got: #{url.inspect}"
+        end
+
+        url
+      rescue URI::InvalidURIError
+        raise DiscoveryError, "RECOLLECT_PUBLIC_URL is not a valid URL: #{url.inspect}"
       end
 
       def tailscale_dns_name
