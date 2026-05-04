@@ -142,6 +142,10 @@ module Recollect
         %w[127.0.0.1 ::1].include?(addr)
       end
 
+      def require_loopback!
+        halt 403, {error: "local-only endpoint"}.to_json unless loopback_request?
+      end
+
       def pairing_codes
         @pairing_codes ||= Recollect::Sync::PairingCodes.new(self.class.sync_store)
       end
@@ -167,7 +171,7 @@ module Recollect
     # ========== Pairing API (local-only) ==========
 
     post "/pairing/create" do
-      halt 403, {error: "local-only endpoint"}.to_json unless loopback_request?
+      require_loopback!
 
       result = pairing_codes.generate
       endpoint = Recollect::Sync::Endpoint.discover(port: Recollect.config.port)
@@ -198,6 +202,46 @@ module Recollect
         public_key: Base64.strict_encode64(identity.public_key),
         endpoint: Recollect::Sync::Endpoint.discover(port: Recollect.config.port)
       }.to_json
+    end
+
+    # ========== Sync API (local-only) ==========
+
+    get "/api/sync/identity" do
+      require_loopback!
+      content_type :json
+      identity = self.class.local_identity
+      fingerprint = Digest::SHA256.hexdigest(identity.public_key)[0, 16]
+      {peer_id: identity.peer_id, display_name: identity.display_name, public_key_fingerprint: fingerprint}.to_json
+    end
+
+    get "/api/sync/peers" do
+      require_loopback!
+      content_type :json
+      peers_registry.list.map do |p|
+        p.merge(subscriptions: peers_registry.subscriptions(p[:peer_id])).tap { |h| h.delete(:public_key) }
+      end.to_json
+    end
+
+    delete "/api/sync/peers/:peer_id" do
+      require_loopback!
+      peers_registry.block(params[:peer_id])
+      content_type :json
+      {ok: true}.to_json
+    end
+
+    post "/api/sync/peers/:peer_id/subscriptions" do
+      require_loopback!
+      body = JSON.parse(request.body.read)
+      peers_registry.subscribe(params[:peer_id], body["db_name"])
+      content_type :json
+      {ok: true}.to_json
+    end
+
+    delete "/api/sync/peers/:peer_id/subscriptions/:db_name" do
+      require_loopback!
+      peers_registry.unsubscribe(params[:peer_id], params[:db_name])
+      content_type :json
+      {ok: true}.to_json
     end
 
     # ========== REST API ==========

@@ -593,6 +593,71 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal ["global"], peers.subscriptions("joiner-x")
   end
 
+  def test_api_sync_identity
+    get "/api/sync/identity"
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    assert_equal Recollect::HTTPServer.local_identity.peer_id, body["peer_id"]
+    refute_nil body["display_name"]
+    refute_nil body["public_key_fingerprint"]
+  end
+
+  def test_api_sync_identity_rejects_non_loopback
+    get "/api/sync/identity", {}, "REMOTE_ADDR" => "8.8.8.8"
+
+    assert_equal 403, last_response.status
+  end
+
+  def test_api_sync_peers_list_empty_initially
+    get "/api/sync/peers"
+
+    assert_equal 200, last_response.status
+    assert_empty JSON.parse(last_response.body)
+  end
+
+  def test_api_sync_peers_list_strips_public_key_and_includes_subscriptions
+    peers = Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store)
+    peers.add(peer_id: "p1", display_name: "P1", public_key: ("\x00" * 32).b, endpoint: "http://p1:7326",
+      default_subscription: "global")
+
+    get "/api/sync/peers"
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    assert_equal 1, body.length
+    assert_equal "p1", body[0]["peer_id"]
+    assert_equal ["global"], body[0]["subscriptions"]
+    refute body[0].key?("public_key")
+  end
+
+  def test_api_sync_peers_remove_blocks
+    peers = Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store)
+    peers.add(peer_id: "p1", display_name: "P1", public_key: ("\x00" * 32).b, endpoint: "http://p1:7326")
+    delete "/api/sync/peers/p1"
+
+    assert_equal 200, last_response.status
+    assert_equal "blocked", peers.find("p1")[:status]
+  end
+
+  def test_api_sync_peers_subscriptions_add_remove
+    peers = Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store)
+    peers.add(peer_id: "p1", display_name: "P1", public_key: ("\x00" * 32).b, endpoint: "http://p1:7326")
+
+    post "/api/sync/peers/p1/subscriptions", {db_name: "personal-finance"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    assert_equal 200, last_response.status
+    assert_includes peers.subscriptions("p1"), "personal-finance"
+
+    delete "/api/sync/peers/p1/subscriptions/personal-finance"
+
+    assert_equal 200, last_response.status
+    refute_includes peers.subscriptions("p1"), "personal-finance"
+  end
+
   def test_pairing_join_with_invalid_code_rejected
     payload = {
       code: "ZZZZ-ZZZZ", peer_id: "x", display_name: "x",
