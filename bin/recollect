@@ -179,6 +179,22 @@ module Recollect
       say @pastel.red("Server unreachable: #{e.message}")
     end
 
+    desc "identity", "Show the local sync identity"
+    def identity
+      response = get("/api/sync/identity")
+
+      if response.code == "200"
+        data = JSON.parse(response.body)
+        say "peer_id:     #{@pastel.cyan(data["peer_id"])}"
+        say "name:        #{data["display_name"]}"
+        say "fingerprint: #{data["public_key_fingerprint"]}"
+      else
+        say @pastel.red("Error: #{response.code} #{response.message}")
+      end
+    rescue => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
     desc "vector-status", "Check vector search status"
     def vector_status
       response = get("/api/vectors/status")
