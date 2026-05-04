@@ -195,6 +195,24 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
+    desc "pair", "Generate a pairing code for another machine to use"
+    def pair
+      response = post("/pairing/create", {})
+      if response.code == "200"
+        data = JSON.parse(response.body)
+        say @pastel.bold("Pairing code: #{@pastel.cyan(data["code"])}")
+        say "Endpoint:     #{data["endpoint"]}"
+        say "Expires:      #{data["expires_at"]} (5 minutes)"
+        say ""
+        say "On the other machine, run:"
+        say "  recollect join #{data["code"]} --endpoint #{data["endpoint"]}"
+      else
+        say @pastel.red("Error: #{response.code} #{response.message}")
+      end
+    rescue => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
     desc "vector-status", "Check vector search status"
     def vector_status
       response = get("/api/vectors/status")
