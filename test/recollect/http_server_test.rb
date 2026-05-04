@@ -561,6 +561,48 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal 403, last_response.status
   end
 
+  def test_pairing_join_with_valid_code_trusts_peer
+    # Create a code first
+    post "/pairing/create"
+    code = JSON.parse(last_response.body)["code"]
+
+    joiner_pub = ("\x42" * 32).b
+    payload = {
+      code: code,
+      peer_id: "joiner-x",
+      display_name: "Joiner",
+      public_key: Base64.strict_encode64(joiner_pub),
+      endpoint: "http://joiner:7326"
+    }
+    post "/pairing/join", payload.to_json, "CONTENT_TYPE" => "application/json"
+
+    assert_equal 200, last_response.status
+
+    body = JSON.parse(last_response.body)
+
+    assert_equal Recollect::HTTPServer.local_identity.peer_id, body["peer_id"]
+    refute_nil body["public_key"]
+    refute_nil body["endpoint"]
+
+    # Joiner is now in known_peers with global subscription
+    peers = Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store)
+    joiner = peers.find("joiner-x")
+
+    refute_nil joiner
+    assert_equal "trusted", joiner[:status]
+    assert_equal ["global"], peers.subscriptions("joiner-x")
+  end
+
+  def test_pairing_join_with_invalid_code_rejected
+    payload = {
+      code: "ZZZZ-ZZZZ", peer_id: "x", display_name: "x",
+      public_key: Base64.strict_encode64("\x00" * 32), endpoint: "http://x:7326"
+    }
+    post "/pairing/join", payload.to_json, "CONTENT_TYPE" => "application/json"
+
+    assert_equal 401, last_response.status
+  end
+
   def test_local_identity_is_available
     identity = Recollect::HTTPServer.local_identity
 

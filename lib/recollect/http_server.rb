@@ -145,6 +145,10 @@ module Recollect
       def pairing_codes
         @pairing_codes ||= Recollect::Sync::PairingCodes.new(self.class.sync_store)
       end
+
+      def peers_registry
+        @peers_registry ||= Recollect::Sync::Peers.new(self.class.sync_store)
+      end
     end
 
     # Health check
@@ -169,6 +173,31 @@ module Recollect
       endpoint = Recollect::Sync::Endpoint.discover(port: Recollect.config.port)
       content_type :json
       {code: result[:code], expires_at: result[:expires_at].iso8601, endpoint: endpoint}.to_json
+    end
+
+    post "/pairing/join" do
+      body = JSON.parse(request.body.read)
+      code = body["code"]
+      joiner_id = body["peer_id"]
+
+      halt 401, {error: "invalid or expired code"}.to_json unless pairing_codes.consume(code, used_by_peer: joiner_id)
+
+      peers_registry.add(
+        peer_id: joiner_id,
+        display_name: body["display_name"],
+        public_key: Base64.strict_decode64(body["public_key"]),
+        endpoint: body["endpoint"],
+        default_subscription: "global"
+      )
+
+      identity = self.class.local_identity
+      content_type :json
+      {
+        peer_id: identity.peer_id,
+        display_name: identity.display_name,
+        public_key: Base64.strict_encode64(identity.public_key),
+        endpoint: Recollect::Sync::Endpoint.discover(port: Recollect.config.port)
+      }.to_json
     end
 
     # ========== REST API ==========
