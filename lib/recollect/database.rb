@@ -325,6 +325,16 @@ module Recollect
       @db.get_first_value("SELECT COUNT(*) FROM vec_memories") || 0
     end
 
+    def backfill_origin_peer!(local_peer_id)
+      rows = @db.execute("SELECT id FROM memories WHERE global_id IS NULL OR origin_peer IS NULL")
+      rows.each do |row|
+        @db.execute(
+          "UPDATE memories SET global_id = COALESCE(global_id, ?), origin_peer = COALESCE(origin_peer, ?) WHERE id = ?",
+          [SecureRandom.uuid_v7, local_peer_id, row["id"]]
+        )
+      end
+    end
+
     def memories_without_embeddings(limit: 100)
       return [] unless @vectors_enabled
 

@@ -2,8 +2,9 @@
 
 module Recollect
   class DatabaseManager
-    def initialize(config = Recollect.config)
+    def initialize(config = Recollect.config, local_peer_id: nil)
       @config = config
+      @local_peer_id = local_peer_id
       @databases = {}
       @mutex = Mutex.new
       @embedding_worker = nil
@@ -19,7 +20,9 @@ module Recollect
       @mutex.synchronize do
         @databases[key] ||= begin
           path = project ? project_db_path(project) : @config.global_db_path
-          Database.new(path, load_vectors: @config.vectors_available?)
+          db = Database.new(path, load_vectors: @config.vectors_available?)
+          db.backfill_origin_peer!(@local_peer_id) if @local_peer_id
+          db
         end
       end
     end
@@ -32,7 +35,8 @@ module Recollect
         content: content,
         memory_type: memory_type,
         tags: tags,
-        metadata: metadata
+        metadata: metadata,
+        origin_peer: @local_peer_id || "local"
       )
 
       # 2. Chunk and queue for embedding (only when vectors are enabled)
@@ -44,7 +48,8 @@ module Recollect
               content: chunk_content,
               memory_type: "_chunk",
               tags: tags,
-              metadata: {"parent_id" => parent_id, "chunk_index" => idx}
+              metadata: {"parent_id" => parent_id, "chunk_index" => idx},
+              origin_peer: @local_peer_id || "local"
             )
             @embedding_worker.enqueue(memory_id: chunk_id, content: chunk_content, project: project)
           end

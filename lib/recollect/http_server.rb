@@ -19,8 +19,16 @@ module Recollect
     # Previously, helpers used per-request instance variables (@db_manager ||= ...)
     # which created new DatabaseManager instances (and SQLite connections) per request.
     class << self
+      def sync_store
+        @sync_store ||= Sync::Store.new(Recollect.config.sync_db_path)
+      end
+
+      def local_identity
+        @local_identity ||= Sync::Identity.ensure!(sync_store)
+      end
+
       def db_manager
-        @db_manager ||= DatabaseManager.new(Recollect.config)
+        @db_manager ||= DatabaseManager.new(Recollect.config, local_peer_id: local_identity.peer_id)
       end
 
       def memories_service
@@ -36,6 +44,9 @@ module Recollect
         @db_manager = nil
         @memories_service = nil
         @mcp_server = nil
+        @sync_store&.close
+        @sync_store = nil
+        @local_identity = nil
       end
     end
 

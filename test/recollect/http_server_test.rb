@@ -540,6 +540,17 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal "Project memory", data["content"]
   end
 
+  def test_sync_store_singleton_is_initialized
+    assert_kind_of Recollect::Sync::Store, Recollect::HTTPServer.sync_store
+  end
+
+  def test_local_identity_is_available
+    identity = Recollect::HTTPServer.local_identity
+
+    assert_kind_of Recollect::Sync::Identity, identity
+    refute_nil identity.peer_id
+  end
+
   # Test singleton behavior - verifies fix for file descriptor leak
   def test_db_manager_is_singleton_across_requests
     # Capture the db_manager instance after first request

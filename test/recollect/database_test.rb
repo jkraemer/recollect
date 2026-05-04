@@ -638,6 +638,27 @@ class DatabaseTest < Recollect::TestCase
     refute_includes ids, dead
   end
 
+  def test_backfill_origin_peer_fills_null_rows
+    raw = @db.instance_variable_get(:@db)
+    # Insert a row that bypasses the normal store path (simulating legacy data)
+    raw.execute("INSERT INTO memories (content, memory_type) VALUES ('legacy', 'note')")
+    legacy_id = raw.last_insert_row_id
+
+    @db.backfill_origin_peer!("peer-abc")
+    row = raw.get_first_row("SELECT global_id, origin_peer FROM memories WHERE id = ?", legacy_id)
+
+    refute_nil row["global_id"]
+    assert_equal "peer-abc", row["origin_peer"]
+  end
+
+  def test_backfill_does_not_clobber_existing_origin_peer
+    id = @db.store(content: "x", memory_type: "note", origin_peer: "other-peer")
+    @db.backfill_origin_peer!("local-peer")
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT origin_peer FROM memories WHERE id = ?", id)
+
+    assert_equal "other-peer", row["origin_peer"]
+  end
+
   def test_resurrection_is_rejected_and_fts_remains_intact
     raw = @db.instance_variable_get(:@db)
     id = @db.store(content: "marker", memory_type: "note")
