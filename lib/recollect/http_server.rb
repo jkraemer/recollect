@@ -2,6 +2,7 @@
 
 require "sinatra/base"
 require "json"
+require "faraday"
 
 module Recollect
   class HTTPServer < Sinatra::Base
@@ -242,6 +243,41 @@ module Recollect
       peers_registry.unsubscribe(params[:peer_id], params[:db_name])
       content_type :json
       {ok: true}.to_json
+    end
+
+    post "/api/sync/peers/join" do
+      require_loopback!
+      body = JSON.parse(request.body.read)
+      code = body["code"]
+      peer_endpoint = body["endpoint"]
+      identity = self.class.local_identity
+
+      payload = {
+        code: code,
+        peer_id: identity.peer_id,
+        display_name: identity.display_name,
+        public_key: Base64.strict_encode64(identity.public_key),
+        endpoint: Recollect::Sync::Endpoint.discover(port: Recollect.config.port)
+      }
+
+      response = Faraday.post("#{peer_endpoint}/pairing/join") do |req|
+        req.headers["Content-Type"] = "application/json"
+        req.body = payload.to_json
+      end
+
+      halt response.status, response.body unless response.success?
+
+      remote = JSON.parse(response.body)
+      peers_registry.add(
+        peer_id: remote["peer_id"],
+        display_name: remote["display_name"],
+        public_key: Base64.strict_decode64(remote["public_key"]),
+        endpoint: remote["endpoint"],
+        default_subscription: "global"
+      )
+
+      content_type :json
+      remote.merge("status" => "trusted").to_json
     end
 
     # ========== REST API ==========

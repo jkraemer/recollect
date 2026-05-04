@@ -213,6 +213,21 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
+    desc "join CODE", "Join an existing peer using a pairing code"
+    option :endpoint, required: true, desc: "Peer's URL (e.g. http://laptop.tailnet.ts.net:7326)"
+    def join(code)
+      response = post("/api/sync/peers/join", {code: code, endpoint: options[:endpoint]})
+      if response.code == "200"
+        data = JSON.parse(response.body)
+        say @pastel.green("Paired with #{data["display_name"]} (#{data["peer_id"]})")
+      else
+        say @pastel.red("Error: #{response.code} #{response.message}")
+        say response.body
+      end
+    rescue => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
     desc "vector-status", "Check vector search status"
     def vector_status
       response = get("/api/vectors/status")

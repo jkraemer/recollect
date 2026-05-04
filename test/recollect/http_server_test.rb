@@ -658,6 +658,13 @@ class HTTPServerTest < Recollect::TestCase
     refute_includes peers.subscriptions("p1"), "personal-finance"
   end
 
+  def test_api_sync_peers_join_rejects_non_loopback
+    post "/api/sync/peers/join", {code: "x", endpoint: "http://x"}.to_json,
+      "CONTENT_TYPE" => "application/json", "REMOTE_ADDR" => "8.8.8.8"
+
+    assert_equal 403, last_response.status
+  end
+
   def test_pairing_join_with_invalid_code_rejected
     payload = {
       code: "ZZZZ-ZZZZ", peer_id: "x", display_name: "x",
