@@ -146,9 +146,8 @@ class DatabaseManagerTest < Recollect::TestCase
   # Test search_all filters by date range
   def test_search_all_filters_by_date
     db = @manager.get_database("date-test")
-    id1 = db.store(content: "Old memory about testing")
-    id2 = db.store(content: "New memory about testing")
-
+    id1 = db.store(content: "Old memory about testing")[:id]
+    id2 = db.store(content: "New memory about testing")[:id]
     # Backdate the memories
     db.instance_variable_get(:@db).execute(
       "UPDATE memories SET created_at = ? WHERE id = ?",
@@ -466,8 +465,7 @@ class DatabaseManagerTest < Recollect::TestCase
       begin
         db = manager.get_database("recency-test")
         db.store(content: "old memory about Ruby programming")
-        id_new = db.store(content: "new memory about Ruby programming")
-
+        id_new = db.store(content: "new memory about Ruby programming")[:id]
         # Backdate the first memory
         db.instance_variable_get(:@db).execute(
           "UPDATE memories SET created_at = ? WHERE id = 1",
@@ -494,8 +492,7 @@ class DatabaseManagerTest < Recollect::TestCase
       begin
         db = manager.get_database("recency-fts-test")
         db.store(content: "old memory about Python coding")
-        id_new = db.store(content: "new memory about Python coding")
-
+        id_new = db.store(content: "new memory about Python coding")[:id]
         # Backdate the first memory
         db.instance_variable_get(:@db).execute(
           "UPDATE memories SET created_at = ? WHERE id = 1",

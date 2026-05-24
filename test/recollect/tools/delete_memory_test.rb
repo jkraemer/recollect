@@ -16,8 +16,7 @@ class DeleteMemoryTest < Recollect::TestCase
 
   def test_deletes_memory_from_global
     db = @db_manager.get_database(nil)
-    id = db.store(content: "To delete")
-
+    id = db.store(content: "To delete")[:id]
     result = Recollect::Tools::DeleteMemory.call(
       id: id,
       server_context: {db_manager: @db_manager, memories_service: @memories_service}
@@ -36,8 +35,7 @@ class DeleteMemoryTest < Recollect::TestCase
 
   def test_deletes_memory_from_project
     db = @db_manager.get_database("delete-project")
-    id = db.store(content: "Project memory to delete")
-
+    id = db.store(content: "Project memory to delete")[:id]
     result = Recollect::Tools::DeleteMemory.call(
       id: id,
       project: "delete-project",

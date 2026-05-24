@@ -106,7 +106,7 @@ module Recollect
         INSERT INTO memories (content, memory_type, tags, metadata, global_id, origin_peer)
         VALUES (?, ?, ?, ?, ?, ?)
       SQL
-      @db.last_insert_row_id
+      {id: @db.last_insert_row_id, global_id: global_id}
     end
 
     def get(id)

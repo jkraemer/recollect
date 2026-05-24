@@ -48,8 +48,7 @@ module Recollect
 
       # Store a memory first so we have something to attach an embedding to
       db = @db_manager.get_database(nil)
-      memory_id = db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil)
-
+      memory_id = db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil)[:id]
       @worker.start
       @worker.enqueue(memory_id: memory_id, content: "test memory", project: nil)
 
@@ -119,9 +118,8 @@ module Recollect
       # rather than silently misaligning embeddings with memories
 
       db = @db_manager.get_database(nil)
-      id1 = db.store(content: "memory one", memory_type: "note", tags: [], metadata: nil)
-      id2 = db.store(content: "memory two", memory_type: "note", tags: [], metadata: nil)
-
+      id1 = db.store(content: "memory one", memory_type: "note", tags: [], metadata: nil)[:id]
+      id2 = db.store(content: "memory two", memory_type: "note", tags: [], metadata: nil)[:id]
       batch = [
         {memory_id: id1, content: "memory one", project: nil},
         {memory_id: id2, content: "memory two", project: nil}

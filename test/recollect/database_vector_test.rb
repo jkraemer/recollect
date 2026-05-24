@@ -30,8 +30,7 @@ module Recollect
 
     def test_store_embedding_noop_when_vectors_disabled
       @db = Database.new(@db_path)
-      memory_id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)
-
+      memory_id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)[:id]
       # Should not raise
       @db.store_embedding(memory_id, Array.new(384) { rand })
 
@@ -42,7 +41,7 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      memory_id = @db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil)
+      memory_id = @db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil)[:id]
       embedding = Array.new(384) { rand(-1.0..1.0) }
 
       @db.store_embedding(memory_id, embedding)
@@ -65,10 +64,9 @@ module Recollect
       @db = Database.new(@db_path, load_vectors: true)
 
       # Store memories with embeddings
-      id1 = @db.store(content: "ruby programming", memory_type: "note", tags: [], metadata: nil)
-      id2 = @db.store(content: "python scripting", memory_type: "note", tags: [], metadata: nil)
-      id3 = @db.store(content: "javascript frontend", memory_type: "note", tags: [], metadata: nil)
-
+      id1 = @db.store(content: "ruby programming", memory_type: "note", tags: [], metadata: nil)[:id]
+      id2 = @db.store(content: "python scripting", memory_type: "note", tags: [], metadata: nil)[:id]
+      id3 = @db.store(content: "javascript frontend", memory_type: "note", tags: [], metadata: nil)[:id]
       # Create fake embeddings - all similar to query but with varying degrees
       # Using small noise levels to ensure all results are within the distance threshold
       query_embedding = normalized_vector(384)
@@ -88,7 +86,7 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      id = @db.store(content: "test content", memory_type: "decision", tags: ["foo"], metadata: nil)
+      id = @db.store(content: "test content", memory_type: "decision", tags: ["foo"], metadata: nil)[:id]
       embedding = normalized_vector(384)
       @db.store_embedding(id, embedding)
 
@@ -121,9 +119,8 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)
-      id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)
-
+      id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)[:id]
+      id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id1, normalized_vector(384))
 
       missing = @db.memories_without_embeddings
@@ -137,8 +134,8 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      alive = @db.store(content: "alive", memory_type: "note", tags: [], metadata: nil)
-      dead = @db.store(content: "dead", memory_type: "note", tags: [], metadata: nil)
+      alive = @db.store(content: "alive", memory_type: "note", tags: [], metadata: nil)[:id]
+      dead = @db.store(content: "dead", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.instance_variable_get(:@db).execute(
         "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
         [Time.now.utc.iso8601, "local", dead]
@@ -153,7 +150,7 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      id = @db.store(content: "will be deleted", memory_type: "note", tags: [], metadata: nil)
+      id = @db.store(content: "will be deleted", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id, normalized_vector(384))
 
       assert_equal 1, @db.embedding_count
@@ -167,7 +164,7 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      memory_id = @db.store(content: "tombstone target", memory_type: "note", tags: [], metadata: nil)
+      memory_id = @db.store(content: "tombstone target", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(memory_id, Array.new(384) { rand(-1.0..1.0) })
 
       assert_equal 1, @db.embedding_count
@@ -187,9 +184,8 @@ module Recollect
       @db = Database.new(@db_path, load_vectors: true)
 
       # Store memories with embeddings
-      id1 = @db.store(content: "relevant result", memory_type: "note", tags: [], metadata: nil)
-      id2 = @db.store(content: "completely unrelated", memory_type: "note", tags: [], metadata: nil)
-
+      id1 = @db.store(content: "relevant result", memory_type: "note", tags: [], metadata: nil)[:id]
+      id2 = @db.store(content: "completely unrelated", memory_type: "note", tags: [], metadata: nil)[:id]
       # Create a query embedding and store embeddings:
       # - id1 gets a similar embedding (low distance, high relevance)
       # - id2 gets an orthogonal/opposite embedding (high distance, low relevance)
@@ -208,9 +204,8 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)
-      id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)
-
+      id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)[:id]
+      id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id1, normalized_vector(384))
 
       results = @db.list
@@ -234,7 +229,7 @@ module Recollect
       skip_unless_vec_extension_available
 
       @db = Database.new(@db_path, load_vectors: true)
-      id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)
+      id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id, normalized_vector(384))
 
       result = @db.get(id)

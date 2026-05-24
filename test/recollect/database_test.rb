@@ -16,7 +16,7 @@ class DatabaseTest < Recollect::TestCase
 
   # Test store returns positive id
   def test_store_returns_id
-    id = @db.store(content: "Test memory")
+    id = @db.store(content: "Test memory")[:id]
 
     assert_predicate id, :positive?
   end
@@ -28,7 +28,7 @@ class DatabaseTest < Recollect::TestCase
       memory_type: "decision",
       tags: %w[ruby test],
       metadata: {key: "value"}
-    )
+    )[:id]
 
     memory = @db.get(id)
 
@@ -120,7 +120,7 @@ class DatabaseTest < Recollect::TestCase
 
   # Test delete removes memory
   def test_delete_removes_memory
-    id = @db.store(content: "To delete")
+    id = @db.store(content: "To delete")[:id]
 
     assert @db.delete(id)
     assert_nil @db.get(id)
@@ -132,7 +132,7 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_delete_tombstones_row_instead_of_hard_delete
-    id = @db.store(content: "doomed", memory_type: "note")
+    id = @db.store(content: "doomed", memory_type: "note")[:id]
     @db.delete(id, deleted_by_peer: "local")
     raw = @db.instance_variable_get(:@db)
     row = raw.get_first_row("SELECT id, content, deleted_at, deleted_by_peer FROM memories WHERE id = ?", id)
@@ -143,7 +143,7 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_delete_returns_true_when_row_existed
-    id = @db.store(content: "x", memory_type: "note")
+    id = @db.store(content: "x", memory_type: "note")[:id]
 
     assert(@db.delete(id, deleted_by_peer: "local"))
   end
@@ -153,7 +153,7 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_delete_idempotent_on_already_deleted
-    id = @db.store(content: "x", memory_type: "note")
+    id = @db.store(content: "x", memory_type: "note")[:id]
     @db.delete(id, deleted_by_peer: "local")
     # Second call should not raise; should be no-op (returns false because deleted_at is unchanged)
     refute(@db.delete(id, deleted_by_peer: "local"))
@@ -178,7 +178,7 @@ class DatabaseTest < Recollect::TestCase
 
   def test_count_excludes_tombstoned
     @db.store(content: "alive", memory_type: "note")
-    dead = @db.store(content: "dead", memory_type: "note")
+    dead = @db.store(content: "dead", memory_type: "note")[:id]
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
       [Time.now.utc.iso8601, "local", dead]
@@ -189,7 +189,7 @@ class DatabaseTest < Recollect::TestCase
 
   # Test default memory_type is 'note'
   def test_default_memory_type
-    id = @db.store(content: "Test")
+    id = @db.store(content: "Test")[:id]
     memory = @db.get(id)
 
     assert_equal "note", memory["memory_type"]
@@ -197,7 +197,7 @@ class DatabaseTest < Recollect::TestCase
 
   # Test timestamps are set
   def test_timestamps_are_set
-    id = @db.store(content: "Test")
+    id = @db.store(content: "Test")[:id]
     memory = @db.get(id)
 
     assert memory["created_at"]
@@ -266,8 +266,7 @@ class DatabaseTest < Recollect::TestCase
 
   # Test store normalizes tags to lowercase
   def test_store_normalizes_tags_to_lowercase
-    id = @db.store(content: "Test", tags: %w[Ruby PYTHON JavaScript])
-
+    id = @db.store(content: "Test", tags: %w[Ruby PYTHON JavaScript])[:id]
     memory = @db.get(id)
 
     assert_equal %w[ruby python javascript], memory["tags"]
@@ -404,9 +403,8 @@ class DatabaseTest < Recollect::TestCase
 
   # Test search with created_after date filter
   def test_search_with_created_after
-    id1 = @db.store(content: "Old memory about Ruby")
-    id2 = @db.store(content: "New memory about Ruby")
-
+    id1 = @db.store(content: "Old memory about Ruby")[:id]
+    id2 = @db.store(content: "New memory about Ruby")[:id]
     # Backdate the first memory
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET created_at = ? WHERE id = ?",
@@ -425,9 +423,8 @@ class DatabaseTest < Recollect::TestCase
 
   # Test search with created_before date filter
   def test_search_with_created_before
-    id1 = @db.store(content: "Old memory about Ruby")
-    id2 = @db.store(content: "New memory about Ruby")
-
+    id1 = @db.store(content: "Old memory about Ruby")[:id]
+    id2 = @db.store(content: "New memory about Ruby")[:id]
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET created_at = ? WHERE id = ?",
       ["2025-01-01T00:00:00Z", id1]
@@ -445,10 +442,9 @@ class DatabaseTest < Recollect::TestCase
 
   # Test search with both date filters (date range)
   def test_search_with_date_range
-    id1 = @db.store(content: "January memory about Ruby")
-    id2 = @db.store(content: "February memory about Ruby")
-    id3 = @db.store(content: "March memory about Ruby")
-
+    id1 = @db.store(content: "January memory about Ruby")[:id]
+    id2 = @db.store(content: "February memory about Ruby")[:id]
+    id3 = @db.store(content: "March memory about Ruby")[:id]
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET created_at = ? WHERE id = ?",
       ["2025-01-15T00:00:00Z", id1]
@@ -496,9 +492,8 @@ class DatabaseTest < Recollect::TestCase
 
   # Test wildcard with date filters
   def test_search_wildcard_with_date_filters
-    id1 = @db.store(content: "Old memory")
-    id2 = @db.store(content: "New memory")
-
+    id1 = @db.store(content: "Old memory")[:id]
+    id2 = @db.store(content: "New memory")[:id]
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET created_at = ? WHERE id = ?",
       ["2025-01-01T00:00:00Z", id1]
@@ -537,7 +532,7 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_store_assigns_global_id_and_origin_peer
-    id = @db.store(content: "hello", memory_type: "note", origin_peer: "test-peer")
+    id = @db.store(content: "hello", memory_type: "note", origin_peer: "test-peer")[:id]
     row = @db.instance_variable_get(:@db).get_first_row("SELECT global_id, origin_peer FROM memories WHERE id = ?", id)
 
     assert_match(/\A[0-9a-f-]{36}\z/, row["global_id"])
@@ -545,7 +540,7 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_store_default_origin_peer_is_local
-    id = @db.store(content: "hello", memory_type: "note")
+    id = @db.store(content: "hello", memory_type: "note")[:id]
     row = @db.instance_variable_get(:@db).get_first_row("SELECT origin_peer FROM memories WHERE id = ?", id)
 
     assert_equal "local", row["origin_peer"]
@@ -565,7 +560,7 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_tombstone_removes_row_from_fts
-    id = @db.store(content: "haystack needle marker", memory_type: "note")
+    id = @db.store(content: "haystack needle marker", memory_type: "note")[:id]
     # Confirm searchable
     refute_empty @db.search("marker")
     # Tombstone
@@ -587,9 +582,8 @@ class DatabaseTest < Recollect::TestCase
     # Soft-delete via UPDATE that touches only deleted_at fields.
     # Both memories_au (now WHEN-guarded) and memories_tombstone_fts will be considered;
     # only memories_tombstone_fts should fire. FTS must stay consistent.
-    id1 = @db.store(content: "alpha bravo charlie", memory_type: "note")
-    id2 = @db.store(content: "alpha delta echo", memory_type: "note")
-
+    id1 = @db.store(content: "alpha bravo charlie", memory_type: "note")[:id]
+    id2 = @db.store(content: "alpha delta echo", memory_type: "note")[:id]
     raw = @db.instance_variable_get(:@db)
     raw.execute("UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
       [Time.now.utc.iso8601, "local", id1])
@@ -603,7 +597,7 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_get_returns_nil_for_tombstoned
-    id = @db.store(content: "x", memory_type: "note")
+    id = @db.store(content: "x", memory_type: "note")[:id]
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
       [Time.now.utc.iso8601, "local", id]
@@ -613,8 +607,8 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_list_excludes_tombstoned
-    alive = @db.store(content: "alive", memory_type: "note")
-    dead = @db.store(content: "dead", memory_type: "note")
+    alive = @db.store(content: "alive", memory_type: "note")[:id]
+    dead = @db.store(content: "dead", memory_type: "note")[:id]
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
       [Time.now.utc.iso8601, "local", dead]
@@ -626,8 +620,8 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_search_excludes_tombstoned
-    alive = @db.store(content: "needle alive", memory_type: "note")
-    dead = @db.store(content: "needle dead", memory_type: "note")
+    alive = @db.store(content: "needle alive", memory_type: "note")[:id]
+    dead = @db.store(content: "needle dead", memory_type: "note")[:id]
     @db.instance_variable_get(:@db).execute(
       "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
       [Time.now.utc.iso8601, "local", dead]
@@ -652,17 +646,23 @@ class DatabaseTest < Recollect::TestCase
   end
 
   def test_backfill_does_not_clobber_existing_origin_peer
-    id = @db.store(content: "x", memory_type: "note", origin_peer: "other-peer")
+    id = @db.store(content: "x", memory_type: "note", origin_peer: "other-peer")[:id]
     @db.backfill_origin_peer!("local-peer")
     row = @db.instance_variable_get(:@db).get_first_row("SELECT origin_peer FROM memories WHERE id = ?", id)
 
     assert_equal "other-peer", row["origin_peer"]
   end
 
+  def test_store_returns_id_and_global_id
+    result = @db.store(content: "hi", memory_type: "note")
+
+    assert_kind_of Integer, result[:id]
+    assert_match(/\A[0-9a-f-]{36}\z/, result[:global_id])
+  end
+
   def test_resurrection_is_rejected_and_fts_remains_intact
     raw = @db.instance_variable_get(:@db)
-    id = @db.store(content: "marker", memory_type: "note")
-
+    id = @db.store(content: "marker", memory_type: "note")[:id]
     # Tombstone the row
     raw.execute("UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
       [Time.now.utc.iso8601, "local", id])

@@ -31,27 +31,28 @@ module Recollect
       db = get_database(project)
 
       # 1. Store full document (Parent)
-      parent_id = db.store(
+      parent = db.store(
         content: content,
         memory_type: memory_type,
         tags: tags,
         metadata: metadata,
         origin_peer: @local_peer_id || "local"
       )
+      parent_id = parent[:id]
 
       # 2. Chunk and queue for embedding (only when vectors are enabled)
       if @embedding_worker
         chunks = MarkdownChunker.chunk(content)
         if chunks.size > 1
           chunks.each_with_index do |chunk_content, idx|
-            chunk_id = db.store(
+            chunk = db.store(
               content: chunk_content,
               memory_type: "_chunk",
               tags: tags,
               metadata: {"parent_id" => parent_id, "chunk_index" => idx},
               origin_peer: @local_peer_id || "local"
             )
-            @embedding_worker.enqueue(memory_id: chunk_id, content: chunk_content, project: project)
+            @embedding_worker.enqueue(memory_id: chunk[:id], content: chunk_content, project: project)
           end
         else
           @embedding_worker.enqueue(memory_id: parent_id, content: content, project: project)
