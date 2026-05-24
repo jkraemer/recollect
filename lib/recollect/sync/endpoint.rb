@@ -51,7 +51,7 @@ module Recollect
 
       def lan_ipv4
         Socket.ip_address_list.find do |a|
-          a.ipv4? && !a.ipv4_loopback? && !a.ipv4_linklocal?
+          a.ipv4? && !a.ipv4_loopback? && !a.ip_address.start_with?("169.254.")
         end&.ip_address
       end
     end

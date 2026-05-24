@@ -62,4 +62,13 @@ class Recollect::Sync::EndpointTest < Minitest::Test
   ensure
     ENV.delete("RECOLLECT_PUBLIC_URL")
   end
+
+  # Regression guard: Addrinfo has no `ipv4_linklocal?` predicate, so the prior
+  # implementation raised NoMethodError on every machine where it was reached
+  # (i.e. wherever RECOLLECT_PUBLIC_URL was unset and tailscaled was offline).
+  def test_lan_ipv4_returns_string_or_nil_without_raising
+    result = Recollect::Sync::Endpoint.lan_ipv4
+
+    assert(result.nil? || result.is_a?(String), "expected nil or String, got #{result.inspect}")
+  end
 end
