@@ -33,3 +33,7 @@ group :development, :test do
   gem "simplecov", "~> 0.22", require: false
   gem "simplecov-console", "~> 0.9", require: false
 end
+
+group :test do
+  gem "faraday-rack", "~> 2.0"
+end
