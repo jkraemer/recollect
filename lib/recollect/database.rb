@@ -374,6 +374,38 @@ module Recollect
       {"created_at" => row["created_at"], "global_id" => row["global_id"]}
     end
 
+    # Applies a record received from a peer. First-write-wins for content;
+    # first-tombstone-wins for deletion. Returns one of:
+    #   :inserted   — row did not exist; new row created (caller should enqueue re-embed)
+    #   :updated    — existing live row tombstoned by this record
+    #   :no_change  — existing row already present (and already tombstoned, or this record carries no tombstone)
+    def upsert_synced(rec)
+      existing = @db.get_first_row("SELECT id, deleted_at FROM memories WHERE global_id = ?", rec["global_id"])
+
+      if existing.nil?
+        @db.execute(
+          "INSERT INTO memories (global_id, origin_peer, content, memory_type, tags, metadata, created_at, deleted_at, deleted_by_peer) " \
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [rec["global_id"], rec["origin_peer"], rec["content"], rec["memory_type"], rec["tags"], rec["metadata"],
+            rec["created_at"], rec["deleted_at"], rec["deleted_by_peer"]]
+        )
+        return :inserted
+      end
+
+      # Existing row: only the tombstone fields may change, and only when ours is NULL.
+      # This NULL → non-NULL transition does not fire the memories_no_resurrect trigger,
+      # which only blocks the reverse (non-NULL → NULL) direction.
+      if existing["deleted_at"].nil? && rec["deleted_at"]
+        @db.execute(
+          "UPDATE memories SET deleted_at = ?, deleted_by_peer = ? WHERE id = ?",
+          [rec["deleted_at"], rec["deleted_by_peer"], existing["id"]]
+        )
+        return :updated
+      end
+
+      :no_change
+    end
+
     def backfill_origin_peer!(local_peer_id)
       rows = @db.execute("SELECT id FROM memories WHERE global_id IS NULL OR origin_peer IS NULL")
       rows.each do |row|

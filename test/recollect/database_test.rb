@@ -816,4 +816,68 @@ class DatabaseTest < Recollect::TestCase
 
     assert_equal "g-p", cursor["global_id"], "chunk timestamp must not advance the cursor"
   end
+
+  def test_upsert_inserts_new_record
+    rec = sync_record("g-new", origin: "peer-x", content: "hi")
+
+    assert_equal :inserted, @db.upsert_synced(rec)
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT * FROM memories WHERE global_id = ?", "g-new")
+
+    assert_equal "hi", row["content"]
+    assert_equal "peer-x", row["origin_peer"]
+  end
+
+  def test_upsert_first_write_wins_for_content
+    first = sync_record("g-dup", origin: "peer-x", content: "first", created_at: "2026-05-01T00:00:00.000Z")
+    second = sync_record("g-dup", origin: "peer-y", content: "second", created_at: "2026-05-02T00:00:00.000Z")
+
+    assert_equal :inserted, @db.upsert_synced(first)
+    assert_equal :no_change, @db.upsert_synced(second)
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT content, origin_peer FROM memories WHERE global_id = ?", "g-dup")
+
+    assert_equal "first", row["content"], "content must not change"
+    assert_equal "peer-x", row["origin_peer"], "origin must not change"
+  end
+
+  def test_upsert_applies_tombstone_to_existing_row
+    @db.upsert_synced(sync_record("g-x", content: "x"))
+    tomb = sync_record("g-x", content: "x", deleted_at: "2026-05-02T00:00:00.000Z", deleted_by_peer: "peer-z")
+
+    assert_equal :updated, @db.upsert_synced(tomb)
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT deleted_at, deleted_by_peer FROM memories WHERE global_id = ?", "g-x")
+
+    refute_nil row["deleted_at"]
+    assert_equal "peer-z", row["deleted_by_peer"]
+  end
+
+  def test_upsert_first_tombstone_wins
+    @db.upsert_synced(sync_record("g-y", content: "y"))
+    @db.upsert_synced(sync_record("g-y", content: "y", deleted_at: "2026-05-02T00:00:00.000Z", deleted_by_peer: "peer-a"))
+    @db.upsert_synced(sync_record("g-y", content: "y", deleted_at: "2026-05-03T00:00:00.000Z", deleted_by_peer: "peer-b"))
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT deleted_at, deleted_by_peer FROM memories WHERE global_id = ?", "g-y")
+
+    assert_equal "2026-05-02T00:00:00.000Z", row["deleted_at"]
+    assert_equal "peer-a", row["deleted_by_peer"]
+  end
+
+  def test_upsert_tombstone_before_content_keeps_tombstone
+    tomb = sync_record("g-z", origin: "peer-x", content: "", deleted_at: "2026-05-02T00:00:00.000Z", deleted_by_peer: "peer-x")
+    @db.upsert_synced(tomb)
+    late = sync_record("g-z", origin: "peer-x", content: "late", created_at: "2026-05-01T00:00:00.000Z")
+    @db.upsert_synced(late)
+    row = @db.instance_variable_get(:@db).get_first_row("SELECT deleted_at FROM memories WHERE global_id = ?", "g-z")
+
+    refute_nil row["deleted_at"], "tombstone must persist even after late content arrives"
+  end
+
+  private
+
+  def sync_record(global_id, origin: "peer-x", content: "data", memory_type: "note", tags: nil, metadata: nil,
+    created_at: "2026-05-15T00:00:00.000Z", deleted_at: nil, deleted_by_peer: nil)
+    {
+      "global_id" => global_id, "origin_peer" => origin, "content" => content, "memory_type" => memory_type,
+      "tags" => tags && JSON.generate(tags), "metadata" => metadata && JSON.generate(metadata),
+      "created_at" => created_at, "deleted_at" => deleted_at, "deleted_by_peer" => deleted_by_peer
+    }
+  end
 end
