@@ -31,6 +31,7 @@ module Recollect
           peer_id           TEXT NOT NULL,
           db_name           TEXT NOT NULL,
           latest_created_at TEXT NOT NULL,
+          latest_global_id  TEXT,
           PRIMARY KEY (peer_id, db_name)
         );
 
@@ -58,12 +59,22 @@ module Recollect
         @db.execute("PRAGMA journal_mode = WAL")
         @db.execute("PRAGMA foreign_keys = ON")
         @db.execute_batch(SCHEMA)
+        migrate!
         File.chmod(0o600, @path)
       end
 
       def close
         @db&.close
         @db = nil
+      end
+
+      private
+
+      def migrate!
+        cols = @db.execute("PRAGMA table_info(peer_watermarks)").map { |c| c["name"] }
+        return if cols.include?("latest_global_id")
+
+        @db.execute("ALTER TABLE peer_watermarks ADD COLUMN latest_global_id TEXT")
       end
     end
   end
