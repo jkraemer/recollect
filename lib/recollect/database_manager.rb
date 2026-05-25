@@ -61,7 +61,7 @@ module Recollect
         end
       end
 
-      parent_id
+      {id: parent_id, global_id: parent[:global_id]}
     end
 
     def search_all(criteria)

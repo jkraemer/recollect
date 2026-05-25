@@ -400,9 +400,9 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # ========== Store With Embedding Tests ==========
 
-  # Test store_with_embedding returns id
+  # Test store_with_embedding returns id and global_id
   def test_store_with_embedding_returns_id
-    id = @manager.store_with_embedding(
+    result = @manager.store_with_embedding(
       project: "store-test",
       content: "Test content",
       memory_type: "note",
@@ -410,13 +410,15 @@ class DatabaseManagerTest < Recollect::TestCase
       metadata: {key: "value"}
     )
 
-    assert_kind_of Integer, id
-    assert_operator id, :>, 0
+    assert_kind_of Hash, result
+    assert_kind_of Integer, result[:id]
+    assert_operator result[:id], :>, 0
+    refute_nil result[:global_id]
   end
 
   # Test store_with_embedding stores content correctly
   def test_store_with_embedding_stores_content
-    id = @manager.store_with_embedding(
+    result = @manager.store_with_embedding(
       project: "store-verify",
       content: "Verify this content",
       memory_type: "decision",
@@ -425,7 +427,7 @@ class DatabaseManagerTest < Recollect::TestCase
     )
 
     db = @manager.get_database("store-verify")
-    memory = db.get(id)
+    memory = db.get(result[:id])
 
     assert_equal "Verify this content", memory["content"]
     assert_equal "decision", memory["memory_type"]

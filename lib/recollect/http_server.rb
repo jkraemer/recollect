@@ -80,7 +80,7 @@ module Recollect
       end
 
       def memories_service
-        @memories_service ||= MemoriesService.new(db_manager)
+        @memories_service ||= MemoriesService.new(db_manager, push_queue: push_queue)
       end
 
       def mcp_server

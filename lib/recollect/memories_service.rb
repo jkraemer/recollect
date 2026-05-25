@@ -2,14 +2,15 @@
 
 module Recollect
   class MemoriesService
-    def initialize(db_manager)
+    def initialize(db_manager, push_queue: nil)
       @db_manager = db_manager
+      @push_queue = push_queue
     end
 
     def create(content:, project: nil, memory_type: nil, tags: [])
       project = project&.downcase
 
-      id = @db_manager.store_with_embedding(
+      result = @db_manager.store_with_embedding(
         project: project,
         content: content,
         memory_type: memory_type || "note",
@@ -17,8 +18,10 @@ module Recollect
         metadata: nil
       )
 
+      enqueue_push(result[:global_id], project)
+
       db = @db_manager.get_database(project)
-      memory = db.get(id)
+      memory = db.get(result[:id])
       memory["project"] = project
       memory
     end
@@ -61,7 +64,13 @@ module Recollect
     def delete(id, project: nil)
       project = project&.downcase
       db = @db_manager.get_database(project)
-      db.delete(id)
+      # Capture global_id before tombstoning so we can enqueue a push for the deletion.
+      row = db.instance_variable_get(:@db).get_first_row("SELECT global_id FROM memories WHERE id = ?", id)
+      return false unless row
+
+      success = db.delete(id)
+      enqueue_push(row["global_id"], project) if success
+      success
     end
 
     def search(criteria)
@@ -86,6 +95,12 @@ module Recollect
     end
 
     private
+
+    def enqueue_push(global_id, project)
+      return unless @push_queue
+
+      @push_queue.enqueue(global_id: global_id, db_name: @db_manager.db_name_for_project(project))
+    end
 
     def normalize_project_in_criteria(criteria)
       return criteria unless criteria.project

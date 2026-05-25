@@ -462,6 +462,56 @@ class MemoriesServiceTest < Recollect::TestCase
     assert result.key?("has_embedding"), "Should include has_embedding when vectors enabled"
   end
 
+  # ========== Push-on-write hooks ==========
+
+  def test_create_enqueues_push
+    captured = []
+    fake_queue = Object.new
+    fake_queue.define_singleton_method(:enqueue) { |global_id:, db_name:| captured << [global_id, db_name] }
+    service = Recollect::MemoriesService.new(@db_manager, push_queue: fake_queue)
+
+    service.create(content: "x", project: nil)
+
+    assert_equal 1, captured.size
+    assert_equal "global", captured.first[1]
+    refute_nil captured.first[0]
+  end
+
+  def test_delete_enqueues_push
+    captured = []
+    fake_queue = Object.new
+    fake_queue.define_singleton_method(:enqueue) { |global_id:, db_name:| captured << [global_id, db_name] }
+    service = Recollect::MemoriesService.new(@db_manager, push_queue: fake_queue)
+
+    memory = service.create(content: "x", project: nil)
+    captured.clear
+
+    service.delete(memory["id"], project: nil)
+
+    assert_equal 1, captured.size
+    assert_equal "global", captured.first[1]
+    refute_nil captured.first[0]
+  end
+
+  def test_create_works_without_push_queue
+    service = Recollect::MemoriesService.new(@db_manager)
+
+    memory = service.create(content: "no-push", project: nil)
+
+    refute_nil memory["id"]
+  end
+
+  def test_delete_does_not_enqueue_when_row_missing
+    captured = []
+    fake_queue = Object.new
+    fake_queue.define_singleton_method(:enqueue) { |global_id:, db_name:| captured << [global_id, db_name] }
+    service = Recollect::MemoriesService.new(@db_manager, push_queue: fake_queue)
+
+    service.delete(999_999, project: nil)
+
+    assert_empty captured
+  end
+
   private
 
   def skip_unless_vectors_enabled
