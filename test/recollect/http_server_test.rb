@@ -908,6 +908,136 @@ class HTTPServerTest < Recollect::TestCase
     refute rec.key?("id"), "local id must NOT appear in synced records — receiver's local id will differ"
   end
 
+  def test_sync_push_inserts_new_records
+    signing_key = setup_trusted_peer("peer-a")
+    records = [{
+      "global_id" => "g-push-1", "origin_peer" => "peer-a", "content" => "from a",
+      "memory_type" => "note", "created_at" => "2026-05-20T10:00:00.000Z",
+      "deleted_at" => nil, "deleted_by_peer" => nil, "tags" => nil, "metadata" => nil
+    }]
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: records})
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    assert_equal 1, body["accepted"]
+    assert_equal 0, body["rejected"]
+
+    db = Recollect::HTTPServer.db_manager.get_database(nil)
+    row = db.instance_variable_get(:@db).get_first_row(
+      "SELECT content, origin_peer FROM memories WHERE global_id = ?", "g-push-1"
+    )
+
+    assert_equal "from a", row["content"]
+    assert_equal "peer-a", row["origin_peer"]
+  end
+
+  def test_sync_push_advances_composite_watermark
+    signing_key = setup_trusted_peer("peer-a")
+    records = [{
+      "global_id" => "g-wm-2", "origin_peer" => "peer-a", "content" => "x", "memory_type" => "note",
+      "created_at" => "2026-05-20T10:00:00.000Z", "deleted_at" => nil, "deleted_by_peer" => nil,
+      "tags" => nil, "metadata" => nil
+    }]
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: records})
+
+    wm = Recollect::Sync::Watermarks.new(Recollect::HTTPServer.sync_store).get(db_name: "global")
+
+    assert_equal "2026-05-20T10:00:00.000Z", wm["peer-a"]["created_at"]
+    assert_equal "g-wm-2", wm["peer-a"]["global_id"]
+  end
+
+  def test_sync_push_watermark_advances_to_batch_max
+    signing_key = setup_trusted_peer("peer-a")
+    records = [
+      {"global_id" => "g-aaa", "origin_peer" => "peer-a", "content" => "a", "memory_type" => "note",
+       "created_at" => "2026-05-20T10:00:00.000Z", "deleted_at" => nil, "deleted_by_peer" => nil,
+       "tags" => nil, "metadata" => nil},
+      {"global_id" => "g-zzz", "origin_peer" => "peer-a", "content" => "z", "memory_type" => "note",
+       "created_at" => "2026-05-20T10:00:00.000Z", "deleted_at" => nil, "deleted_by_peer" => nil,
+       "tags" => nil, "metadata" => nil}
+    ]
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: records})
+
+    wm = Recollect::Sync::Watermarks.new(Recollect::HTTPServer.sync_store).get(db_name: "global")
+    # Same created_at, larger global_id wins
+    assert_equal "g-zzz", wm["peer-a"]["global_id"]
+  end
+
+  def test_sync_push_replay_is_idempotent
+    signing_key = setup_trusted_peer("peer-a")
+    records = [{"global_id" => "g-replay", "origin_peer" => "peer-a", "content" => "x", "memory_type" => "note",
+                "created_at" => "2026-05-20T10:00:00.000Z", "deleted_at" => nil, "deleted_by_peer" => nil,
+                "tags" => nil, "metadata" => nil}]
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: records})
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: records})
+
+    count = Recollect::HTTPServer.db_manager.get_database(nil).instance_variable_get(:@db)
+      .get_first_value("SELECT COUNT(*) FROM memories WHERE global_id = ?", "g-replay")
+
+    assert_equal 1, count
+  end
+
+  def test_sync_push_tombstone_applied
+    signing_key = setup_trusted_peer("peer-a")
+    # First push a live record
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: [{
+      "global_id" => "g-tomb", "origin_peer" => "peer-a", "content" => "doomed", "memory_type" => "note",
+      "created_at" => "2026-05-20T10:00:00.000Z", "deleted_at" => nil, "deleted_by_peer" => nil,
+      "tags" => nil, "metadata" => nil
+    }]})
+    # Then a tombstone for the same global_id
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: [{
+      "global_id" => "g-tomb", "origin_peer" => "peer-a", "content" => "doomed", "memory_type" => "note",
+      "created_at" => "2026-05-20T10:00:00.000Z", "deleted_at" => "2026-05-21T00:00:00.000Z",
+      "deleted_by_peer" => "peer-a", "tags" => nil, "metadata" => nil
+    }]})
+
+    db = Recollect::HTTPServer.db_manager.get_database(nil)
+    row = db.instance_variable_get(:@db).get_first_row(
+      "SELECT deleted_at, deleted_by_peer FROM memories WHERE global_id = ?", "g-tomb"
+    )
+
+    refute_nil row["deleted_at"]
+    assert_equal "peer-a", row["deleted_by_peer"]
+  end
+
+  def test_sync_push_missing_db_returns_400
+    signing_key = setup_trusted_peer("peer-a")
+    signed_post("peer-a", signing_key, "/sync/push", {records: []})
+
+    assert_equal 400, last_response.status
+  end
+
+  def test_sync_push_empty_records_returns_zero
+    signing_key = setup_trusted_peer("peer-a")
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: []})
+
+    body = JSON.parse(last_response.body)
+
+    assert_equal 0, body["accepted"]
+    assert_equal 0, body["rejected"]
+  end
+
+  def test_sync_push_multi_origin_advances_each_watermark_independently
+    signing_key = setup_trusted_peer("peer-a")
+    records = [
+      {"global_id" => "g-from-a", "origin_peer" => "peer-a", "content" => "ax", "memory_type" => "note",
+       "created_at" => "2026-05-20T10:00:00.000Z", "deleted_at" => nil, "deleted_by_peer" => nil,
+       "tags" => nil, "metadata" => nil},
+      {"global_id" => "g-from-c", "origin_peer" => "peer-c", "content" => "cx", "memory_type" => "note",
+       "created_at" => "2026-05-19T10:00:00.000Z", "deleted_at" => nil, "deleted_by_peer" => nil,
+       "tags" => nil, "metadata" => nil}
+    ]
+    signed_post("peer-a", signing_key, "/sync/push?db=global", {records: records})
+
+    wm = Recollect::Sync::Watermarks.new(Recollect::HTTPServer.sync_store).get(db_name: "global")
+
+    assert_equal "g-from-a", wm["peer-a"]["global_id"]
+    assert_equal "g-from-c", wm["peer-c"]["global_id"],
+      "watermark for the transitively-known origin must also advance"
+  end
+
   # Test singleton behavior - verifies fix for file descriptor leak
   def test_db_manager_is_singleton_across_requests
     # Capture the db_manager instance after first request

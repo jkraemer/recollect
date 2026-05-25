@@ -368,6 +368,53 @@ module Recollect
       {records: rows.map { |r| r.except("id") }}.to_json
     end
 
+    post "/sync/push" do
+      db_name = params["db"] || halt(400, {error: "missing db"}.to_json)
+      payload = JSON.parse(request.body.read)
+      records = payload["records"] || []
+
+      project = self.class.db_manager.project_for_db_name(db_name)
+      database = self.class.db_manager.get_database(project)
+      watermarks = Recollect::Sync::Watermarks.new(self.class.sync_store)
+
+      accepted = 0
+      # Track MAX (created_at, global_id) per origin observed in this batch.
+      observed = Hash.new { |h, k| h[k] = {"created_at" => "", "global_id" => ""} }
+
+      records.each do |rec|
+        status = database.upsert_synced(rec)
+        accepted += 1 if status != :no_change
+
+        origin = rec["origin_peer"]
+        cur = observed[origin]
+        incoming = [rec["created_at"], rec["global_id"]]
+        current = [cur["created_at"], cur["global_id"]]
+        if (incoming <=> current) == 1
+          observed[origin] = {"created_at" => rec["created_at"], "global_id" => rec["global_id"]}
+        end
+
+        # Re-embed only fresh INSERTs of non-tombstone, non-chunk records.
+        next unless status == :inserted && rec["memory_type"] != "_chunk" && rec["deleted_at"].nil?
+
+        row = database.instance_variable_get(:@db).get_first_row(
+          "SELECT id FROM memories WHERE global_id = ?", rec["global_id"]
+        )
+        if row
+          self.class.db_manager.enqueue_embedding(memory_id: row["id"], content: rec["content"], project: project)
+        end
+      end
+
+      observed.each do |peer_id, cursor|
+        next if cursor["created_at"].empty?
+
+        watermarks.advance(peer_id: peer_id, db_name: db_name,
+          created_at: cursor["created_at"], global_id: cursor["global_id"])
+      end
+
+      content_type :json
+      {accepted: accepted, rejected: 0}.to_json
+    end
+
     # ========== REST API ==========
 
     # List memories
