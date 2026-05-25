@@ -19,6 +19,27 @@
 
 ---
 
+## Errata — composite cursors (added 2026-05-25)
+
+The first draft of this plan used a scalar `created_at` watermark with strict `>` comparison. During Task 2 implementation we found that millisecond-precision `created_at` collides under batch writes (e.g. importing 600 records, or two MCP `store` calls in the same ms), causing pagination to silently drop the second-and-later rows at the boundary timestamp.
+
+**Resolution:** Switch all per-origin cursors to the composite **(created_at, global_id)**. `global_id` is UUIDv7 — globally unique, and intra-origin lex order matches creation order. Multi-hop safe (`global_id` is portable across peers in a way `id` is not).
+
+This changes the shape of:
+
+- `Database#fetch_for_sync` — `since:` values become `{"created_at" => ts, "global_id" => uuid}`. SQL adds `(created_at > ? OR (created_at = ? AND global_id > ?))`.
+- `Database#max_origin_timestamp` — becomes `max_origin_cursor`, returns `{"created_at" => ts, "global_id" => uuid}` or `nil`.
+- `Sync::Store` — `peer_watermarks` adds a `latest_global_id TEXT NOT NULL` column (migration via `ALTER TABLE` for existing installs).
+- `Sync::Watermarks` — `get(db_name:)` returns `{peer_id => {created_at, global_id}}`; `advance` takes `created_at:` and `global_id:`.
+- `/sync/manifest` JSON — `watermarks` values become objects: `{created_at, global_id}`.
+- `/sync/pull` JSON body — `since` values become objects.
+- `/sync/push` server — tracks observed `(created_at, global_id)` per origin, passes both to `Watermarks#advance`.
+- `Sync::Engine` — propagates composite cursors through `pull_loop` and `push_missing`.
+
+Affected tasks: 2, 3, 5, 9, 10, 11, 15. The implementer prompts for these tasks contain the corrected snippets; the inline code in the original task sections below is **superseded** wherever cursor shape is touched. No backwards-compat shim — Phase 1 just landed, no peers in the wild are doing sync yet.
+
+---
+
 ## Setup
 
 ### Task 0: Branch + faraday-rack for tests
