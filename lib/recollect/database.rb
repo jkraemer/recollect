@@ -7,6 +7,8 @@ require "securerandom"
 
 module Recollect
   class Database
+    SYNC_COLUMNS = "id, global_id, origin_peer, content, memory_type, tags, metadata, created_at, deleted_at, deleted_by_peer"
+
     VECTOR_SCHEMA = <<~SQL
       CREATE VIRTUAL TABLE IF NOT EXISTS vec_memories USING vec0(
         embedding float[384]
@@ -323,6 +325,37 @@ module Recollect
       return 0 unless @vectors_enabled
 
       @db.get_first_value("SELECT COUNT(*) FROM vec_memories") || 0
+    end
+
+    # Returns memory rows newer than the per-origin composite cursor `(created_at, global_id)`,
+    # ordered for stable pagination. Excludes `_chunk` rows (chunks are per-peer derived state,
+    # never synced). Includes tombstones (deleted_at NOT NULL) — they must propagate.
+    #
+    # `since` shape: { peer_id => { "created_at" => iso8601_str, "global_id" => uuid_str } }
+    # Peers absent from `since` are included with no cursor filter (caller has no records from them yet).
+    def fetch_for_sync(since:, limit: 500)
+      origins_with_cursor = since.keys
+      conditions = ["memory_type != '_chunk'"]
+      params = []
+
+      if origins_with_cursor.any?
+        placeholders = origins_with_cursor.map { "?" }.join(",")
+        per_origin = origins_with_cursor.map do
+          "(origin_peer = ? AND (created_at > ? OR (created_at = ? AND global_id > ?)))"
+        end.join(" OR ")
+        conditions << "(origin_peer NOT IN (#{placeholders}) OR #{per_origin})"
+        params.concat(origins_with_cursor)
+        origins_with_cursor.each do |o|
+          c = since[o]
+          params.push(o, c["created_at"], c["created_at"], c["global_id"])
+        end
+      end
+
+      sql = "SELECT #{SYNC_COLUMNS} FROM memories WHERE #{conditions.join(" AND ")} " \
+            "ORDER BY created_at ASC, global_id ASC LIMIT ?"
+      params << limit
+
+      @db.execute(sql, params)
     end
 
     def backfill_origin_peer!(local_peer_id)

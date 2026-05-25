@@ -681,4 +681,76 @@ class DatabaseTest < Recollect::TestCase
     # FTS index lookup must not error (would error if corrupted)
     assert_equal 0, raw.get_first_value("SELECT COUNT(*) FROM memories_fts_docsize WHERE id = ?", id)
   end
+
+  def test_fetch_for_sync_excludes_chunks
+    parent = @db.store(content: "parent", memory_type: "note")
+    @db.instance_variable_get(:@db).execute(
+      "INSERT INTO memories (content, memory_type, global_id, origin_peer) VALUES (?, ?, ?, ?)",
+      ["chunk", "_chunk", SecureRandom.uuid_v7, "local"]
+    )
+    rows = @db.fetch_for_sync(since: {}, limit: 10)
+
+    assert_equal 1, rows.size
+    assert_equal parent[:global_id], rows.first["global_id"]
+  end
+
+  def test_fetch_for_sync_respects_since_per_origin
+    raw = @db.instance_variable_get(:@db)
+    # Three rows: two from peer-a (one old, one new), one from peer-b
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["a1", "note", "g-a1", "peer-a", "2026-05-01T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["a2", "note", "g-a2", "peer-a", "2026-05-02T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["b1", "note", "g-b1", "peer-b", "2026-05-01T12:00:00.000Z"])
+
+    cursor = {"created_at" => "2026-05-01T00:00:00.000Z", "global_id" => "g-a1"}
+    rows = @db.fetch_for_sync(since: {"peer-a" => cursor}, limit: 10)
+    global_ids = rows.map { |r| r["global_id"] }
+
+    refute_includes global_ids, "g-a1", "a1 IS the cursor — must be excluded (strictly greater)"
+    assert_includes global_ids, "g-a2"
+    assert_includes global_ids, "g-b1", "peer-b has no cursor, gets everything"
+  end
+
+  def test_fetch_for_sync_breaks_ties_on_global_id_within_same_created_at
+    raw = @db.instance_variable_get(:@db)
+    # Three peer-a rows at the SAME millisecond, distinct global_ids
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["x", "note", "g-aaa", "peer-a", "2026-05-01T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["y", "note", "g-bbb", "peer-a", "2026-05-01T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["z", "note", "g-ccc", "peer-a", "2026-05-01T00:00:00.000Z"])
+
+    cursor = {"created_at" => "2026-05-01T00:00:00.000Z", "global_id" => "g-aaa"}
+    rows = @db.fetch_for_sync(since: {"peer-a" => cursor}, limit: 10)
+    ids = rows.map { |r| r["global_id"] }
+
+    refute_includes ids, "g-aaa", "g-aaa IS the cursor"
+    assert_includes ids, "g-bbb", "g-bbb > g-aaa lex, same ts"
+    assert_includes ids, "g-ccc", "g-ccc > g-aaa lex, same ts"
+  end
+
+  def test_fetch_for_sync_includes_tombstones
+    result = @db.store(content: "doomed", memory_type: "note")
+    @db.delete(result[:id], deleted_by_peer: "local")
+    rows = @db.fetch_for_sync(since: {}, limit: 10)
+
+    assert_equal 1, rows.size
+    refute_nil rows.first["deleted_at"]
+  end
+
+  def test_fetch_for_sync_pagination_with_composite_cursor
+    6.times { |i| @db.store(content: "m#{i}", memory_type: "note") }
+    page1 = @db.fetch_for_sync(since: {}, limit: 3)
+
+    assert_equal 3, page1.size
+    last = page1.last
+    cursor = {"created_at" => last["created_at"], "global_id" => last["global_id"]}
+    page2 = @db.fetch_for_sync(since: {"local" => cursor}, limit: 3)
+
+    assert_equal 3, page2.size, "all 3 remaining records should come back even when same-ms"
+    assert_empty page1.map { |r| r["global_id"] } & page2.map { |r| r["global_id"] }, "no overlap"
+  end
 end
