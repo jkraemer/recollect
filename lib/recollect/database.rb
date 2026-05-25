@@ -358,6 +358,22 @@ module Recollect
       @db.execute(sql, params)
     end
 
+    # Latest composite cursor for rows authored by `peer_id`, as a Hash matching the
+    # on-the-wire watermark shape: { "created_at" => iso8601, "global_id" => uuid }.
+    # Returns nil when there are no rows for that origin. Excludes `_chunk` rows
+    # (chunks are per-peer derived state, never synced).
+    def max_origin_cursor(peer_id)
+      row = @db.get_first_row(
+        "SELECT created_at, global_id FROM memories " \
+        "WHERE origin_peer = ? AND memory_type != '_chunk' " \
+        "ORDER BY created_at DESC, global_id DESC LIMIT 1",
+        peer_id
+      )
+      return nil unless row
+
+      {"created_at" => row["created_at"], "global_id" => row["global_id"]}
+    end
+
     def backfill_origin_peer!(local_peer_id)
       rows = @db.execute("SELECT id FROM memories WHERE global_id IS NULL OR origin_peer IS NULL")
       rows.each do |row|

@@ -753,4 +753,67 @@ class DatabaseTest < Recollect::TestCase
     assert_equal 3, page2.size, "all 3 remaining records should come back even when same-ms"
     assert_empty page1.map { |r| r["global_id"] } & page2.map { |r| r["global_id"] }, "no overlap"
   end
+
+  def test_max_origin_cursor_returns_composite_for_origin
+    raw = @db.instance_variable_get(:@db)
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["a", "note", "g1", "peer-a", "2026-05-01T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["b", "note", "g2", "peer-a", "2026-05-03T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["c", "note", "g3", "peer-b", "2026-05-02T00:00:00.000Z"])
+
+    cursor_a = @db.max_origin_cursor("peer-a")
+
+    assert_equal "2026-05-03T00:00:00.000Z", cursor_a["created_at"]
+    assert_equal "g2", cursor_a["global_id"]
+
+    cursor_b = @db.max_origin_cursor("peer-b")
+
+    assert_equal "2026-05-02T00:00:00.000Z", cursor_b["created_at"]
+    assert_equal "g3", cursor_b["global_id"]
+  end
+
+  def test_max_origin_cursor_returns_nil_when_no_rows
+    assert_nil @db.max_origin_cursor("peer-missing")
+  end
+
+  def test_max_origin_cursor_breaks_ties_on_global_id_at_same_created_at
+    raw = @db.instance_variable_get(:@db)
+    # Three peer-a rows at the SAME ms; max cursor must be the largest global_id.
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["x", "note", "g-aaa", "peer-a", "2026-05-01T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["y", "note", "g-ccc", "peer-a", "2026-05-01T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["z", "note", "g-bbb", "peer-a", "2026-05-01T00:00:00.000Z"])
+
+    cursor = @db.max_origin_cursor("peer-a")
+
+    assert_equal "2026-05-01T00:00:00.000Z", cursor["created_at"]
+    assert_equal "g-ccc", cursor["global_id"], "tiebreak on max global_id when created_at ties"
+  end
+
+  def test_max_origin_cursor_includes_tombstoned_rows
+    # Tombstones still count for cursor purposes — peers need to know about them.
+    result = @db.store(content: "doomed", memory_type: "note", origin_peer: "peer-x")
+    @db.delete(result[:id], deleted_by_peer: "peer-x")
+    cursor = @db.max_origin_cursor("peer-x")
+
+    refute_nil cursor
+    assert_equal result[:global_id], cursor["global_id"]
+  end
+
+  def test_max_origin_cursor_excludes_chunks
+    raw = @db.instance_variable_get(:@db)
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["parent", "note", "g-p", "peer-x", "2026-05-01T00:00:00.000Z"])
+    # A chunk at a LATER timestamp — must NOT advance the cursor (chunks aren't sync'd).
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["chunk", "_chunk", "g-c", "peer-x", "2026-05-02T00:00:00.000Z"])
+
+    cursor = @db.max_origin_cursor("peer-x")
+
+    assert_equal "g-p", cursor["global_id"], "chunk timestamp must not advance the cursor"
+  end
 end
