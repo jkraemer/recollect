@@ -342,6 +342,32 @@ module Recollect
       {ok: true}.to_json
     end
 
+    post "/api/sync/sync" do
+      require_loopback!
+      engine = self.class.sync_engine
+      halt 503, {error: "sync disabled"}.to_json unless engine
+
+      body = request.body.read
+      params_body = body.empty? ? {} : JSON.parse(body)
+
+      peers_to_visit = if params_body["peer_id"]
+        [peers_registry.find(params_body["peer_id"])].compact
+      else
+        peers_registry.list.select { |p| p[:status] == "trusted" }
+      end
+
+      results = peers_to_visit.flat_map do |peer|
+        dbs = params_body["db_name"] ? [params_body["db_name"]] : peers_registry.subscriptions(peer[:peer_id])
+        dbs.map do |db_name|
+          engine.reconcile(peer: peer, db_name: db_name)
+          {peer_id: peer[:peer_id], db_name: db_name, error: peers_registry.find(peer[:peer_id])[:last_sync_error]}
+        end
+      end
+
+      content_type :json
+      {results: results}.to_json
+    end
+
     post "/api/sync/peers/join" do
       require_loopback!
       body = JSON.parse(request.body.read)

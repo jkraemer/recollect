@@ -1052,6 +1052,28 @@ class HTTPServerTest < Recollect::TestCase
     Recollect::HTTPServer.reset_db_manager!
   end
 
+  def test_api_sync_sync_returns_503_when_disabled
+    ENV["RECOLLECT_SYNC_DISABLE"] = "1"
+    Recollect::HTTPServer.reset_db_manager!
+    post "/api/sync/sync"
+
+    assert_equal 503, last_response.status
+  ensure
+    ENV.delete("RECOLLECT_SYNC_DISABLE")
+    Recollect::HTTPServer.reset_db_manager!
+  end
+
+  def test_api_sync_sync_returns_results_envelope
+    # No peers paired → empty results, 200 with envelope
+    post "/api/sync/sync"
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    assert body.key?("results")
+    assert_empty body["results"]
+  end
+
   # Test singleton behavior - verifies fix for file descriptor leak
   def test_db_manager_is_singleton_across_requests
     # Capture the db_manager instance after first request

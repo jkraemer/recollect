@@ -297,6 +297,32 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
+    desc "sync", "Force an immediate sync cycle (debug)", hide: true
+    option :peer, type: :string, desc: "Sync only this peer"
+    option :db, type: :string, desc: "Sync only this DB"
+    def sync
+      payload = {}
+      payload[:peer_id] = options[:peer] if options[:peer]
+      payload[:db_name] = options[:db] if options[:db]
+      response = post("/api/sync/sync", payload)
+      if response.code == "200"
+        data = JSON.parse(response.body)
+        if data["results"].empty?
+          say "No peers / no subscriptions."
+        else
+          data["results"].each do |r|
+            line = "#{r["peer_id"]} db=#{r["db_name"]}"
+            line << " ERROR: #{r["error"]}" if r["error"]
+            say line
+          end
+        end
+      else
+        say @pastel.red("Error: #{response.code}")
+      end
+    rescue => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
     desc "vector-status", "Check vector search status"
     def vector_status
       response = get("/api/vectors/status")
