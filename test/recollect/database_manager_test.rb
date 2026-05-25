@@ -521,4 +521,30 @@ class DatabaseManagerTest < Recollect::TestCase
     # Should NOT have recency_factor since it's disabled by default
     refute results.first&.key?("recency_factor")
   end
+
+  # ========== db_name <-> project mapping ==========
+
+  def test_db_name_for_project_maps_nil_to_global
+    dm = Recollect::DatabaseManager.new(Recollect.config, local_peer_id: "local")
+
+    assert_equal "global", dm.db_name_for_project(nil)
+    assert_equal "foo", dm.db_name_for_project("foo")
+  end
+
+  def test_project_for_db_name_maps_global_to_nil
+    dm = Recollect::DatabaseManager.new(Recollect.config, local_peer_id: "local")
+
+    assert_nil dm.project_for_db_name("global")
+    assert_equal "foo", dm.project_for_db_name("foo")
+  end
+
+  def test_list_db_names_includes_global_and_projects
+    dm = Recollect::DatabaseManager.new(Recollect.config, local_peer_id: "local")
+    dm.get_database(nil)        # touch global
+    dm.get_database("personal") # touch a project
+    names = dm.list_db_names
+
+    assert_includes names, "global"
+    assert_includes names, "personal"
+  end
 end

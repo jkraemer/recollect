@@ -2,6 +2,8 @@
 
 module Recollect
   class DatabaseManager
+    GLOBAL_DB_NAME = "global"
+
     def initialize(config = Recollect.config, local_peer_id: nil)
       @config = config
       @local_peer_id = local_peer_id
@@ -167,6 +169,18 @@ module Recollect
       @config.projects_dir.glob("*.db").map do |path|
         path.basename(".db").to_s
       end.sort
+    end
+
+    def db_name_for_project(project)
+      (project.nil? || project.empty?) ? GLOBAL_DB_NAME : project
+    end
+
+    def project_for_db_name(db_name)
+      (db_name == GLOBAL_DB_NAME) ? nil : db_name
+    end
+
+    def list_db_names
+      [GLOBAL_DB_NAME] + list_projects
     end
 
     def tag_stats(project: nil, memory_type: nil)
