@@ -133,4 +133,32 @@ class Recollect::Sync::EngineTest < Recollect::TestCase
     refute_nil peer[:last_sync_error]
     assert_match(/boom/, peer[:last_sync_error])
   end
+
+  def test_start_runs_initial_reconcile_then_sleeps
+    client = fake_client(manifest: {watermarks: {}}, pull_pages: [{records: []}])
+    call_count = 0
+    factory = ->(*) {
+      call_count += 1
+      client
+    }
+    engine = Recollect::Sync::Engine.new(
+      store: @store, db_manager: Recollect::HTTPServer.db_manager,
+      client_factory: factory, heartbeat_seconds: 60
+    )
+    engine.start
+    sleep 0.2
+    engine.stop
+
+    # Started, did at least one round (client_factory called per peer-db)
+    assert_operator call_count, :>=, 1
+  end
+
+  def test_start_is_a_no_op_when_heartbeat_zero
+    engine = Recollect::Sync::Engine.new(
+      store: @store, db_manager: Recollect::HTTPServer.db_manager,
+      client_factory: ->(*) { raise "should not be called" }, heartbeat_seconds: 0
+    )
+    engine.start # should not raise
+    engine.stop
+  end
 end

@@ -38,6 +38,19 @@ module Recollect
         update_peer_error(peer[:peer_id], e.message)
       end
 
+      def start
+        return if @running || @heartbeat_seconds.zero?
+
+        @running = true
+        @thread = Thread.new { run_loop }
+      end
+
+      def stop
+        @running = false
+        @thread&.wakeup if @thread&.alive?
+        @thread&.join(5)
+      end
+
       private
 
       def pull_loop(client:, db_name:)
@@ -102,6 +115,34 @@ module Recollect
         @store.instance_variable_get(:@db).execute(
           "UPDATE known_peers SET last_sync_error = ? WHERE peer_id = ?", [message, peer_id]
         )
+      end
+
+      def run_loop
+        loop do
+          break unless @running
+
+          reconcile_all
+          sleep_with_wakeup(@heartbeat_seconds)
+        end
+      rescue => e
+        warn "[Sync::Engine] loop crashed: #{e.message}"
+      end
+
+      def reconcile_all
+        @peers.list.each do |peer|
+          next unless peer[:status] == "trusted"
+
+          @peers.subscriptions(peer[:peer_id]).each do |db_name|
+            reconcile(peer: peer, db_name: db_name)
+          end
+        end
+      end
+
+      def sleep_with_wakeup(seconds)
+        deadline = Time.now + seconds
+        while Time.now < deadline && @running
+          sleep([deadline - Time.now, 1].min)
+        end
       end
     end
   end

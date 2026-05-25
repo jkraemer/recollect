@@ -79,6 +79,30 @@ module Recollect
         end
       end
 
+      def sync_engine
+        return nil if Recollect.config.sync_disabled?
+        return @sync_engine if @sync_engine
+
+        identity = local_identity
+        manager = db_manager
+        store = sync_store
+        init_mutex.synchronize do
+          @sync_engine ||= begin
+            engine = Sync::Engine.new(
+              store: store,
+              db_manager: manager,
+              client_factory: ->(peer) {
+                Sync::Client.new(peer_id: identity.peer_id, private_key: identity.private_key,
+                  endpoint: peer[:endpoint])
+              },
+              heartbeat_seconds: Recollect.config.sync_heartbeat_seconds
+            )
+            engine.start
+            engine
+          end
+        end
+      end
+
       def memories_service
         @memories_service ||= MemoriesService.new(db_manager, push_queue: push_queue)
       end
@@ -89,6 +113,8 @@ module Recollect
 
       def reset_db_manager!
         init_mutex.synchronize do
+          @sync_engine&.stop
+          @sync_engine = nil
           @push_queue&.stop
           @push_queue = nil
           @db_manager&.close_all
