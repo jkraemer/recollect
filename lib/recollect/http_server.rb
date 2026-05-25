@@ -55,6 +55,30 @@ module Recollect
         init_mutex.synchronize { @db_manager ||= DatabaseManager.new(Recollect.config, local_peer_id: identity.peer_id) }
       end
 
+      def push_queue
+        return nil if Recollect.config.sync_disabled?
+        return @push_queue if @push_queue
+
+        identity = local_identity
+        manager = db_manager
+        store = sync_store
+        init_mutex.synchronize do
+          @push_queue ||= begin
+            pq = Sync::PushQueue.new(
+              store: store,
+              db_manager: manager,
+              client_factory: ->(peer) {
+                Sync::Client.new(peer_id: identity.peer_id, private_key: identity.private_key,
+                  endpoint: peer[:endpoint])
+              },
+              size: Recollect.config.sync_push_queue_size
+            )
+            pq.start
+            pq
+          end
+        end
+      end
+
       def memories_service
         @memories_service ||= MemoriesService.new(db_manager)
       end
@@ -65,6 +89,8 @@ module Recollect
 
       def reset_db_manager!
         init_mutex.synchronize do
+          @push_queue&.stop
+          @push_queue = nil
           @db_manager&.close_all
           @db_manager = nil
           @memories_service = nil

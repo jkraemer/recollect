@@ -1038,6 +1038,20 @@ class HTTPServerTest < Recollect::TestCase
       "watermark for the transitively-known origin must also advance"
   end
 
+  def test_push_queue_singleton_initialized
+    refute_nil Recollect::HTTPServer.push_queue
+  end
+
+  def test_push_queue_not_started_when_sync_disabled
+    ENV["RECOLLECT_SYNC_DISABLE"] = "1"
+    Recollect::HTTPServer.reset_db_manager!
+
+    assert_nil Recollect::HTTPServer.push_queue
+  ensure
+    ENV.delete("RECOLLECT_SYNC_DISABLE")
+    Recollect::HTTPServer.reset_db_manager!
+  end
+
   # Test singleton behavior - verifies fix for file descriptor leak
   def test_db_manager_is_singleton_across_requests
     # Capture the db_manager instance after first request

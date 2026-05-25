@@ -68,6 +68,18 @@ module Recollect
       data_dir.join("sync.db")
     end
 
+    def sync_disabled?
+      ENV["RECOLLECT_SYNC_DISABLE"] == "1"
+    end
+
+    def sync_push_queue_size
+      (ENV["RECOLLECT_SYNC_PUSH_QUEUE_SIZE"] || 1000).to_i
+    end
+
+    def sync_heartbeat_seconds
+      (ENV["RECOLLECT_SYNC_HEARTBEAT_SECONDS"] || 300).to_i
+    end
+
     def vec_extension_path
       paths = [
         "/usr/lib/vec0.so",                        # Arch Linux package
