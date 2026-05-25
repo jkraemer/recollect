@@ -753,6 +753,58 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal 1, count
   end
 
+  def test_sync_manifest_requires_signature
+    get "/sync/manifest?db=global"
+
+    assert_includes [401, 403], last_response.status
+  end
+
+  def test_sync_manifest_returns_watermarks_for_db
+    signing_key = setup_trusted_peer("peer-a")
+    identity = Recollect::HTTPServer.local_identity
+
+    # Insert a self-origin row so self-watermark is non-nil
+    Recollect::HTTPServer.db_manager.get_database(nil)
+      .store(content: "self", memory_type: "note", origin_peer: identity.peer_id)
+
+    # Insert a watermark for some other origin
+    Recollect::Sync::Watermarks.new(Recollect::HTTPServer.sync_store)
+      .advance(peer_id: "peer-c", db_name: "global", created_at: "2026-05-01T00:00:00.000Z", global_id: "g-cc")
+
+    signed_get("peer-a", signing_key, "/sync/manifest?db=global")
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    refute_nil body["watermarks"][identity.peer_id], "self-watermark present"
+    self_wm = body["watermarks"][identity.peer_id]
+
+    refute_nil self_wm["created_at"]
+    refute_nil self_wm["global_id"]
+    assert_equal "2026-05-01T00:00:00.000Z", body["watermarks"]["peer-c"]["created_at"]
+    assert_equal "g-cc", body["watermarks"]["peer-c"]["global_id"]
+  end
+
+  def test_sync_manifest_missing_db_returns_400
+    signing_key = setup_trusted_peer("peer-a")
+    signed_get("peer-a", signing_key, "/sync/manifest")
+
+    assert_equal 400, last_response.status
+  end
+
+  def test_sync_manifest_omits_self_when_no_local_rows
+    signing_key = setup_trusted_peer("peer-a")
+    identity = Recollect::HTTPServer.local_identity
+
+    # No self-origin rows in the DB — manifest should not include the self peer
+    signed_get("peer-a", signing_key, "/sync/manifest?db=global")
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    refute body["watermarks"].key?(identity.peer_id), "self-watermark must be absent when no local rows"
+  end
+
   # Test singleton behavior - verifies fix for file descriptor leak
   def test_db_manager_is_singleton_across_requests
     # Capture the db_manager instance after first request

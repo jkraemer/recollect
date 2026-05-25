@@ -79,9 +79,12 @@ module Recollect
     # Mustermann anchors regex patterns (\A...\z), so this matches /sync/* but
     # NOT /api/sync/* (which has its own loopback gate via require_loopback!).
     before %r{/sync/.*} do
-      request.body.rewind
-      body = request.body.read
-      request.body.rewind
+      body = ""
+      if request.body
+        request.body.rewind
+        body = request.body.read
+        request.body.rewind
+      end
       result = Recollect::Sync::SignatureVerifier.new(self.class.sync_store).verify(headers: request.env, body: body)
       case result[:status]
       when :unauthorized then halt 401, {error: result[:reason]}.to_json
@@ -93,9 +96,12 @@ module Recollect
     # Wire dump logging for debugging
     before do
       if Recollect.config.log_wiredumps?
-        request.body.rewind
-        @request_body = request.body.read
-        request.body.rewind
+        @request_body = ""
+        if request.body
+          request.body.rewind
+          @request_body = request.body.read
+          request.body.rewind
+        end
 
         $stdout.puts "[WIREDUMP] #{request.request_method} #{request.path_info}"
         $stdout.puts "[WIREDUMP] Headers: #{filtered_headers}"
@@ -317,6 +323,24 @@ module Recollect
 
       content_type :json
       remote.merge("status" => "trusted").to_json
+    end
+
+    # ========== Sync API (signed, between peers) ==========
+
+    get "/sync/manifest" do
+      db_name = params["db"] || halt(400, {error: "missing db"}.to_json)
+      project = self.class.db_manager.project_for_db_name(db_name)
+      database = self.class.db_manager.get_database(project)
+      identity = self.class.local_identity
+
+      wm = Recollect::Sync::Watermarks.new(self.class.sync_store).get(db_name: db_name)
+      self_cursor = database.max_origin_cursor(identity.peer_id)
+      # Omit self entry when no local rows exist; receiver treats absence as
+      # "send everything from this origin" via fetch_for_sync's empty-since branch.
+      wm[identity.peer_id] = self_cursor if self_cursor
+
+      content_type :json
+      {watermarks: wm}.to_json
     end
 
     # ========== REST API ==========

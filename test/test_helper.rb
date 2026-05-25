@@ -26,6 +26,7 @@ require "minitest/autorun"
 require "rack/test"
 require "fileutils"
 require "json"
+require "ed25519"
 
 # Ensure test data directory exists
 FileUtils.mkdir_p(TEST_DATA_DIR)
@@ -46,6 +47,30 @@ module Recollect
 
     def teardown
       # Subclasses can override
+    end
+
+    def setup_trusted_peer(peer_id)
+      signing_key = Ed25519::SigningKey.generate
+      Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store).add(
+        peer_id: peer_id, display_name: peer_id,
+        public_key: signing_key.verify_key.to_bytes, endpoint: "http://#{peer_id}:7326"
+      )
+      signing_key
+    end
+
+    def signed_get(peer_id, signing_key, path)
+      ts = Time.now.utc.iso8601
+      sig = Recollect::Sync::Crypto.sign(private_key: signing_key.to_bytes, peer_id: peer_id, timestamp: ts, body: "")
+      get(path, {}, "HTTP_X_PEER_ID" => peer_id, "HTTP_X_TIMESTAMP" => ts, "HTTP_X_SIGNATURE" => sig)
+    end
+
+    def signed_post(peer_id, signing_key, path, body)
+      body_str = body.is_a?(String) ? body : JSON.generate(body)
+      ts = Time.now.utc.iso8601
+      sig = Recollect::Sync::Crypto.sign(private_key: signing_key.to_bytes, peer_id: peer_id, timestamp: ts,
+        body: body_str)
+      post(path, body_str, "CONTENT_TYPE" => "application/json", "HTTP_X_PEER_ID" => peer_id,
+        "HTTP_X_TIMESTAMP" => ts, "HTTP_X_SIGNATURE" => sig)
     end
   end
 end
