@@ -76,6 +76,20 @@ module Recollect
       end
     end
 
+    # Mustermann anchors regex patterns (\A...\z), so this matches /sync/* but
+    # NOT /api/sync/* (which has its own loopback gate via require_loopback!).
+    before %r{/sync/.*} do
+      request.body.rewind
+      body = request.body.read
+      request.body.rewind
+      result = Recollect::Sync::SignatureVerifier.new(self.class.sync_store).verify(headers: request.env, body: body)
+      case result[:status]
+      when :unauthorized then halt 401, {error: result[:reason]}.to_json
+      when :forbidden then halt 403, {error: result[:reason]}.to_json
+      else env["recollect.peer"] = result[:peer]
+      end
+    end
+
     # Wire dump logging for debugging
     before do
       if Recollect.config.log_wiredumps?
