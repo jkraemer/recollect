@@ -805,6 +805,109 @@ class HTTPServerTest < Recollect::TestCase
     refute body["watermarks"].key?(identity.peer_id), "self-watermark must be absent when no local rows"
   end
 
+  def test_sync_pull_returns_records_newer_than_since
+    signing_key = setup_trusted_peer("peer-a")
+    identity = Recollect::HTTPServer.local_identity
+
+    # Caller must be subscribed to "global" for this to return records
+    Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store).subscribe("peer-a", "global")
+
+    # Write one local row (using the proper DatabaseManager pipeline so origin_peer is set right)
+    Recollect::HTTPServer.db_manager.store_with_embedding(
+      project: nil, content: "hello from local", memory_type: "note", tags: [], metadata: nil
+    )
+
+    signed_post("peer-a", signing_key, "/sync/pull?db=global", {since: {}, limit: 500})
+
+    assert_equal 200, last_response.status
+    body = JSON.parse(last_response.body)
+
+    assert_equal 1, body["records"].size
+    rec = body["records"].first
+
+    assert_equal "hello from local", rec["content"]
+    assert_equal identity.peer_id, rec["origin_peer"]
+    refute_nil rec["global_id"]
+    refute_nil rec["created_at"]
+  end
+
+  def test_sync_pull_returns_empty_when_caller_not_subscribed
+    signing_key = setup_trusted_peer("peer-a")
+    # Do NOT subscribe peer-a to any db
+    Recollect::HTTPServer.db_manager.store_with_embedding(
+      project: nil, content: "secret", memory_type: "note", tags: [], metadata: nil
+    )
+
+    signed_post("peer-a", signing_key, "/sync/pull?db=global", {since: {}, limit: 500})
+
+    assert_equal 200, last_response.status
+    assert_empty JSON.parse(last_response.body)["records"]
+  end
+
+  def test_sync_pull_excludes_chunks
+    signing_key = setup_trusted_peer("peer-a")
+    Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store).subscribe("peer-a", "global")
+    db = Recollect::HTTPServer.db_manager.get_database(nil)
+    identity = Recollect::HTTPServer.local_identity
+    db.store(content: "parent", memory_type: "note", origin_peer: identity.peer_id)
+    db.instance_variable_get(:@db).execute(
+      "INSERT INTO memories (content, memory_type, global_id, origin_peer) VALUES (?, ?, ?, ?)",
+      ["chunk", "_chunk", SecureRandom.uuid_v7, identity.peer_id]
+    )
+
+    signed_post("peer-a", signing_key, "/sync/pull?db=global", {since: {}, limit: 500})
+
+    records = JSON.parse(last_response.body)["records"]
+
+    assert_equal 1, records.size
+    refute_equal "_chunk", records.first["memory_type"]
+  end
+
+  def test_sync_pull_respects_composite_cursor
+    signing_key = setup_trusted_peer("peer-a")
+    Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store).subscribe("peer-a", "global")
+    identity = Recollect::HTTPServer.local_identity
+    db = Recollect::HTTPServer.db_manager.get_database(nil)
+
+    # Two records at distinct timestamps
+    raw = db.instance_variable_get(:@db)
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["old", "note", "g-old", identity.peer_id, "2026-05-01T00:00:00.000Z"])
+    raw.execute("INSERT INTO memories (content, memory_type, global_id, origin_peer, created_at) VALUES (?,?,?,?,?)",
+      ["new", "note", "g-new", identity.peer_id, "2026-05-02T00:00:00.000Z"])
+
+    # Pull with the OLD cursor — should get only the "new" row
+    cursor = {"created_at" => "2026-05-01T00:00:00.000Z", "global_id" => "g-old"}
+    signed_post("peer-a", signing_key, "/sync/pull?db=global",
+      {since: {identity.peer_id => cursor}, limit: 500})
+
+    records = JSON.parse(last_response.body)["records"]
+
+    assert_equal 1, records.size
+    assert_equal "g-new", records.first["global_id"]
+  end
+
+  def test_sync_pull_missing_db_returns_400
+    signing_key = setup_trusted_peer("peer-a")
+    signed_post("peer-a", signing_key, "/sync/pull", {since: {}, limit: 500})
+
+    assert_equal 400, last_response.status
+  end
+
+  def test_sync_pull_omits_local_id_from_records
+    signing_key = setup_trusted_peer("peer-a")
+    Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store).subscribe("peer-a", "global")
+    Recollect::HTTPServer.db_manager.store_with_embedding(
+      project: nil, content: "x", memory_type: "note", tags: [], metadata: nil
+    )
+
+    signed_post("peer-a", signing_key, "/sync/pull?db=global", {since: {}, limit: 500})
+
+    rec = JSON.parse(last_response.body)["records"].first
+
+    refute rec.key?("id"), "local id must NOT appear in synced records — receiver's local id will differ"
+  end
+
   # Test singleton behavior - verifies fix for file descriptor leak
   def test_db_manager_is_singleton_across_requests
     # Capture the db_manager instance after first request

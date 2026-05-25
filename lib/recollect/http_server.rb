@@ -343,6 +343,31 @@ module Recollect
       {watermarks: wm}.to_json
     end
 
+    post "/sync/pull" do
+      db_name = params["db"] || halt(400, {error: "missing db"}.to_json)
+      caller_peer = env["recollect.peer"][:peer_id]
+      peers = Recollect::Sync::Peers.new(self.class.sync_store)
+
+      # Subscription is a sender-side policy: not subscribed means "I don't share this db with you."
+      # Respond with an empty page rather than 403 so the caller can keep polling without re-pairing
+      # if the policy changes later.
+      unless peers.subscriptions(caller_peer).include?(db_name)
+        content_type :json
+        halt 200, {records: []}.to_json
+      end
+
+      payload = JSON.parse(request.body.read)
+      since = payload["since"] || {}
+      limit = (payload["limit"] || 500).to_i
+
+      project = self.class.db_manager.project_for_db_name(db_name)
+      rows = self.class.db_manager.get_database(project).fetch_for_sync(since: since, limit: limit)
+
+      content_type :json
+      # Local "id" is per-peer and not portable; strip it before sending.
+      {records: rows.map { |r| r.except("id") }}.to_json
+    end
+
     # ========== REST API ==========
 
     # List memories
