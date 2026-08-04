@@ -9,9 +9,9 @@ module Recollect
 
       # headers may be a Rack env (with HTTP_X_*) or a hash with simple keys.
       def verify(headers:, body:)
-        peer_id = headers["HTTP_X_PEER_ID"] || headers["X-Peer-ID"]
-        timestamp = headers["HTTP_X_TIMESTAMP"] || headers["X-Timestamp"]
-        signature = headers["HTTP_X_SIGNATURE"] || headers["X-Signature"]
+        peer_id = header_value(headers, "HTTP_X_PEER_ID", "X-Peer-ID")
+        timestamp = header_value(headers, "HTTP_X_TIMESTAMP", "X-Timestamp")
+        signature = header_value(headers, "HTTP_X_SIGNATURE", "X-Signature")
         return {status: :unauthorized, reason: "missing-headers"} if [peer_id, timestamp, signature].any?(&:nil?)
 
         peer = @peers.find(peer_id)
@@ -24,6 +24,15 @@ module Recollect
         return {status: :unauthorized, reason: "bad-signature"} unless valid
 
         {status: :ok, peer: peer}
+      end
+
+      private
+
+      # Rack delivers header values as ASCII-8BIT strings, which SQLite binds
+      # as BLOBs that never match TEXT columns; normalize to UTF-8.
+      def header_value(headers, *keys)
+        value = keys.filter_map { |k| headers[k] }.first
+        value&.dup&.force_encoding(Encoding::UTF_8)
       end
     end
   end

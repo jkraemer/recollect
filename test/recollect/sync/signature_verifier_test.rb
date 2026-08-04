@@ -36,6 +36,16 @@ class Recollect::Sync::SignatureVerifierTest < Recollect::TestCase
     assert_equal "peer-a", result[:peer][:peer_id]
   end
 
+  def test_binary_encoded_rack_headers_authenticate
+    # Rack delivers header values as ASCII-8BIT strings; the peer lookup must
+    # still match the TEXT peer_id column (binary strings bind as SQLite BLOBs).
+    env = signed_env("hello").transform_values { |v| v.dup.force_encoding(Encoding::ASCII_8BIT) }
+    result = @verifier.verify(headers: env, body: env["body"])
+
+    assert_equal :ok, result[:status]
+    assert_equal "peer-a", result[:peer][:peer_id]
+  end
+
   def test_missing_headers_returns_unauthorized
     result = @verifier.verify(headers: {}, body: "")
 
