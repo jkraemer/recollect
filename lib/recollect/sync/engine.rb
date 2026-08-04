@@ -24,8 +24,7 @@ module Recollect
         client = @client_factory.call(peer)
 
         # Step 1: peer's manifest (what they have).
-        manifest_response = client.get("/sync/manifest?db=#{db_name}")
-        peer_watermarks = JSON.parse(manifest_response.body)["watermarks"]
+        peer_watermarks = parse!(client.get("/sync/manifest?db=#{db_name}"))["watermarks"]
 
         # Step 2: pull records we're missing.
         pull_loop(client: client, db_name: db_name)
@@ -60,7 +59,7 @@ module Recollect
         loop do
           since = @watermarks.get(db_name: db_name)
           response = client.post_json("/sync/pull?db=#{db_name}", {since: since, limit: PULL_LIMIT})
-          page = JSON.parse(response.body)["records"]
+          page = parse!(response)["records"]
           break if page.empty?
 
           observed = Hash.new { |h, k| h[k] = {"created_at" => "", "global_id" => ""} }
@@ -92,7 +91,15 @@ module Recollect
         return if rows.empty?
 
         records = rows.map { |r| r.except("id") }
-        client.post_json("/sync/push?db=#{db_name}", {records: records})
+        parse!(client.post_json("/sync/push?db=#{db_name}", {records: records}))
+      end
+
+      # Raises on non-2xx so reconcile's rescue records the HTTP status
+      # instead of a downstream parse error on the failure body.
+      def parse!(response)
+        raise "HTTP #{response.status}" unless response.success?
+
+        JSON.parse(response.body)
       end
 
       def update_observed(observed, rec)

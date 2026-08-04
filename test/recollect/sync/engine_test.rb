@@ -134,6 +134,21 @@ class Recollect::Sync::EngineTest < Recollect::TestCase
     assert_match(/boom/, peer[:last_sync_error])
   end
 
+  def test_reconcile_records_http_status_when_peer_rejects
+    response = Struct.new(:status, :success?, :body).new(403, false, '{"error":"unknown-peer"}')
+    rejecting_client = Object.new
+    rejecting_client.define_singleton_method(:get) { |*| response }
+    rejecting_client.define_singleton_method(:post_json) { |*| response }
+
+    engine = Recollect::Sync::Engine.new(
+      store: @store, db_manager: Recollect::HTTPServer.db_manager,
+      client_factory: ->(*) { rejecting_client }
+    )
+    engine.reconcile(peer: @peers.find("peer-b"), db_name: "global")
+
+    assert_equal "HTTP 403", @peers.find("peer-b")[:last_sync_error]
+  end
+
   def test_start_runs_initial_reconcile_then_sleeps
     client = fake_client(manifest: {watermarks: {}}, pull_pages: [{records: []}])
     call_count = 0
