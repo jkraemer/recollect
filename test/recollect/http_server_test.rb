@@ -24,6 +24,13 @@ class HTTPServerTest < Recollect::TestCase
   end
 
   # MCP endpoint
+  def test_mcp_server_shares_push_wired_memories_service
+    # Stores via MCP tools must enqueue sync pushes like REST stores do, so
+    # both paths have to share the push-queue-wired MemoriesService singleton.
+    assert_same Recollect::HTTPServer.memories_service,
+      Recollect::HTTPServer.mcp_server.server_context[:memories_service]
+  end
+
   def test_mcp_endpoint_accepts_post
     # Send a minimal MCP request
     post "/mcp", '{"jsonrpc":"2.0","method":"initialize","id":1}', "CONTENT_TYPE" => "application/json"

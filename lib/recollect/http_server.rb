@@ -108,7 +108,7 @@ module Recollect
       end
 
       def mcp_server
-        @mcp_server ||= MCPServer.build(db_manager)
+        @mcp_server ||= MCPServer.build(db_manager, memories_service: memories_service)
       end
 
       def reset_db_manager!

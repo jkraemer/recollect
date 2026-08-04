@@ -18,8 +18,8 @@ module Recollect
     ].freeze
 
     class << self
-      def build(db_manager)
-        memories_service = MemoriesService.new(db_manager)
+      def build(db_manager, memories_service: nil)
+        memories_service ||= MemoriesService.new(db_manager)
         MCP::Server.new(
           name: "recollect",
           version: Recollect::VERSION,
