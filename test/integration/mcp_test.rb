@@ -203,6 +203,50 @@ class MCPIntegrationTest < Recollect::TestCase
     assert_equal 2, result_content["recent_notes_todos"].length
   end
 
+  # A tool that rejects its arguments has failed, not the protocol: the client
+  # gets a result it can show the model and retry from, not a transport error.
+  def test_invalid_tool_arguments_come_back_as_a_tool_error
+    mcp_request = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "store_memory",
+        arguments: {memory_type: "bogus"}
+      },
+      id: 20
+    }
+
+    post "/mcp", mcp_request.to_json, "CONTENT_TYPE" => "application/json"
+
+    assert_predicate last_response, :ok?
+
+    mcp_response = JSON.parse(last_response.body)
+
+    assert_nil mcp_response["error"]
+    assert mcp_response["result"]["isError"]
+    assert_match(/content/, mcp_response["result"]["content"].first["text"])
+  end
+
+  # Naming a tool that does not exist is a caller mistake, so it is a protocol
+  # error - and specifically "invalid params", not a server-side crash.
+  def test_unknown_tool_is_an_invalid_params_error
+    mcp_request = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "no_such_tool",
+        arguments: {}
+      },
+      id: 21
+    }
+
+    post "/mcp", mcp_request.to_json, "CONTENT_TYPE" => "application/json"
+
+    mcp_response = JSON.parse(last_response.body)
+
+    assert_equal(-32602, mcp_response["error"]["code"])
+  end
+
   def test_prompts_list
     mcp_request = {
       jsonrpc: "2.0",

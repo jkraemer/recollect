@@ -35,8 +35,7 @@ Gem::Specification.new do |spec|
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
-  # mcp is pre-1.0, so minor releases can break the tool API: track the tested line
-  spec.add_dependency "mcp", "~> 0.4.0"
+  spec.add_dependency "mcp", "~> 1.1"
   spec.add_dependency "puma", "~> 7.0"
   spec.add_dependency "sinatra", "~> 4.0"
   spec.add_dependency "sqlite3", "~> 2.0"
