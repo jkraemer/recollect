@@ -10,7 +10,24 @@ require "net/http"
 require "json"
 
 module Recollect
+  module CliErrors
+    private
+
+    # Prints the error and exits nonzero so scripts and agents can detect failure.
+    def fail!(message, detail: nil)
+      say @pastel.red(message)
+      say detail if detail
+      exit 1
+    end
+  end
+
   class Peers < Thor
+    include CliErrors
+
+    def self.exit_on_failure?
+      true
+    end
+
     def initialize(*)
       super
       @pastel = Pastel.new
@@ -41,19 +58,20 @@ module Recollect
           puts table.render(:unicode)
         end
       else
-        say @pastel.red("Error: #{response.code}")
+        fail!("Error: #{response.code}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "remove PEER_ID", "Block a peer (kept in DB for signature history)"
     def remove(peer_id)
       uri = URI("#{@base_url}/api/sync/peers/#{peer_id}")
       response = Net::HTTP.new(uri.host, uri.port).delete(uri.path)
-      say((response.code == "200") ? @pastel.green("Blocked #{peer_id}") : @pastel.red("Error: #{response.code}"))
+      fail!("Error: #{response.code}") unless response.code == "200"
+      say @pastel.green("Blocked #{peer_id}")
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "add-db PEER_ID DB_NAME", "Subscribe a peer to one of your DBs"
@@ -64,22 +82,26 @@ module Recollect
         req.body = {db_name: db_name}.to_json
         http.request(req)
       end
-      say((response.code == "200") ? @pastel.green("Subscribed #{peer_id} to #{db_name}") : @pastel.red("Error: #{response.code}"))
+      fail!("Error: #{response.code}") unless response.code == "200"
+      say @pastel.green("Subscribed #{peer_id} to #{db_name}")
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "remove-db PEER_ID DB_NAME", "Unsubscribe a peer from one of your DBs"
     def remove_db(peer_id, db_name)
       uri = URI("#{@base_url}/api/sync/peers/#{peer_id}/subscriptions/#{db_name}")
       response = Net::HTTP.new(uri.host, uri.port).delete(uri.path)
-      say((response.code == "200") ? @pastel.green("Unsubscribed #{peer_id} from #{db_name}") : @pastel.red("Error: #{response.code}"))
+      fail!("Error: #{response.code}") unless response.code == "200"
+      say @pastel.green("Unsubscribed #{peer_id} from #{db_name}")
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
   end
 
   class CLI < Thor
+    include CliErrors
+
     def self.exit_on_failure?
       true
     end
@@ -96,10 +118,7 @@ module Recollect
     option :tags, aliases: "-T", desc: "Tags (comma-separated)"
     def store(*args)
       content = args.join(" ")
-      if content.empty?
-        say @pastel.red("Error: CONTENT is required")
-        return
-      end
+      fail!("Error: CONTENT is required") if content.empty?
       tags = options[:tags]&.split(",")&.map(&:strip)
       data = {
         content: content,
@@ -116,10 +135,10 @@ module Recollect
         location = result["project"] ? "project '#{result["project"]}'" : "global"
         say "  Location: #{location}"
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "delete ID", "Delete a memory"
@@ -131,10 +150,10 @@ module Recollect
       if response.code == "200"
         say @pastel.green("Deleted memory ##{id}")
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "search QUERY", "Search memories"
@@ -156,10 +175,10 @@ module Recollect
         display_memories(data["results"])
         say "\n#{data["count"]} results for '#{query}'"
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "list", "List recent memories"
@@ -179,10 +198,10 @@ module Recollect
         memories = JSON.parse(response.body)
         display_memories(memories)
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "projects", "List all projects"
@@ -200,10 +219,10 @@ module Recollect
           say "\nTotal: #{data["count"]}"
         end
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "tags", "Show tag frequency statistics"
@@ -222,10 +241,10 @@ module Recollect
         data = JSON.parse(response.body)
         display_tags(data["tags"], options[:top])
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "find-by-tag TAGS", "Find memories matching ALL specified tags (comma-separated)"
@@ -247,10 +266,10 @@ module Recollect
         display_memories(data["results"])
         say "\n#{data["count"]} results matching tags: #{tags}"
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "status", "Check server status"
@@ -261,10 +280,10 @@ module Recollect
         data = JSON.parse(response.body)
         say @pastel.green("Server is running (v#{data["version"]})")
       else
-        say @pastel.red("Server is not responding")
+        fail!("Server is not responding")
       end
     rescue => e
-      say @pastel.red("Server unreachable: #{e.message}")
+      fail!("Server unreachable: #{e.message}")
     end
 
     desc "identity", "Show the local sync identity"
@@ -277,10 +296,10 @@ module Recollect
         say "name:        #{data["display_name"]}"
         say "fingerprint: #{data["public_key_fingerprint"]}"
       else
-        say @pastel.red("Error: #{response.code} #{response.message}")
+        fail!("Error: #{response.code} #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "pair", "Generate a pairing code for another machine to use"
@@ -295,10 +314,10 @@ module Recollect
         say "On the other machine, run:"
         say "  recollect join #{data["code"]} --endpoint #{data["endpoint"]}"
       else
-        say @pastel.red("Error: #{response.code} #{response.message}")
+        fail!("Error: #{response.code} #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "join CODE", "Join an existing peer using a pairing code"
@@ -309,11 +328,10 @@ module Recollect
         data = JSON.parse(response.body)
         say @pastel.green("Paired with #{data["display_name"]} (#{data["peer_id"]})")
       else
-        say @pastel.red("Error: #{response.code} #{response.message}")
-        say response.body
+        fail!("Error: #{response.code} #{response.message}", detail: response.body)
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "sync", "Force an immediate sync cycle (debug)", hide: true
@@ -336,10 +354,10 @@ module Recollect
           end
         end
       else
-        say @pastel.red("Error: #{response.code}")
+        fail!("Error: #{response.code}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "vector-status", "Check vector search status"
@@ -359,10 +377,10 @@ module Recollect
           say "  Reason: #{data["reason"]}"
         end
       else
-        say @pastel.red("Error: #{response.message}")
+        fail!("Error: #{response.message}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     desc "peers SUBCOMMAND", "Manage sync peers"
@@ -388,10 +406,10 @@ module Recollect
         rescue
           response.message
         end
-        say @pastel.red("Error: #{error}")
+        fail!("Error: #{error}")
       end
     rescue => e
-      say @pastel.red("Error: #{e.message}")
+      fail!("Error: #{e.message}")
     end
 
     private

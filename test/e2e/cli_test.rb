@@ -69,9 +69,10 @@ class CLIEndToEndTest < Recollect::TestCase
   end
 
   def test_delete_reports_error_for_missing_memory
-    out, = run_cli("delete", "999")
+    out, status = run_cli("delete", "999")
 
     assert_match(/Error/, out)
+    refute_predicate status, :success?
   end
 
   private
