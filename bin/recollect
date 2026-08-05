@@ -118,6 +118,21 @@ module Recollect
       say @pastel.red("Error: #{e.message}")
     end
 
+    desc "delete ID", "Delete a memory"
+    option :project, aliases: "-p", desc: "Project name"
+    def delete(id)
+      params = {project: options[:project]}.compact
+      response = http_delete("/api/memories/#{id}", params)
+
+      if response.code == "200"
+        say @pastel.green("Deleted memory ##{id}")
+      else
+        say @pastel.red("Error: #{response.message}")
+      end
+    rescue => e
+      say @pastel.red("Error: #{e.message}")
+    end
+
     desc "search QUERY", "Search memories"
     option :project, aliases: "-p", desc: "Limit to project"
     option :type, aliases: "-t", desc: "Filter by type"
@@ -395,6 +410,14 @@ module Recollect
       uri = URI("#{@base_url}#{path}")
       uri.query = URI.encode_www_form(params) unless params.empty?
       Net::HTTP.post_form(uri, {})
+    end
+
+    # Named to avoid clashing with the Thor `delete` command method.
+    def http_delete(path, params = {})
+      uri = URI("#{@base_url}#{path}")
+      uri.query = URI.encode_www_form(params) unless params.empty?
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.request(Net::HTTP::Delete.new(uri))
     end
 
     def display_memories(memories)
