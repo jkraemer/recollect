@@ -61,6 +61,13 @@ class CLIEndToEndTest < Recollect::TestCase
     refute_match(/project doomed/, out)
   end
 
+  def test_unknown_command_exits_nonzero_without_deprecation_noise
+    out, status = run_cli("bogus")
+
+    refute_predicate status, :success?
+    refute_match(/Deprecation warning/, out)
+  end
+
   def test_delete_reports_error_for_missing_memory
     out, = run_cli("delete", "999")
 

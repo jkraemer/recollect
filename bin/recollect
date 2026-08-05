@@ -80,6 +80,10 @@ module Recollect
   end
 
   class CLI < Thor
+    def self.exit_on_failure?
+      true
+    end
+
     def initialize(*)
       super
       @pastel = Pastel.new
