@@ -156,6 +156,28 @@ module Recollect
       fail!("Error: #{e.message}")
     end
 
+    desc "show ID", "Show a memory with full content"
+    option :project, aliases: "-p", desc: "Project name"
+    def show(id)
+      params = {project: options[:project]}.compact
+      response = get("/api/memories/#{id}", params)
+
+      if response.code == "200"
+        memory = JSON.parse(response.body)
+        say "ID:      #{memory["id"]}"
+        say "Type:    #{memory["memory_type"]}"
+        say "Project: #{memory["project"] || "global"}"
+        say "Tags:    #{Array(memory["tags"]).join(", ")}"
+        say "Created: #{memory["created_at"]}"
+        say ""
+        say memory["content"]
+      else
+        fail!("Error: #{response.message}")
+      end
+    rescue => e
+      fail!("Error: #{e.message}")
+    end
+
     desc "search QUERY", "Search memories"
     option :project, aliases: "-p", desc: "Limit to project"
     option :type, aliases: "-t", desc: "Filter by type"

@@ -61,6 +61,25 @@ class CLIEndToEndTest < Recollect::TestCase
     refute_match(/project doomed/, out)
   end
 
+  def test_show_prints_full_content
+    # Tables truncate content at 50 chars; show must print all of it.
+    content = "a memory long enough that the table view would certainly truncate it somewhere"
+    out, = run_cli("store", content)
+    id = out[/Stored memory #(\d+)/, 1]
+
+    out, status = run_cli("show", id)
+
+    assert_predicate status, :success?
+    assert_includes out, content
+  end
+
+  def test_show_missing_memory_fails
+    out, status = run_cli("show", "999")
+
+    refute_predicate status, :success?
+    assert_match(/Error/, out)
+  end
+
   def test_unknown_command_exits_nonzero_without_deprecation_noise
     out, status = run_cli("bogus")
 
