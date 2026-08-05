@@ -82,6 +82,7 @@ module Recollect
 
     def vec_extension_path
       paths = [
+        ENV["RECOLLECT_SQLITE_VEC_PATH"],          # Explicit user override
         "/usr/lib/vec0.so",                        # Arch Linux package
         "~/.local/lib/sqlite-vec/vec0.so",         # User local install
         "~/.local/lib/sqlite-vec/vec0.dylib",      # macOS user local
@@ -89,7 +90,7 @@ module Recollect
         "/usr/local/lib/vec0.dylib"                # macOS system local
       ]
 
-      paths.each do |path|
+      paths.compact.each do |path|
         expanded = File.expand_path(path)
         return expanded if File.exist?(expanded)
       end

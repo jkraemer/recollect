@@ -76,6 +76,7 @@ bundle exec rubocop
 | `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
 | `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
 | `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
+| `RECOLLECT_SQLITE_VEC_PATH` | (auto-detect) | Path to the sqlite-vec extension, checked before built-in locations |
 | `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
 | `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
 | `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |

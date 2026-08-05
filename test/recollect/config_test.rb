@@ -134,6 +134,25 @@ module Recollect
       end
     end
 
+    def test_vec_extension_path_prefers_env_override
+      fake_vec = File.join(__dir__, "..", "tmp", "fake_vec0.so")
+      File.write(fake_vec, "")
+      ENV["RECOLLECT_SQLITE_VEC_PATH"] = fake_vec
+
+      assert_equal File.expand_path(fake_vec), Config.new.vec_extension_path
+    ensure
+      ENV.delete("RECOLLECT_SQLITE_VEC_PATH")
+      FileUtils.rm_f(fake_vec)
+    end
+
+    def test_vec_extension_path_env_override_must_exist
+      ENV["RECOLLECT_SQLITE_VEC_PATH"] = "/nonexistent/vec0.so"
+
+      refute_equal "/nonexistent/vec0.so", Config.new.vec_extension_path
+    ensure
+      ENV.delete("RECOLLECT_SQLITE_VEC_PATH")
+    end
+
     def test_vectors_available_false_when_disabled
       refute_predicate @config, :vectors_available?
     end
