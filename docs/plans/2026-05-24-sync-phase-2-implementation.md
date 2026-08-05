@@ -2293,8 +2293,9 @@ RECOLLECT_URL=http://127.0.0.1:7326 ./bin/recollect pair
 # Copy code, then:
 RECOLLECT_URL=http://127.0.0.1:7327 ./bin/recollect join <CODE> --endpoint http://127.0.0.1:7326
 
-# Store on A:
-RECOLLECT_URL=http://127.0.0.1:7326 ./bin/recollect store "from a" -p global
+# Store on A (no -p: plain stores go to the global db; "global" is a
+# reserved name and rejected as a project):
+RECOLLECT_URL=http://127.0.0.1:7326 ./bin/recollect store "from a"
 
 # Wait a moment then check B:
 sleep 2
