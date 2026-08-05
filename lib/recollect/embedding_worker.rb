@@ -4,10 +4,13 @@ module Recollect
   class EmbeddingWorker
     BATCH_SIZE = 10
     BATCH_WAIT = 2 # seconds to wait for batch to fill
+    # Bounds memory if the embedder hangs or falls behind; dropped jobs are
+    # recoverable via vector-backfill.
+    MAX_QUEUE_SIZE = 10_000
 
-    def initialize(db_manager)
+    def initialize(db_manager, queue_size: MAX_QUEUE_SIZE)
       @db_manager = db_manager
-      @queue = Queue.new
+      @queue = SizedQueue.new(queue_size)
       @running = false
       @thread = nil
       @client = EmbeddingClient.new
@@ -31,7 +34,11 @@ module Recollect
     def enqueue(memory_id:, content:, project:)
       return unless @running
 
-      @queue << {memory_id: memory_id, content: content, project: project}
+      @queue.push({memory_id: memory_id, content: content, project: project}, true)
+    rescue ThreadError
+      # Queue full. Dropping beats blocking the caller's request thread or
+      # growing without bound; vector-backfill re-queues anything missed.
+      warn "[EmbeddingWorker] Queue full, dropping embedding job for ##{memory_id} (recover with vector-backfill)"
     end
 
     def queue_size

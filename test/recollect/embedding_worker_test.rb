@@ -36,6 +36,22 @@ module Recollect
       assert_equal 1, @worker.queue_size
     end
 
+    def test_enqueue_drops_new_jobs_when_queue_full
+      worker = EmbeddingWorker.new(@db_manager, queue_size: 2)
+      # Mark running without starting the consumer thread, so the queue
+      # genuinely fills up (mirrors a hung Python embedder).
+      worker.instance_variable_set(:@running, true)
+
+      _, err = capture_io do
+        3.times { |i| worker.enqueue(memory_id: i, content: "x", project: nil) }
+      end
+
+      assert_equal 2, worker.queue_size
+      assert_match(/dropping/i, err)
+    ensure
+      worker&.stop
+    end
+
     def test_enqueue_ignored_when_not_running
       # Worker not started
       @worker.enqueue(memory_id: 1, content: "test", project: nil)
