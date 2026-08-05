@@ -39,6 +39,13 @@ class HTTPServerTest < Recollect::TestCase
     assert_equal "application/json", last_response.content_type
   end
 
+  def test_store_rejects_reserved_global_project
+    post "/api/memories", {content: "x", project: "global"}.to_json, "CONTENT_TYPE" => "application/json"
+
+    assert_equal 400, last_response.status
+    assert_match(/reserved/, JSON.parse(last_response.body)["error"])
+  end
+
   # List memories
   def test_list_memories_returns_array
     get "/api/memories"

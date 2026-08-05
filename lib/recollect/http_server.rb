@@ -570,6 +570,8 @@ module Recollect
       )
 
       json_response(memory, status_code: 201)
+    rescue ArgumentError => e
+      halt 400, json_response({error: e.message}, status_code: 400)
     end
 
     # Delete memory

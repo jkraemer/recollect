@@ -25,6 +25,22 @@ class MemoriesServiceTest < Recollect::TestCase
     assert_equal "Test memory content", result["content"]
   end
 
+  def test_create_rejects_reserved_global_project_name
+    # A project named "global" would collide with the global database's
+    # db_name in the sync mapping and could never sync.
+    error = assert_raises(ArgumentError) do
+      @service.create(content: "x", project: "global")
+    end
+
+    assert_match(/reserved/, error.message)
+  end
+
+  def test_create_rejects_reserved_global_project_name_case_insensitively
+    assert_raises(ArgumentError) do
+      @service.create(content: "x", project: "GLOBAL")
+    end
+  end
+
   def test_create_stores_in_correct_project
     result = @service.create(content: "Project memory", project: "my-project")
 
