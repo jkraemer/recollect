@@ -54,6 +54,30 @@ You have memory tools but won't use them proactively without discipline. **Searc
 
 **Default to project-specific.** Only use global for things that clearly apply everywhere.
 
+## Choosing the Interface: MCP Tools vs CLI
+
+Recollect exposes both MCP tools and a CLI; they talk to the same server. Pick by task shape:
+
+**MCP tools** (`store_memory`, `search_memory`, `get_context`, ...) are the default for the ambient flow above — storing a decision mid-conversation, a quick recall search. Lowest friction, no shell round-trip.
+
+**CLI** (`recollect`, server URL via `RECOLLECT_URL`, default `http://localhost:7326`) wins when results feed further processing — bulk reads, filtering, anything you would pipe into `jq`. Two rules: table output truncates content, so pass `--json` whenever you need the actual text; a nonzero exit code means the command failed.
+
+| Task | Command |
+|------|---------|
+| Search with full content | `recollect search "auth bug" --json` |
+| Read one memory in full | `recollect show 42` (`-p project`, `--json`) |
+| Memories matching ALL tags | `recollect find-by-tag decision,auth --json` |
+| Recent memories in a project | `recollect list -p myproj --json` |
+| Tag / project inventory | `recollect tags --json`, `recollect projects --json` |
+| Store (scripted) | `recollect store "content" -p proj -t decision -T tag1,tag2` |
+| Delete | `recollect delete 42 [-p project]` |
+
+Example — reduce results before they hit your context:
+
+```bash
+recollect search "deploy" --json | jq -r '.results[] | "\(.id): \(.content)"' | head -20
+```
+
 ## Red Flags - You're About to Fail
 
 - Asking user a question without searching memory first
