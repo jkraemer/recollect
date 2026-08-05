@@ -120,6 +120,9 @@ module Recollect
     end
 
     def python_path
+      explicit = ENV["RECOLLECT_PYTHON"]
+      return explicit if explicit && !explicit.empty?
+
       # Use the venv Python if available
       venv_python = Recollect.root.join(".venv", "bin", "python3")
       return venv_python.to_s if venv_python.executable?

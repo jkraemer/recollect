@@ -1,0 +1,9 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "recollect"
+require "puma/cli"
+
+# Puma reads the packaged config, which also points it at the packaged config.ru,
+# so the server runs the same way from a gem install and from a working copy.
+Puma::CLI.new(["--config", Recollect.root.join("config", "puma.rb").to_s, *ARGV]).run

@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
-require_relative "../lib/recollect"
+require "recollect"
+
+# Absolute so the server starts the same way from any working directory
+rackup File.expand_path("../config.ru", __dir__)
 
 # Single process mode (no forking) - shares one EmbeddingClient/Python process
 # Set WEB_CONCURRENCY > 0 to enable clustered mode if needed

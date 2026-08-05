@@ -1,3 +1,8 @@
+---
+description: Summarize this session and store it in long-term memory for a future session to resume from
+argument-hint: [extra notes to include]
+---
+
 # Session Log
 
 Create a session summary and store it in long-term memory for future retrieval.

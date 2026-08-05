@@ -1,0 +1,14 @@
+{
+  "name": "recollect",
+  "displayName": "Recollect",
+  "version": "0.1.0",
+  "description": "Long-term memory across coding sessions: MCP tools for storing and searching memories, the discipline skill that makes an agent use them, and a session-log command.",
+  "author": {
+    "name": "Jens Kraemer",
+    "url": "https://github.com/jkraemer"
+  },
+  "homepage": "https://github.com/jkraemer/recollect",
+  "repository": "https://github.com/jkraemer/recollect",
+  "license": "GPL-3.0-or-later",
+  "keywords": ["memory", "mcp", "search", "context"]
+}

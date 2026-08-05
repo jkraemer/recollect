@@ -192,6 +192,16 @@ module Recollect
       end
     end
 
+    # An installed gem has no writable .venv next to its code, so the
+    # interpreter running the embedding model has to be nameable from outside.
+    def test_python_path_prefers_env_override
+      ENV["RECOLLECT_PYTHON"] = "/opt/pythons/bin/python3"
+
+      assert_equal "/opt/pythons/bin/python3", Config.new.python_path
+    ensure
+      ENV.delete("RECOLLECT_PYTHON")
+    end
+
     def test_python_path_falls_back_to_system_python
       # Test case where venv doesn't exist
       config = Config.new

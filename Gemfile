@@ -2,25 +2,8 @@
 
 source "https://rubygems.org"
 
-ruby ">= 3.4.0"
-
-# Core
-gem "mcp"
-gem "puma", "~> 7.0"
-gem "sinatra", "~> 4.0"
-gem "sqlite3", "~> 2.0"
-gem "faraday", "~> 2.10"
-gem "faraday-retry", "~> 2.2"
-
-# CLI
-gem "pastel", "~> 0.8"
-gem "thor", "~> 1.3"
-gem "tty-table", "~> 0.12"
-
-# Utilities
-gem "zeitwerk", "~> 2.6" # Autoloading
-gem "ed25519", "~> 1.3" # Sync request signatures
-gem "base58", "~> 0.2" # peer_id encoding
+# Runtime dependencies live in recollect.gemspec
+gemspec
 
 group :development, :test do
   gem "minitest", "~> 5.25"
