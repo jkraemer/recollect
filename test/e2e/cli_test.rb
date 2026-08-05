@@ -80,6 +80,37 @@ class CLIEndToEndTest < Recollect::TestCase
     assert_match(/Error/, out)
   end
 
+  def test_json_flag_outputs_raw_parseable_json
+    content = "structured output check with a body long enough to defeat table truncation"
+    out, = run_cli("store", content, "-T", "jsontag")
+    id = out[/Stored memory #(\d+)/, 1]
+
+    search, status = run_cli("search", "structured", "--json")
+
+    assert_predicate status, :success?
+    assert_includes JSON.parse(search)["results"].map { |m| m["content"] }, content
+
+    list, = run_cli("list", "--json")
+
+    assert_includes JSON.parse(list).map { |m| m["content"] }, content
+
+    by_tag, = run_cli("find-by-tag", "jsontag", "--json")
+
+    assert_includes JSON.parse(by_tag)["results"].map { |m| m["content"] }, content
+
+    show, = run_cli("show", id, "--json")
+
+    assert_equal content, JSON.parse(show)["content"]
+
+    projects, = run_cli("projects", "--json")
+
+    assert_kind_of Array, JSON.parse(projects)["projects"]
+
+    tags, = run_cli("tags", "--json")
+
+    assert_kind_of Hash, JSON.parse(tags)["tags"]
+  end
+
   def test_unknown_command_exits_nonzero_without_deprecation_noise
     out, status = run_cli("bogus")
 

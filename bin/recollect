@@ -158,11 +158,14 @@ module Recollect
 
     desc "show ID", "Show a memory with full content"
     option :project, aliases: "-p", desc: "Project name"
+    option :json, aliases: "-j", type: :boolean, desc: "Output raw JSON"
     def show(id)
       params = {project: options[:project]}.compact
       response = get("/api/memories/#{id}", params)
 
       if response.code == "200"
+        return puts response.body if options[:json]
+
         memory = JSON.parse(response.body)
         say "ID:      #{memory["id"]}"
         say "Type:    #{memory["memory_type"]}"
@@ -182,6 +185,7 @@ module Recollect
     option :project, aliases: "-p", desc: "Limit to project"
     option :type, aliases: "-t", desc: "Filter by type"
     option :limit, aliases: "-l", type: :numeric, default: 10
+    option :json, aliases: "-j", type: :boolean, desc: "Output raw JSON"
     def search(query)
       params = {
         q: query,
@@ -193,6 +197,8 @@ module Recollect
       response = get("/api/memories/search", params)
 
       if response.code == "200"
+        return puts response.body if options[:json]
+
         data = JSON.parse(response.body)
         display_memories(data["results"])
         say "\n#{data["count"]} results for '#{query}'"
@@ -207,6 +213,7 @@ module Recollect
     option :project, aliases: "-p", desc: "Filter by project"
     option :type, aliases: "-t", desc: "Filter by type"
     option :limit, aliases: "-l", type: :numeric, default: 20
+    option :json, aliases: "-j", type: :boolean, desc: "Output raw JSON"
     def list
       params = {
         project: options[:project],
@@ -217,6 +224,8 @@ module Recollect
       response = get("/api/memories", params)
 
       if response.code == "200"
+        return puts response.body if options[:json]
+
         memories = JSON.parse(response.body)
         display_memories(memories)
       else
@@ -227,10 +236,13 @@ module Recollect
     end
 
     desc "projects", "List all projects"
+    option :json, aliases: "-j", type: :boolean, desc: "Output raw JSON"
     def projects
       response = get("/api/projects")
 
       if response.code == "200"
+        return puts response.body if options[:json]
+
         data = JSON.parse(response.body)
 
         if data["projects"].empty?
@@ -251,6 +263,7 @@ module Recollect
     option :project, aliases: "-p", desc: "Filter by project"
     option :type, aliases: "-t", desc: "Filter by memory type"
     option :top, aliases: "-n", type: :numeric, default: 20, desc: "Show top N tags"
+    option :json, aliases: "-j", type: :boolean, desc: "Output raw JSON"
     def tags
       params = {
         project: options[:project],
@@ -260,6 +273,8 @@ module Recollect
       response = get("/api/tags", params)
 
       if response.code == "200"
+        return puts response.body if options[:json]
+
         data = JSON.parse(response.body)
         display_tags(data["tags"], options[:top])
       else
@@ -273,6 +288,7 @@ module Recollect
     option :project, aliases: "-p", desc: "Limit to project"
     option :type, aliases: "-t", desc: "Filter by type"
     option :limit, aliases: "-l", type: :numeric, default: 10
+    option :json, aliases: "-j", type: :boolean, desc: "Output raw JSON"
     def find_by_tag(tags)
       params = {
         tags: tags,
@@ -284,6 +300,8 @@ module Recollect
       response = get("/api/memories/by-tags", params)
 
       if response.code == "200"
+        return puts response.body if options[:json]
+
         data = JSON.parse(response.body)
         display_memories(data["results"])
         say "\n#{data["count"]} results matching tags: #{tags}"
