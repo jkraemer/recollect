@@ -50,24 +50,49 @@ export RECOLLECT_ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 ## Installation
 
+Recollect ships through two channels: the gem carries the server and the CLI,
+the Claude Code plugin carries the agent-facing parts (skill, `/session-log`
+command, MCP wiring). Install both.
+
 ```bash
-git clone <repo-url>
-cd ruby-mcp-memory
-bundle install
+gem install recollect
+recollect-server
 ```
+
+Then, in Claude Code:
+
+```
+/plugin marketplace add jkraemer/recollect
+/plugin install recollect@recollect
+```
+
+The plugin points Claude at `http://localhost:7326/mcp`. If you moved the server
+to another port, configure the MCP server by hand instead - see
+[Configure Claude Code](#configure-claude-code).
+
+To run from a checkout instead, see [Development](#development).
 
 ### Optional: Set Up Vector Search
 
-To enable semantic vector search, create a Python virtual environment and install dependencies:
+Semantic vector search needs Python with `sentence-transformers`:
+
+```bash
+python3 -m venv ~/.recollect/venv
+~/.recollect/venv/bin/pip install sentence-transformers
+```
+
+Then start the server with vectors enabled:
+
+```bash
+RECOLLECT_ENABLE_VECTORS=true RECOLLECT_PYTHON=~/.recollect/venv/bin/python3 recollect-server
+```
+
+From a checkout, a `.venv` in the project root is picked up automatically and
+`RECOLLECT_PYTHON` is not needed:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-```
-
-Then set the environment variable when starting the server:
-
-```bash
 RECOLLECT_ENABLE_VECTORS=true ./bin/server
 ```
 
@@ -78,7 +103,7 @@ over older ones with similar relevance. This is useful when recent context is mo
 valuable than historical information.
 
 ```bash
-RECOLLECT_RECENCY_AGING_FACTOR=0.5 RECOLLECT_RECENCY_HALF_LIFE_DAYS=30 ./bin/server
+RECOLLECT_RECENCY_AGING_FACTOR=0.5 RECOLLECT_RECENCY_HALF_LIFE_DAYS=30 recollect-server
 ```
 
 - **Aging Factor** (0.0-1.0): How much recency affects ranking. 0=disabled, 1=full effect.
@@ -92,14 +117,16 @@ relevance score, while a brand-new memory keeps 100%.
 ### Start the Server
 
 ```bash
-./bin/server
+recollect-server
 ```
 
-The server runs at `http://localhost:7326` by default.
+The server runs at `http://localhost:7326` by default. To keep it running across
+reboots, see [Running as a systemd Service](#running-as-a-systemd-service).
 
 ### Configure Claude Code
 
-Add to your Claude Code MCP configuration:
+Installing the plugin wires this up for you. To do it by hand - or to point Claude
+at a server on a different host or port - add to your MCP configuration:
 
 ```json
 {
@@ -124,33 +151,42 @@ repo name, etc.) which fragments memories across separate databases.
 
 ### Claude Code Skill
 
-For effective memory usage, install the `using-long-term-memory` skill in your
-`~/.claude/skills/` directory. This skill enforces two core disciplines:
+Memory tools only help if the agent reaches for them. The
+`using-long-term-memory` skill enforces two disciplines:
 
 1. **Search before asking** - When encountering problems or unfamiliar situations,
    search memory before asking the user or investigating the codebase
 2. **Store before moving on** - When decisions are made, lessons learned, or bugs
    solved, store them immediately with appropriate tags
 
-See [docs/claude/skills/using-long-term-memory/SKILL.md](docs/claude/skills/using-long-term-memory/SKILL.md) for the full skill.
+The plugin installs it. Agents other than Claude Code can pick it up from
+[skills/using-long-term-memory/SKILL.md](skills/using-long-term-memory/SKILL.md),
+which follows the [Agent Skills](https://agentskills.io) `skills/*/SKILL.md`
+convention:
+
+```bash
+npx skills add jkraemer/recollect
+# or
+gh skill install jkraemer/recollect
+```
 
 ### CLI Commands
 
 ```bash
 # Check server status
-./bin/recollect status
+recollect status
 
 # Store a memory
-./bin/recollect store "We decided to use Puma for threading" -p myproject -t decision
+recollect store "We decided to use Puma for threading" -p myproject -t decision
 
 # Search memories
-./bin/recollect search "threading"
+recollect search "threading"
 
 # List recent memories
-./bin/recollect list -p myproject
+recollect list -p myproject
 
 # List all projects
-./bin/recollect projects
+recollect projects
 ```
 
 ### Web UI
@@ -214,6 +250,8 @@ project name or what you were working on.
 | `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
 | `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
 | `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
+| `RECOLLECT_PYTHON` | `.venv/bin/python3`, else `python3` | Python interpreter running the embedding model |
+| `RECOLLECT_SQLITE_VEC_PATH` | (auto-detect) | Path to the sqlite-vec extension, checked before built-in locations |
 | `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
 | `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
 | `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |
@@ -230,6 +268,14 @@ See [docs/systemd/README.md](docs/systemd/README.md) for setup instructions to r
 ## Development
 
 ```bash
+git clone https://github.com/jkraemer/recollect.git
+cd recollect
+bundle install
+
+# Run the server and CLI from the working copy
+./bin/server
+./bin/recollect status
+
 # Run tests
 bundle exec rake test
 
@@ -238,6 +284,29 @@ bundle exec ruby -Itest test/recollect/database_test.rb
 
 # Lint
 bundle exec rubocop
+```
+
+`bin/server` and `bin/recollect` are thin wrappers that load the same code the
+gem installs as `recollect-server` and `recollect`.
+
+### Packaging layout
+
+The repository is both a gem and a Claude Code plugin marketplace:
+
+| Path | Channel | Contents |
+|------|---------|----------|
+| `recollect.gemspec`, `exe/`, `lib/`, `config/`, `public/` | gem | server and CLI |
+| `.claude-plugin/plugin.json` | plugin | plugin manifest |
+| `.claude-plugin/marketplace.json` | plugin | catalog, so this repo can be added as a marketplace |
+| `skills/`, `commands/`, `.mcp.json` | plugin | skill, slash command, MCP wiring |
+
+Both carry the same version number; `test/packaging_test.rb` fails if they drift
+apart. To try the plugin without publishing, add the checkout as a local
+marketplace:
+
+```
+/plugin marketplace add /path/to/recollect
+/plugin install recollect@recollect
 ```
 
 ## Architecture

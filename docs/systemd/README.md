@@ -2,7 +2,27 @@
 
 Run Recollect as a systemd user service for automatic startup and management.
 
-## Installation
+## Installation from the gem
+
+With `gem install recollect`, the unit can call the installed executable
+directly. Systemd starts with a bare environment, so give the absolute path
+that `which recollect-server` prints, not a version manager shim:
+
+```ini
+[Service]
+Type=simple
+ExecStart=/home/you/.local/share/gem/ruby/3.4.0/bin/recollect-server
+ExecReload=/bin/kill -USR1 $MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+Then continue with step 3 below.
+
+## Installation from a checkout
 
 1. Copy the sample start script and edit for your Ruby version manager:
 

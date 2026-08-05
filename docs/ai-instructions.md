@@ -23,6 +23,10 @@ bundle exec rubocop
 ./bin/server
 # Or: bundle exec puma -C config/puma.rb
 
+# Build the gem / check the packaging manifests
+gem build recollect.gemspec
+bundle exec ruby -Itest test/packaging_test.rb
+
 # CLI commands (requires running server)
 ./bin/recollect status
 ./bin/recollect store "content" -p project -t decision
@@ -65,6 +69,9 @@ bundle exec rubocop
 - **MCP via handle_json**: MCP protocol exposed at `/mcp` endpoint
 - **Project isolation**: Separate database per project, plus global database
 - **Vector search**: Optional hybrid FTS5 + vector similarity search via sqlite-vec extension
+- **Two distribution channels**: the gem ships the server and CLI (`exe/`), the Claude Code
+  plugin ships the agent-facing parts (`skills/`, `commands/`, `.mcp.json`), catalogued by
+  `.claude-plugin/marketplace.json` so this repository is its own marketplace
 
 ## Environment Variables
 
@@ -77,6 +84,7 @@ bundle exec rubocop
 | `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
 | `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
 | `RECOLLECT_SQLITE_VEC_PATH` | (auto-detect) | Path to the sqlite-vec extension, checked before built-in locations |
+| `RECOLLECT_PYTHON` | `.venv/bin/python3`, else `python3` | Python interpreter running the embedding model |
 | `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
 | `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
 | `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |

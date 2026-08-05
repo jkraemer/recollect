@@ -1,5 +1,9 @@
 ## Quick wins
 
+- The `mcp` gem is locked at 0.4.0 while upstream is at 0.25.x, so the gemspec
+  pins `~> 0.4.0` to match what the tests cover. Run the suite against current
+  `mcp` and widen the constraint.
+
 ## Bugs
 
 ## Refactoring
