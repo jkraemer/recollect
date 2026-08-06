@@ -142,7 +142,7 @@ at a server on a different host or port - add to your MCP configuration:
 ### Project Naming
 
 Recollect stores memories per-project. To ensure consistent naming across sessions,
-add an instruction to your project's CLAUDE.md:
+add an instruction to your project's agent instructions (AGENTS.md, CLAUDE.md):
 
 > When storing or recalling memories, refer to this project as "myproject"
 

@@ -1,3 +1,8 @@
+# AGENTS.md
+
+Guidance for AI coding agents working in this repository. `CLAUDE.md` and `GEMINI.md`
+are symlinks to this file.
+
 When storing or recalling memories, refer to this project as "recollect".
 
 ## Project Overview

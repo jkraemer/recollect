@@ -28,7 +28,7 @@ Gem::Specification.new do |spec|
         path.start_with?(".git", ".rubocop", ".mcp.json") ||
         # bin/ holds working-copy wrappers; bin/embed-server is the one the server runs
         (path.start_with?("bin/") && path != "bin/embed-server") ||
-        %w[Rakefile Gemfile Gemfile.lock CLAUDE.md GEMINI.md].include?(path)
+        %w[Rakefile Gemfile Gemfile.lock AGENTS.md CLAUDE.md GEMINI.md].include?(path)
     end
 
   spec.bindir = "exe"
