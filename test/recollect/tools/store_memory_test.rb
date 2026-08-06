@@ -27,7 +27,7 @@ class StoreMemoryTest < Recollect::TestCase
 
     assert response_data["success"]
     assert_predicate response_data["id"], :positive?
-    assert_equal "global", response_data["stored_in"]
+    assert_nil response_data["project"]
   end
 
   def test_stores_memory_in_project_database
@@ -40,7 +40,7 @@ class StoreMemoryTest < Recollect::TestCase
     response_data = JSON.parse(result.content.first[:text])
 
     assert response_data["success"]
-    assert_includes response_data["stored_in"], "test-project"
+    assert_equal "test-project", response_data["project"]
   end
 
   def test_stores_with_memory_type
@@ -156,5 +156,20 @@ class StoreMemoryTest < Recollect::TestCase
     memory = db.get(response_data["id"])
 
     assert_equal "session", memory["memory_type"]
+  end
+
+  def test_declares_an_output_schema
+    schema = Recollect::Tools::StoreMemory.output_schema.to_h
+
+    assert_equal %w[success id project], schema[:required]
+  end
+
+  def test_returns_structured_content_matching_the_text_content
+    result = Recollect::Tools::StoreMemory.call(
+      content: "typed store",
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
+    )
+
+    assert_equal JSON.parse(result.content.first[:text]), result.structured_content
   end
 end

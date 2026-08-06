@@ -27,7 +27,7 @@ class DeleteMemoryTest < Recollect::TestCase
     response_data = JSON.parse(result.content.first[:text])
 
     assert response_data["success"]
-    assert_equal id, response_data["deleted_id"]
+    assert_equal id, response_data["id"]
 
     # Verify deleted
     assert_nil db.get(id)
@@ -57,6 +57,12 @@ class DeleteMemoryTest < Recollect::TestCase
     response_data = JSON.parse(result.content.first[:text])
 
     refute response_data["success"]
-    assert_nil response_data["deleted_id"]
+    assert_nil response_data["id"]
+  end
+
+  def test_declares_an_output_schema
+    schema = Recollect::Tools::DeleteMemory.output_schema.to_h
+
+    assert_equal %w[success id], schema[:required]
   end
 end

@@ -21,20 +21,24 @@ module Recollect
         required: ["id"]
       )
 
+      output_schema(
+        properties: {
+          success: {type: "boolean"},
+          id: {type: %w[integer null]}
+        },
+        required: %w[success id]
+      )
+
       class << self
         def call(id:, server_context:, project: nil)
           service = server_context[:memories_service]
 
           success = service.delete(id, project: project)
 
-          MCP::Tool::Response.new([{
-            type: "text",
-            text: JSON.generate({
-              success: success,
-              deleted_id: success ? id : nil,
-              message: success ? "Memory deleted" : "Memory not found"
-            })
-          }])
+          Tools.json_response({
+            success: success,
+            id: success ? id : nil
+          })
         end
       end
     end

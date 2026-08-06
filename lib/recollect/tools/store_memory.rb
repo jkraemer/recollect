@@ -72,6 +72,15 @@ module Recollect
         required: ["content"]
       )
 
+      output_schema(
+        properties: {
+          success: {type: "boolean"},
+          id: {type: "integer"},
+          project: {type: %w[string null]}
+        },
+        required: %w[success id project]
+      )
+
       class << self
         def call(content:, server_context:, memory_type: "note", tags: nil, project: nil)
           service = server_context[:memories_service]
@@ -83,17 +92,11 @@ module Recollect
             tags: tags || []
           )
 
-          location = memory["project"] ? "project '#{memory["project"]}'" : "global"
-
-          MCP::Tool::Response.new([{
-            type: "text",
-            text: JSON.generate({
-              success: true,
-              id: memory["id"],
-              stored_in: location,
-              message: "Memory stored successfully in #{location}"
-            })
-          }])
+          Tools.json_response({
+            success: true,
+            id: memory["id"],
+            project: memory["project"]
+          })
         end
       end
     end
