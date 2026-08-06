@@ -25,7 +25,8 @@ module Recollect
           version: Recollect::VERSION,
           tools: TOOLS,
           prompts: PROMPTS,
-          server_context: {db_manager: db_manager, memories_service: memories_service}
+          server_context: {db_manager: db_manager, memories_service: memories_service},
+          configuration: MCP::Configuration.new(validate_tool_call_results: true)
         )
       end
     end

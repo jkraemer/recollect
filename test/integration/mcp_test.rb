@@ -308,4 +308,47 @@ class MCPIntegrationTest < Recollect::TestCase
 
     assert_match(/"test-project"/, result["messages"].first["content"]["text"])
   end
+
+  def test_every_tool_advertises_an_output_schema
+    post "/mcp", {jsonrpc: "2.0", method: "tools/list", id: 30}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    tools = JSON.parse(last_response.body)["result"]["tools"]
+
+    assert_equal 5, tools.length
+    tools.each do |tool|
+      assert tool["outputSchema"], "#{tool["name"]} must declare an outputSchema"
+    end
+  end
+
+  def test_tool_calls_return_structured_content_matching_the_text
+    post "/api/memories", {content: "wire structured probe"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    post "/mcp", {
+      jsonrpc: "2.0", method: "tools/call", id: 31,
+      params: {name: "search_memory", arguments: {query: "probe"}}
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    result = JSON.parse(last_response.body)["result"]
+
+    assert_equal JSON.parse(result["content"].first["text"]), result["structuredContent"]
+  end
+
+  def test_get_context_both_shapes_pass_result_validation
+    post "/api/memories", {content: "shape probe", project: "shapes"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    [{project: "shapes"}, {}].each do |arguments|
+      post "/mcp", {
+        jsonrpc: "2.0", method: "tools/call", id: 32,
+        params: {name: "get_context", arguments: arguments}
+      }.to_json, "CONTENT_TYPE" => "application/json"
+
+      response = JSON.parse(last_response.body)
+
+      assert_nil response["error"], "get_context #{arguments} must not fail validation: #{response["error"].inspect}"
+      assert response.dig("result", "structuredContent")
+    end
+  end
 end

@@ -49,4 +49,10 @@ class MCPServerTest < Recollect::TestCase
 
     assert_equal @db_manager, server.server_context[:db_manager]
   end
+
+  def test_build_enables_tool_result_validation
+    server = Recollect::MCPServer.build(@db_manager)
+
+    assert server.configuration.validate_tool_call_results
+  end
 end
