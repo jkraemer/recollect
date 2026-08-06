@@ -92,6 +92,21 @@ module Recollect
         required: ["query"]
       )
 
+      output_schema(
+        "$defs": {memory: Schemas::MEMORY},
+        properties: {
+          results: {type: "array", items: {"$ref": "#/$defs/memory"}},
+          count: {type: "integer"},
+          query: {
+            oneOf: [
+              {type: "string"},
+              {type: "array", items: {type: "string"}}
+            ]
+          }
+        },
+        required: %w[results count query]
+      )
+
       class << self
         # rubocop:disable Metrics/ParameterLists
         def call(query:, server_context:, project: nil, memory_type: nil, tags: nil, limit: 10,
@@ -101,14 +116,11 @@ module Recollect
           criteria = build_criteria(query, tags, project:, memory_type:, limit:, created_after:, created_before:)
           results = perform_search(service, criteria, tag_search: tag_search)
 
-          MCP::Tool::Response.new([{
-            type: "text",
-            text: JSON.generate({
-              results: results,
-              count: results.length,
-              query: query
-            })
-          }])
+          Tools.json_response({
+            results: results,
+            count: results.length,
+            query: query
+          })
         end
         # rubocop:enable Metrics/ParameterLists
 

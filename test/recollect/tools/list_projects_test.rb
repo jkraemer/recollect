@@ -41,4 +41,18 @@ class ListProjectsTest < Recollect::TestCase
     assert_includes response_data["projects"], "project-b"
     assert_equal response_data["projects"].length, response_data["count"]
   end
+
+  def test_declares_an_output_schema
+    schema = Recollect::Tools::ListProjects.output_schema.to_h
+
+    assert_equal %w[projects count], schema[:required]
+  end
+
+  def test_returns_structured_content_matching_the_text_content
+    result = Recollect::Tools::ListProjects.call(
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
+    )
+
+    assert_equal JSON.parse(result.content.first[:text]), result.structured_content
+  end
 end

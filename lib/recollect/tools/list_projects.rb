@@ -9,18 +9,23 @@ module Recollect
 
       input_schema(properties: {})
 
+      output_schema(
+        properties: {
+          projects: {type: "array", items: {type: "string"}},
+          count: {type: "integer"}
+        },
+        required: %w[projects count]
+      )
+
       class << self
         def call(server_context:)
           service = server_context[:memories_service]
           projects = service.list_projects
 
-          MCP::Tool::Response.new([{
-            type: "text",
-            text: JSON.generate({
-              projects: projects,
-              count: projects.length
-            })
-          }])
+          Tools.json_response({
+            projects: projects,
+            count: projects.length
+          })
         end
       end
     end

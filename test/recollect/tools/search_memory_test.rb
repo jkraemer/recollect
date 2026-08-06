@@ -236,4 +236,23 @@ class SearchMemoryTest < Recollect::TestCase
     assert_equal 1, response_data["count"]
     assert_equal id2, response_data["results"].first["id"]
   end
+
+  def test_declares_an_output_schema_referencing_the_memory_fragment
+    schema = Recollect::Tools::SearchMemory.output_schema.to_h
+
+    assert_equal %w[results count query], schema[:required]
+    assert_equal Recollect::Schemas::MEMORY, schema[:$defs][:memory]
+  end
+
+  def test_returns_structured_content_matching_the_text_content
+    @memories_service.create(content: "structured search probe", project: nil, memory_type: "note", tags: [])
+
+    result = Recollect::Tools::SearchMemory.call(
+      query: "probe",
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
+    )
+
+    assert_equal JSON.parse(result.content.first[:text]), result.structured_content
+    assert_equal 1, result.structured_content["count"]
+  end
 end
