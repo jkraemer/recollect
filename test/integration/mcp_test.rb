@@ -335,6 +335,79 @@ class MCPIntegrationTest < Recollect::TestCase
     assert_equal JSON.parse(result["content"].first["text"]), result["structuredContent"]
   end
 
+  def test_resources_list_reflects_projects_created_mid_session
+    post "/mcp", {jsonrpc: "2.0", method: "resources/list", id: 40}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    uris = JSON.parse(last_response.body)["result"]["resources"].map { |r| r["uri"] }
+
+    assert_includes uris, "recollect://project/global"
+    refute_includes uris, "recollect://project/fresh"
+
+    post "/api/memories", {content: "fresh note", project: "fresh"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    post "/mcp", {jsonrpc: "2.0", method: "resources/list", id: 41}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    resources = JSON.parse(last_response.body)["result"]["resources"]
+    fresh = resources.find { |r| r["uri"] == "recollect://project/fresh" }
+
+    refute_nil fresh
+    assert_equal "text/markdown", fresh["mimeType"]
+  end
+
+  def test_resources_read_returns_project_markdown
+    post "/api/memories", {content: "readable note", project: "readme"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    post "/mcp", {
+      jsonrpc: "2.0", method: "resources/read", id: 42,
+      params: {uri: "recollect://project/readme"}
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    contents = JSON.parse(last_response.body)["result"]["contents"]
+
+    assert_equal "text/markdown", contents.first["mimeType"]
+    assert_includes contents.first["text"], "readable note"
+  end
+
+  def test_resources_read_resolves_a_single_memory_via_the_template
+    post "/api/memories", {content: "single memory body", project: "readme"}.to_json,
+      "CONTENT_TYPE" => "application/json"
+    memory_id = JSON.parse(last_response.body)["id"]
+
+    post "/mcp", {
+      jsonrpc: "2.0", method: "resources/read", id: 43,
+      params: {uri: "recollect://project/readme/memory/#{memory_id}"}
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    contents = JSON.parse(last_response.body)["result"]["contents"]
+
+    assert_includes contents.first["text"], "single memory body"
+  end
+
+  def test_resources_read_unknown_uri_is_invalid_params_with_the_uri_in_data
+    post "/mcp", {
+      jsonrpc: "2.0", method: "resources/read", id: 44,
+      params: {uri: "recollect://project/ghost"}
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    error = JSON.parse(last_response.body)["error"]
+
+    assert_equal(-32602, error["code"])
+    assert_equal "recollect://project/ghost", error.dig("data", "uri")
+  end
+
+  def test_resources_templates_list_contains_the_memory_template
+    post "/mcp", {jsonrpc: "2.0", method: "resources/templates/list", id: 45}.to_json,
+      "CONTENT_TYPE" => "application/json"
+
+    templates = JSON.parse(last_response.body)["result"]["resourceTemplates"]
+
+    assert_equal ["recollect://project/{project}/memory/{id}"], templates.map { |t| t["uriTemplate"] }
+  end
+
   def test_get_context_both_shapes_pass_result_validation
     post "/api/memories", {content: "shape probe", project: "shapes"}.to_json,
       "CONTENT_TYPE" => "application/json"

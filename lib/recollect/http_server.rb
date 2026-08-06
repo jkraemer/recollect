@@ -10,6 +10,11 @@ module Recollect
     # instead of each thread making its own and locking nothing.
     @init_mutex = Mutex.new
 
+    # Serializes the two-field resource refresh (the gem's resources= writes
+    # @resources then @resource_index non-atomically) so concurrent requests
+    # cannot leave list and index built from different snapshots.
+    RESOURCE_REFRESH_MUTEX = Mutex.new
+
     configure do
       set :public_folder, proc { Recollect.root.join("public") }
       set :views, proc { Recollect.root.join("views") }
@@ -263,7 +268,16 @@ module Recollect
       request.body.rewind
       body = request.body.read
       content_type :json
-      mcp_server.handle_json(body)
+      server = mcp_server
+      # Rebuild the project resource list on every request (a Dir.glob over a
+      # small directory) so a just-created project is listable and readable
+      # immediately.
+      RESOURCE_REFRESH_MUTEX.synchronize do
+        server.resources = Recollect::Resources::Projects.build(
+          db_manager: db_manager, memories_service: memories_service
+        )
+      end
+      server.handle_json(body)
     end
 
     # ========== Pairing API (local-only) ==========
