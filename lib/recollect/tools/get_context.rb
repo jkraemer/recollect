@@ -41,6 +41,30 @@ module Recollect
         required: []
       )
 
+      output_schema(
+        "$defs": {memory: Schemas::MEMORY},
+        oneOf: [
+          {
+            type: "object",
+            properties: {
+              project: {type: "string"},
+              last_session: {oneOf: [{"$ref": "#/$defs/memory"}, {type: "null"}]},
+              recent_notes_todos: {type: "array", items: {"$ref": "#/$defs/memory"}}
+            },
+            required: %w[project last_session recent_notes_todos]
+          },
+          {
+            type: "object",
+            properties: {
+              project: {type: "null"},
+              recent_sessions: {type: "array", items: {"$ref": "#/$defs/memory"}},
+              recent_notes_todos: {type: "array", items: {"$ref": "#/$defs/memory"}}
+            },
+            required: %w[project recent_sessions recent_notes_todos]
+          }
+        ]
+      )
+
       class << self
         def call(server_context:, project: nil)
           service = server_context[:memories_service]
@@ -64,14 +88,11 @@ module Recollect
           # Get 10 most recent notes and todos
           notes_todos = service.list(project: project, memory_type: %w[note todo], limit: 10)
 
-          MCP::Tool::Response.new([{
-            type: "text",
-            text: JSON.generate({
-              project: project,
-              last_session: last_session,
-              recent_notes_todos: notes_todos
-            })
-          }])
+          Tools.json_response({
+            project: project,
+            last_session: last_session,
+            recent_notes_todos: notes_todos
+          })
         end
 
         def build_cross_project_context(service)
@@ -81,14 +102,11 @@ module Recollect
           # Get recent notes/todos across all projects
           notes_todos = service.list_all(memory_type: %w[note todo], limit: 10)
 
-          MCP::Tool::Response.new([{
-            type: "text",
-            text: JSON.generate({
-              project: nil,
-              recent_sessions: recent_sessions,
-              recent_notes_todos: notes_todos
-            })
-          }])
+          Tools.json_response({
+            project: nil,
+            recent_sessions: recent_sessions,
+            recent_notes_todos: notes_todos
+          })
         end
       end
     end

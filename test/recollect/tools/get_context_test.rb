@@ -140,4 +140,32 @@ class GetContextTest < Recollect::TestCase
 
     assert_operator projects_with_sessions.length, :>=, 2
   end
+
+  def test_declares_a_one_of_output_schema_for_both_shapes
+    schema = Recollect::Tools::GetContext.output_schema.to_h
+
+    assert_equal 2, schema[:oneOf].length
+    assert_equal Recollect::Schemas::MEMORY, schema[:$defs][:memory]
+  end
+
+  def test_project_context_returns_structured_content
+    @memories_service.create(content: "ctx note", project: "ctxproj", memory_type: "note", tags: [])
+
+    result = Recollect::Tools::GetContext.call(
+      project: "ctxproj",
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
+    )
+
+    assert_equal JSON.parse(result.content.first[:text]), result.structured_content
+    assert_equal "ctxproj", result.structured_content["project"]
+  end
+
+  def test_cross_project_context_returns_structured_content
+    result = Recollect::Tools::GetContext.call(
+      server_context: {db_manager: @db_manager, memories_service: @memories_service}
+    )
+
+    assert_equal JSON.parse(result.content.first[:text]), result.structured_content
+    assert_nil result.structured_content["project"]
+  end
 end
