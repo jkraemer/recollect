@@ -17,6 +17,18 @@ class CIWorkflowTest < Minitest::Test
       "the CI matrix must cover the gemspec's minimum Ruby"
   end
 
+  def test_nightly_guards_the_vector_stack_before_running_the_suite
+    steps = workflow("nightly.yml").fetch("jobs").fetch("full-suite").fetch("steps")
+    commands = steps.map { |step| step["run"].to_s }
+
+    guard = commands.index { |run| run.include?("vectors_available?") }
+    suite = commands.index { |run| run.include?("rake coverage") }
+
+    refute_nil guard, "the nightly must assert the vector stack is live"
+    refute_nil suite, "the nightly must run rake coverage"
+    assert_operator guard, :<, suite, "the guard must run before the suite, not after"
+  end
+
   private
 
   def workflow(name)
