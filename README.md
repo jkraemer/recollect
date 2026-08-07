@@ -1,5 +1,7 @@
 # Recollect
 
+[![CI](https://github.com/jkraemer/recollect/actions/workflows/ci.yml/badge.svg)](https://github.com/jkraemer/recollect/actions/workflows/ci.yml)
+
 A Ruby-based MCP (Model Context Protocol) server for persistent memory
 management across Claude Code sessions.
 
