@@ -67,6 +67,7 @@ bundle exec ruby -Itest test/packaging_test.rb
 - **DatabaseManager** (`lib/recollect/database_manager.rb`): Multi-database coordination with lazy initialization
 - **Database** (`lib/recollect/database.rb`): SQLite wrapper with FTS5 search
 - **Tools** (`lib/recollect/tools/`): MCP tool implementations (store, search, get_context, list_projects, delete)
+- **Resources** (`lib/recollect/resources/`): MCP resources - per-project markdown context (`Projects`) and the single-memory template (`Memory`), rendered by `MemoryMarkdown`
 
 ### Design Decisions
 

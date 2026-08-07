@@ -203,6 +203,19 @@ Open `http://localhost:7326` in your browser to browse and search memories.
 | `list_projects` | List all projects with stored memories |
 | `delete_memory` | Delete a specific memory by ID |
 
+All tools declare an `outputSchema` and return `structuredContent` alongside
+the JSON text content, so typed clients get validated results while text-only
+clients keep working.
+
+## MCP Resources
+
+Project memory is browsable as resources with markdown bodies:
+
+| URI | Contents |
+|-----|----------|
+| `recollect://project/{name}` | Listable, one per project (plus `global`): last session log and recent notes/todos |
+| `recollect://project/{project}/memory/{id}` | Template: a single memory by project and id |
+
 ### Memory Types
 
 - `note` (default) - General information, facts, context
