@@ -62,4 +62,13 @@ class ResourcesMemoryTest < Recollect::TestCase
       @template.contents(project: "alpha", id: "abc")
     end
   end
+
+  def test_non_decimal_id_raises_resource_not_found
+    memory = @memories_service.create(content: "exists", project: "alpha", memory_type: "note", tags: [])
+    hex_id = "0x#{memory["id"].to_s(16)}"
+
+    assert_raises(MCP::Server::ResourceNotFoundError) do
+      @template.contents(project: "alpha", id: hex_id)
+    end
+  end
 end

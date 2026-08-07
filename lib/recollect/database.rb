@@ -523,7 +523,7 @@ module Recollect
         "id" => row["id"],
         "content" => row["content"],
         "memory_type" => row["memory_type"],
-        "tags" => json_decode(row["tags"]),
+        "tags" => json_decode(row["tags"]) || [],
         "metadata" => json_decode(row["metadata"]),
         "created_at" => row["created_at"],
         "updated_at" => row["updated_at"],

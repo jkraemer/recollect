@@ -408,6 +408,42 @@ class MCPIntegrationTest < Recollect::TestCase
     assert_equal ["recollect://project/{project}/memory/{id}"], templates.map { |t| t["uriTemplate"] }
   end
 
+  # NULL tags rows exist in real databases (pre-MemoriesService writes, sync
+  # ingest of peer records). Storing straight through Database - bypassing
+  # MemoriesService#create's `tags || []` coercion - reproduces one, so this
+  # exercises deserialize's own handling of a NULL tags column under
+  # server-side result validation.
+  def test_search_memory_and_get_context_survive_a_null_tags_row
+    global_db = Recollect::HTTPServer.db_manager.get_database(nil)
+    stored = global_db.store(content: "null tags probe", memory_type: "note", tags: nil)
+
+    post "/mcp", {
+      jsonrpc: "2.0", method: "tools/call", id: 50,
+      params: {name: "search_memory", arguments: {query: "null tags probe"}}
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    response = JSON.parse(last_response.body)
+
+    assert_nil response["error"], "search_memory must not fail validation: #{response["error"].inspect}"
+    found = response.dig("result", "structuredContent", "results").find { |r| r["id"] == stored[:id] }
+
+    refute_nil found, "expected the null-tags memory in search_memory results"
+    assert_empty found["tags"]
+
+    post "/mcp", {
+      jsonrpc: "2.0", method: "tools/call", id: 51,
+      params: {name: "get_context", arguments: {}}
+    }.to_json, "CONTENT_TYPE" => "application/json"
+
+    response = JSON.parse(last_response.body)
+
+    assert_nil response["error"], "get_context must not fail validation: #{response["error"].inspect}"
+    found = response.dig("result", "structuredContent", "recent_notes_todos").find { |r| r["id"] == stored[:id] }
+
+    refute_nil found, "expected the null-tags memory in get_context recent_notes_todos"
+    assert_empty found["tags"]
+  end
+
   def test_get_context_both_shapes_pass_result_validation
     post "/api/memories", {content: "shape probe", project: "shapes"}.to_json,
       "CONTENT_TYPE" => "application/json"

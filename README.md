@@ -209,6 +209,14 @@ All tools declare an `outputSchema` and return `structuredContent` alongside
 the JSON text content, so typed clients get validated results while text-only
 clients keep working.
 
+### Memory Types
+
+- `note` (default) - General information, facts, context
+- `todo` - Action items, tasks, reminders
+- `session` - Session summaries and handoff notes
+
+For semantic categorization (decisions, patterns, bugs, learnings), use **tags** instead of memory types. This provides more flexible filtering and allows memories to have multiple categories.
+
 ## MCP Resources
 
 Project memory is browsable as resources with markdown bodies:
@@ -217,14 +225,6 @@ Project memory is browsable as resources with markdown bodies:
 |-----|----------|
 | `recollect://project/{name}` | Listable, one per project (plus `global`): last session log and recent notes/todos |
 | `recollect://project/{project}/memory/{id}` | Template: a single memory by project and id |
-
-### Memory Types
-
-- `note` (default) - General information, facts, context
-- `todo` - Action items, tasks, reminders
-- `session` - Session summaries and handoff notes
-
-For semantic categorization (decisions, patterns, bugs, learnings), use **tags** instead of memory types. This provides more flexible filtering and allows memories to have multiple categories.
 
 ## MCP Prompts
 

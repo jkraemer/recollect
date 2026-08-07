@@ -19,7 +19,7 @@ module Recollect
           uri = "recollect://project/#{project}/memory/#{id}"
           raise MCP::Server::ResourceNotFoundError.new(uri) unless db_manager.list_db_names.include?(project)
 
-          memory_id = Integer(id, exception: false)
+          memory_id = id.match?(/\A\d+\z/) ? id.to_i : nil
           memory = memory_id && memories_service.get(memory_id, project: db_manager.project_for_db_name(project))
           raise MCP::Server::ResourceNotFoundError.new(uri) unless memory
 
