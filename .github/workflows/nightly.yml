@@ -24,13 +24,13 @@ jobs:
           ruby-version: "3.4"
           bundler-cache: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
 
       - name: Cache the embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
           key: huggingface-all-MiniLM-L6-v2
@@ -46,7 +46,10 @@ jobs:
       - name: Resolve the vector stack paths
         run: |
           echo "RECOLLECT_PYTHON=$(which python)" >> "$GITHUB_ENV"
-          echo "RECOLLECT_SQLITE_VEC_PATH=$(python -c 'import sqlite_vec; print(sqlite_vec.loadable_path())')" >> "$GITHUB_ENV"
+          # loadable_path() returns the extension-less stem SQLite's own
+          # load_extension expects; recollect's config checks File.exist? on
+          # a real file, so append the platform suffix (.so on ubuntu-latest).
+          echo "RECOLLECT_SQLITE_VEC_PATH=$(python -c 'import sqlite_vec; print(sqlite_vec.loadable_path())').so" >> "$GITHUB_ENV"
 
       # The vector tests skip when the stack is missing, so a misconfigured job
       # would report success while testing nothing. Fail loudly instead.
