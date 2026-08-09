@@ -17,7 +17,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
@@ -29,9 +29,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ruby: ["3.4", "3.5"]
+        # 3.5 is intentionally absent: setup-ruby resolves "3.5" to the
+        # 3.5.0-preview1 build, and sqlite3 currently caps itself at
+        # "< 3.5.dev", so bundler fails to resolve and the leg can never
+        # pass. Re-add once sqlite3 ships Ruby 3.5 support.
+        ruby: ["3.4"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}

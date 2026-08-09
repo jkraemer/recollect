@@ -55,9 +55,17 @@ class PackagingTest < Minitest::Test
 
   # An installed gem is loaded by rubygems alone, so the library must require
   # everything it uses instead of relying on what bundler happens to pull in.
+  #
+  # GEM_PATH is captured before with_unbundled_env strips the environment and
+  # handed back to the subprocess explicitly: on CI, bundler-cache installs
+  # gems into vendor/bundle, and plain rubygems only finds them there if
+  # GEM_PATH points at it.
   def test_library_boots_outside_bundler
+    gem_path = Gem.path.join(File::PATH_SEPARATOR)
+
     out, status = Bundler.with_unbundled_env do
       Open3.capture2e(
+        {"GEM_PATH" => gem_path},
         RbConfig.ruby, "-I#{File.join(ROOT, "lib")}", "-e",
         "require 'recollect'; Recollect.root.join('config', 'puma.rb'); Recollect.config"
       )
