@@ -18,10 +18,9 @@ class CIWorkflowTest < Minitest::Test
   end
 
   def test_nightly_guards_the_vector_stack_before_running_the_suite
-    steps = workflow("nightly.yml").fetch("jobs").fetch("full-suite").fetch("steps")
-    commands = steps.map { |step| step["run"].to_s }
+    commands = nightly_steps.map { |step| step["run"].to_s }
 
-    guard = commands.index { |run| run.include?("vectors_available?") }
+    guard = commands.index { |run| run.include?("verify-vector-stack") }
     suite = commands.index { |run| run.include?("rake coverage") }
 
     refute_nil guard, "the nightly must assert the vector stack is live"
@@ -36,6 +35,10 @@ class CIWorkflowTest < Minitest::Test
 
     assert_path_exists path
     YAML.safe_load_file(path)
+  end
+
+  def nightly_steps
+    workflow("nightly.yml").fetch("jobs").fetch("full-suite").fetch("steps")
   end
 
   def ruby_matrix

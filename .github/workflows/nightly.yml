@@ -52,10 +52,10 @@ jobs:
           echo "RECOLLECT_SQLITE_VEC_PATH=$(python -c 'import sqlite_vec; print(sqlite_vec.loadable_path())').so" >> "$GITHUB_ENV"
 
       # The vector tests skip when the stack is missing, so a misconfigured job
-      # would report success while testing nothing. Fail loudly instead.
+      # would report success while testing nothing. Fail loudly instead by
+      # exercising the stack for real (vectors_available? only predicts it --
+      # see bin/verify-vector-stack for why that's not enough).
       - name: Verify the vector stack is live
-        run: >
-          bundle exec ruby -Ilib -e 'require "recollect";
-          abort(Recollect.config.vector_status_message) unless Recollect.config.vectors_available?'
+        run: bundle exec ruby bin/verify-vector-stack
 
       - run: bundle exec rake coverage

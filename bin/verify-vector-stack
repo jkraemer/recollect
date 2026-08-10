@@ -1,0 +1,56 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Nightly CI guard: exercises the vector stack for real instead of predicting
+# it from config. Recollect.config.vectors_available? only checks that the
+# pieces *exist* -- vec_extension_path is a File.exist? check, so a vec0.so
+# that exists but can't dlopen still passes it, and it never looks at
+# python_path/RECOLLECT_PYTHON at all. This script actually loads the
+# extension into a scratch database and runs one real embedding round-trip,
+# so a misconfigured nightly run fails loudly instead of silently skipping
+# the vector-backed tests.
+
+require "bundler/setup"
+require "recollect"
+require "tmpdir"
+
+def check_extension_loads
+  Dir.mktmpdir("recollect-vector-guard") do |dir|
+    db = Recollect::Database.new(File.join(dir, "guard.db"), load_vectors: true)
+    return true if db.vectors_enabled?
+
+    warn "  (Database#vectors_enabled? was false after load_vectors: true)"
+    false
+  end
+rescue => e
+  warn "  (loading the extension raised #{e.class}: #{e.message})"
+  false
+end
+
+def check_embedding_round_trip
+  client = Recollect::EmbeddingClient.new
+  embedding = client.embed("recollect nightly vector guard")
+  client.shutdown
+
+  expected = Recollect.config.vector_dimensions
+  return true if embedding.is_a?(Array) && embedding.length == expected
+
+  warn "  (expected a #{expected}-dim Array, got #{embedding.class} of length #{embedding.respond_to?(:length) ? embedding.length : "n/a"})"
+  false
+rescue Recollect::EmbeddingClient::EmbeddingError => e
+  warn "  (embedding round-trip raised #{e.class}: #{e.message})"
+  false
+end
+
+failures = []
+failures << "sqlite-vec extension did not load into a real database" unless check_extension_loads
+failures << "embedding round-trip through the configured Python interpreter failed" unless check_embedding_round_trip
+
+if failures.any?
+  warn "Vector stack verification failed:"
+  failures.each { |f| warn "  - #{f}" }
+  exit 1
+end
+
+puts "Vector stack verified: sqlite-vec loads, and the embedding round-trip returned " \
+  "#{Recollect.config.vector_dimensions}-dim vectors."
