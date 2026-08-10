@@ -49,6 +49,31 @@ module Recollect
       # Subclasses can override
     end
 
+    # Sets the given ENV vars for the duration of the block, restoring the
+    # exact prior state afterwards (including restoring a key to absent if
+    # it was absent before). A nil value unsets the key for the duration.
+    def with_env(vars)
+      originals = vars.each_key.to_h { |k| [k, ENV.key?(k) ? ENV[k] : :absent] }
+
+      vars.each do |k, v|
+        if v.nil?
+          ENV.delete(k)
+        else
+          ENV[k] = v
+        end
+      end
+
+      yield
+    ensure
+      originals.each do |k, orig|
+        if orig == :absent
+          ENV.delete(k)
+        else
+          ENV[k] = orig
+        end
+      end
+    end
+
     def setup_trusted_peer(peer_id)
       signing_key = Ed25519::SigningKey.generate
       Recollect::Sync::Peers.new(Recollect::HTTPServer.sync_store).add(

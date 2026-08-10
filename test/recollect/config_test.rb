@@ -123,34 +123,36 @@ module Recollect
     end
 
     def test_vec_extension_path_finds_system_extension
-      # Should find the sqlite-vec extension if installed
-      path = @config.vec_extension_path
+      # Should find the sqlite-vec extension if installed. Force the env
+      # override off so this exercises the system-path search regardless
+      # of ambient RECOLLECT_SQLITE_VEC_PATH.
+      with_env("RECOLLECT_SQLITE_VEC_PATH" => nil) do
+        path = @config.vec_extension_path
 
-      if File.exist?("/usr/lib/vec0.so")
-        assert_equal "/usr/lib/vec0.so", path
-      else
-        # Extension not installed on this system - that's OK
-        assert_nil(path) || assert_kind_of(String, path)
+        if File.exist?("/usr/lib/vec0.so")
+          assert_equal "/usr/lib/vec0.so", path
+        else
+          # Extension not installed on this system - that's OK
+          assert_nil(path) || assert_kind_of(String, path)
+        end
       end
     end
 
     def test_vec_extension_path_prefers_env_override
       fake_vec = File.join(__dir__, "..", "tmp", "fake_vec0.so")
       File.write(fake_vec, "")
-      ENV["RECOLLECT_SQLITE_VEC_PATH"] = fake_vec
 
-      assert_equal File.expand_path(fake_vec), Config.new.vec_extension_path
+      with_env("RECOLLECT_SQLITE_VEC_PATH" => fake_vec) do
+        assert_equal File.expand_path(fake_vec), Config.new.vec_extension_path
+      end
     ensure
-      ENV.delete("RECOLLECT_SQLITE_VEC_PATH")
       FileUtils.rm_f(fake_vec)
     end
 
     def test_vec_extension_path_env_override_must_exist
-      ENV["RECOLLECT_SQLITE_VEC_PATH"] = "/nonexistent/vec0.so"
-
-      refute_equal "/nonexistent/vec0.so", Config.new.vec_extension_path
-    ensure
-      ENV.delete("RECOLLECT_SQLITE_VEC_PATH")
+      with_env("RECOLLECT_SQLITE_VEC_PATH" => "/nonexistent/vec0.so") do
+        refute_equal "/nonexistent/vec0.so", Config.new.vec_extension_path
+      end
     end
 
     def test_vectors_available_false_when_disabled
@@ -182,24 +184,26 @@ module Recollect
     end
 
     def test_python_path_uses_venv_when_available
-      # Should use .venv/bin/python3 if it exists and is executable
+      # Should use .venv/bin/python3 if it exists and is executable. Force
+      # the env override off so this exercises the venv/system fallback
+      # regardless of ambient RECOLLECT_PYTHON.
       venv_python = Recollect.root.join(".venv", "bin", "python3")
 
-      if venv_python.executable?
-        assert_equal venv_python.to_s, @config.python_path
-      else
-        assert_equal "python3", @config.python_path
+      with_env("RECOLLECT_PYTHON" => nil) do
+        if venv_python.executable?
+          assert_equal venv_python.to_s, @config.python_path
+        else
+          assert_equal "python3", @config.python_path
+        end
       end
     end
 
     # An installed gem has no writable .venv next to its code, so the
     # interpreter running the embedding model has to be nameable from outside.
     def test_python_path_prefers_env_override
-      ENV["RECOLLECT_PYTHON"] = "/opt/pythons/bin/python3"
-
-      assert_equal "/opt/pythons/bin/python3", Config.new.python_path
-    ensure
-      ENV.delete("RECOLLECT_PYTHON")
+      with_env("RECOLLECT_PYTHON" => "/opt/pythons/bin/python3") do
+        assert_equal "/opt/pythons/bin/python3", Config.new.python_path
+      end
     end
 
     def test_python_path_falls_back_to_system_python

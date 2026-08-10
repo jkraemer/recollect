@@ -289,7 +289,13 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # Test hybrid_search falls back to FTS5 when vectors unavailable
   def test_hybrid_search_falls_back_to_fts_when_vectors_unavailable
-    # Default config has vectors disabled
+    # Force vectors unavailable regardless of ambient env, so the fallback
+    # is exercised deterministically rather than relying on vectors being
+    # disabled by default.
+    def @config.vectors_available?
+      false
+    end
+
     db = @manager.get_database("hybrid-fallback")
     db.store(content: "Ruby programming patterns")
     db.store(content: "Python programming patterns")
@@ -448,6 +454,12 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # Test vectors_ready? returns false when no databases have vectors
   def test_vectors_ready_false_when_no_vectors
+    # Force vectors unavailable regardless of ambient env, so this
+    # deterministically exercises the "no vectors" path.
+    def @config.vectors_available?
+      false
+    end
+
     # Access a database to populate @databases
     @manager.get_database("vectors-ready-test")
 

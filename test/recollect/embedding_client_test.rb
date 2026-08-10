@@ -131,11 +131,9 @@ module Recollect
     private
 
     def skip_unless_vectors_available
-      venv_python = Recollect.root.join(".venv", "bin", "python3")
-      skip "Python venv not available" unless venv_python.executable?
+      return if Recollect.config.vectors_available?
 
-      embed_server = Recollect.root.join("bin", "embed-server")
-      skip "embed-server not available" unless embed_server.executable?
+      skip "Vector stack not configured (#{Recollect.config.vector_status_message})"
     end
   end
 end
