@@ -98,35 +98,34 @@ module Recollect
     def test_start_recovers_missing_embeddings
       skip_unless_vectors_available
 
-      # Create fresh db_manager with vectors enabled
-      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
-      config = Config.new
-      @db_manager&.close_all
-      @worker&.stop
-      @db_manager = DatabaseManager.new(config)
-      @worker = EmbeddingWorker.new(@db_manager)
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        # Create fresh db_manager with vectors enabled
+        config = Config.new
+        @db_manager&.close_all
+        @worker&.stop
+        @db_manager = DatabaseManager.new(config)
+        @worker = EmbeddingWorker.new(@db_manager)
 
-      # Store a memory directly in the database (bypassing the worker)
-      db = @db_manager.get_database(nil)
-      db.store(content: "orphaned memory", memory_type: "note", tags: [], metadata: nil)
+        # Store a memory directly in the database (bypassing the worker)
+        db = @db_manager.get_database(nil)
+        db.store(content: "orphaned memory", memory_type: "note", tags: [], metadata: nil)
 
-      # Verify it has no embedding
-      assert_equal 1, db.memories_without_embeddings.size
+        # Verify it has no embedding
+        assert_equal 1, db.memories_without_embeddings.size
 
-      # Start worker - should detect and recover missing embedding
-      @worker.start
+        # Start worker - should detect and recover missing embedding
+        @worker.start
 
-      # Wait for recovery and processing (model loading can take 20+ seconds on cold start)
-      30.times do
-        break if db.memories_without_embeddings.empty?
+        # Wait for recovery and processing (model loading can take 20+ seconds on cold start)
+        30.times do
+          break if db.memories_without_embeddings.empty?
 
-        sleep 1
+          sleep 1
+        end
+
+        # Embedding should now exist
+        assert_equal 0, db.memories_without_embeddings.size
       end
-
-      # Embedding should now exist
-      assert_equal 0, db.memories_without_embeddings.size
-    ensure
-      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_process_batch_validates_embedding_count

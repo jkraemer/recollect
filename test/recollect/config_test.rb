@@ -104,12 +104,11 @@ module Recollect
     end
 
     def test_vectors_enabled_from_env
-      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
-      config = Config.new
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        config = Config.new
 
-      assert config.enable_vectors
-    ensure
-      ENV.delete("RECOLLECT_ENABLE_VECTORS")
+        assert config.enable_vectors
+      end
     end
 
     def test_vector_dimensions
@@ -160,27 +159,25 @@ module Recollect
     end
 
     def test_vectors_available_false_when_extension_missing
-      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
-      config = Config.new
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        config = Config.new
 
-      # Stub vec_extension_path to return nil
-      def config.vec_extension_path
-        nil
+        # Stub vec_extension_path to return nil
+        def config.vec_extension_path
+          nil
+        end
+
+        refute_predicate config, :vectors_available?
       end
-
-      refute_predicate config, :vectors_available?
-    ensure
-      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_vectors_available_false_when_embed_script_missing
-      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
-      config = Config.new
-      config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        config = Config.new
+        config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
 
-      refute_predicate config, :vectors_available?
-    ensure
-      ENV.delete("RECOLLECT_ENABLE_VECTORS")
+        refute_predicate config, :vectors_available?
+      end
     end
 
     def test_python_path_uses_venv_when_available
@@ -241,50 +238,47 @@ module Recollect
     end
 
     def test_vector_status_message_when_extension_missing
-      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
-      config = Config.new
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        config = Config.new
 
-      def config.vec_extension_path
-        nil
+        def config.vec_extension_path
+          nil
+        end
+
+        assert_equal "Vector embeddings: disabled (sqlite-vec extension not found)", config.vector_status_message
       end
-
-      assert_equal "Vector embeddings: disabled (sqlite-vec extension not found)", config.vector_status_message
-    ensure
-      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_vector_status_message_when_embed_script_not_executable
-      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
-      config = Config.new
-      config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        config = Config.new
+        config.embed_server_script_path = Pathname.new("/nonexistent/embed-server")
 
-      # Need to also stub vec_extension_path to return a valid path
-      def config.vec_extension_path
-        "/some/path.so"
+        # Need to also stub vec_extension_path to return a valid path
+        def config.vec_extension_path
+          "/some/path.so"
+        end
+
+        assert_equal "Vector embeddings: disabled (embed script not executable)", config.vector_status_message
       end
-
-      assert_equal "Vector embeddings: disabled (embed script not executable)", config.vector_status_message
-    ensure
-      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     def test_vector_status_message_when_enabled
-      ENV["RECOLLECT_ENABLE_VECTORS"] = "true"
-      config = Config.new
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        config = Config.new
 
-      # Stub all conditions to be true
-      def config.vec_extension_path
-        "/some/path.so"
+        # Stub all conditions to be true
+        def config.vec_extension_path
+          "/some/path.so"
+        end
+
+        def config.embed_server_script_path
+          # Return a path to an executable file
+          Pathname.new("/bin/true")
+        end
+
+        assert_equal "Vector embeddings: enabled", config.vector_status_message
       end
-
-      def config.embed_server_script_path
-        # Return a path to an executable file
-        Pathname.new("/bin/true")
-      end
-
-      assert_equal "Vector embeddings: enabled", config.vector_status_message
-    ensure
-      ENV.delete("RECOLLECT_ENABLE_VECTORS")
     end
 
     # max_vector_distance tests

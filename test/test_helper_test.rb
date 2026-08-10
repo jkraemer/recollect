@@ -51,5 +51,21 @@ module Recollect
     ensure
       ENV.delete("RECOLLECT_TEST_VAR")
     end
+
+    def test_with_env_restores_multiple_keys
+      ENV["RECOLLECT_TEST_VAR"] = "original"
+      ENV.delete("RECOLLECT_TEST_VAR2")
+
+      with_env("RECOLLECT_TEST_VAR" => "changed", "RECOLLECT_TEST_VAR2" => "new") do
+        assert_equal "changed", ENV.fetch("RECOLLECT_TEST_VAR", nil)
+        assert_equal "new", ENV.fetch("RECOLLECT_TEST_VAR2", nil)
+      end
+
+      assert_equal "original", ENV.fetch("RECOLLECT_TEST_VAR", nil)
+      refute ENV.key?("RECOLLECT_TEST_VAR2")
+    ensure
+      ENV.delete("RECOLLECT_TEST_VAR")
+      ENV.delete("RECOLLECT_TEST_VAR2")
+    end
   end
 end
