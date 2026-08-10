@@ -341,55 +341,81 @@ class HTTPServerTest < Recollect::TestCase
 
   # ========== Vector Search API Tests ==========
 
+  # Recollect.config is a process-wide memoized singleton (Recollect.config
+  # ||= Config.new), not rebuilt per test, and enable_vectors is itself
+  # memoized at Config.new time -- so a later with_env can't reach it (Bug
+  # B territory, see test_helper.rb's with_env). Stub vectors_available?
+  # for the duration of the block instead, matching the singleton-stub
+  # convention used elsewhere. Unlike a per-test @config, this singleton
+  # outlives the test, so the stub is removed again afterward to avoid
+  # leaking into later tests in this process.
+  def with_vectors_unavailable
+    config = Recollect.config
+    def config.vectors_available?
+      false
+    end
+    yield
+  ensure
+    config.singleton_class.remove_method(:vectors_available?)
+  end
+
   # Test vectors/status when vectors disabled (default)
   def test_vectors_status_when_disabled
-    get "/api/vectors/status"
+    with_vectors_unavailable do
+      get "/api/vectors/status"
 
-    assert_predicate last_response, :ok?
+      assert_predicate last_response, :ok?
 
-    data = JSON.parse(last_response.body)
+      data = JSON.parse(last_response.body)
 
-    refute data["enabled"]
-    assert data["reason"], "Should include reason when disabled"
+      refute data["enabled"]
+      assert data["reason"], "Should include reason when disabled"
+    end
   end
 
   # Test vectors/status returns proper structure
   # Note: Testing enabled state requires config reset which isn't easily done
   # in HTTP tests. The enabled code path is tested via integration tests.
   def test_vectors_status_response_structure_when_disabled
-    get "/api/vectors/status"
+    with_vectors_unavailable do
+      get "/api/vectors/status"
 
-    data = JSON.parse(last_response.body)
+      data = JSON.parse(last_response.body)
 
-    # When disabled, should have enabled: false and a reason
-    refute data["enabled"]
-    assert_kind_of String, data["reason"]
-    # Should NOT have enabled-only fields
-    refute data.key?("total_memories")
-    refute data.key?("total_embeddings")
+      # When disabled, should have enabled: false and a reason
+      refute data["enabled"]
+      assert_kind_of String, data["reason"]
+      # Should NOT have enabled-only fields
+      refute data.key?("total_memories")
+      refute data.key?("total_embeddings")
+    end
   end
 
   # Test vectors/backfill returns 400 when vectors disabled
   def test_vectors_backfill_returns_400_when_disabled
-    post "/api/vectors/backfill"
+    with_vectors_unavailable do
+      post "/api/vectors/backfill"
 
-    assert_equal 400, last_response.status
+      assert_equal 400, last_response.status
 
-    data = JSON.parse(last_response.body)
+      data = JSON.parse(last_response.body)
 
-    assert_equal "Vector search not enabled", data["error"]
+      assert_equal "Vector search not enabled", data["error"]
+    end
   end
 
   # Test vectors/backfill with project parameter (still returns 400 when disabled)
   def test_vectors_backfill_with_project_returns_400_when_disabled
-    post "/api/vectors/backfill", {project: "test-project", limit: 50}.to_json,
-      "CONTENT_TYPE" => "application/json"
+    with_vectors_unavailable do
+      post "/api/vectors/backfill", {project: "test-project", limit: 50}.to_json,
+        "CONTENT_TYPE" => "application/json"
 
-    assert_equal 400, last_response.status
+      assert_equal 400, last_response.status
 
-    data = JSON.parse(last_response.body)
+      data = JSON.parse(last_response.body)
 
-    assert_equal "Vector search not enabled", data["error"]
+      assert_equal "Vector search not enabled", data["error"]
+    end
   end
 
   # Test parse_json_body error handling
