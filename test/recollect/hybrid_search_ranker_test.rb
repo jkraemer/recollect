@@ -96,6 +96,36 @@ class HybridSearchRankerTest < Recollect::TestCase
     assert_in_delta 0.016393, results.first["combined_score"], 0.001
   end
 
+  # Test that memories from different projects sharing the same numeric id
+  # (per-database AUTOINCREMENT ids collide across project databases) are
+  # kept as distinct entries instead of one clobbering the other.
+  def test_merge_keeps_colliding_ids_from_different_projects_distinct
+    fts_results = [
+      {"id" => 1, "project" => "project-a", "content" => "project a memory", "rank" => -10.0},
+      {"id" => 1, "project" => "project-b", "content" => "project b memory", "rank" => -5.0}
+    ]
+    vec_results = []
+
+    results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
+
+    assert_equal 2, results.length, "Same id in different projects must not collide"
+    assert_equal ["project-a", "project-b"], results.map { |m| m["project"] }.sort
+  end
+
+  # Test that dual presence fusion still sums both contributions into one
+  # entry when the FTS and vector hits are genuinely the same memory
+  # (matching project AND id), not just the same bare id.
+  def test_merge_dual_presence_same_project_still_sums
+    fts_results = [{"id" => 1, "project" => "project-a", "content" => "test", "rank" => -1.0}]
+    vec_results = [{"id" => 1, "project" => "project-a", "content" => "test", "distance" => 0.0}]
+
+    results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
+
+    # RRF rank 1 for both: 0.6 * (1/61) + 0.4 * (1/61) = 1.0 / 61 = 0.016393
+    assert_equal 1, results.length
+    assert_in_delta 0.016393, results.first["combined_score"], 0.001
+  end
+
   def test_merge_with_recency_ranker
     reference_time = Time.parse("2025-01-15T12:00:00Z")
     recency_ranker = Recollect::RecencyRanker.new(

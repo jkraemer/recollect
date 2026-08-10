@@ -25,15 +25,21 @@ module Recollect
       # fts_results are already sorted by rank (BM25)
       fts_results.each_with_index do |mem, idx|
         rank = idx + 1
-        scores[mem["id"]] ||= {memory: mem, score: 0.0}
-        scores[mem["id"]][:score] += FTS_WEIGHT * (1.0 / (RRF_K + rank))
+        # Memory ids are only unique within a single project's database, so the
+        # score map must be keyed by [project, id] or memories from different
+        # projects sharing the same id (e.g. both id 1) collide and clobber
+        # each other.
+        key = [mem["project"], mem["id"]]
+        scores[key] ||= {memory: mem, score: 0.0}
+        scores[key][:score] += FTS_WEIGHT * (1.0 / (RRF_K + rank))
       end
 
       # vec_results are already sorted by distance (ascending)
       vec_results.each_with_index do |mem, idx|
         rank = idx + 1
-        scores[mem["id"]] ||= {memory: mem, score: 0.0}
-        scores[mem["id"]][:score] += VECTOR_WEIGHT * (1.0 / (RRF_K + rank))
+        key = [mem["project"], mem["id"]]
+        scores[key] ||= {memory: mem, score: 0.0}
+        scores[key][:score] += VECTOR_WEIGHT * (1.0 / (RRF_K + rank))
       end
 
       scored = scores.values.map do |entry|
