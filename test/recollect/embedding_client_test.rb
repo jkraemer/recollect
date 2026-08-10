@@ -13,7 +13,7 @@ module Recollect
       client = EmbeddingClient.new
       client.embed("healthcheck")
       @embedding_client_functional = true
-    rescue EmbeddingClient::EmbeddingError
+    rescue EmbeddingClient::EmbeddingError, Errno::ENOENT
       @embedding_client_functional = false
     ensure
       client&.shutdown
