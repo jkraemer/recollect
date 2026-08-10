@@ -4,6 +4,21 @@ require "test_helper"
 
 module Recollect
   class EmbeddingClientTest < TestCase
+    # Memoized once per test run: a real embedding attempt, rather than a
+    # config prediction, is the only reliable way to tell whether Python and
+    # its packages are actually installed (see skip_unless_vectors_available).
+    def self.embedding_client_functional?
+      return @embedding_client_functional unless @embedding_client_functional.nil?
+
+      client = EmbeddingClient.new
+      client.embed("healthcheck")
+      @embedding_client_functional = true
+    rescue EmbeddingClient::EmbeddingError
+      @embedding_client_functional = false
+    ensure
+      client&.shutdown
+    end
+
     def setup
       super
       @client = EmbeddingClient.new
@@ -130,10 +145,18 @@ module Recollect
 
     private
 
+    # EmbeddingClient never touches sqlite-vec -- it only needs a working
+    # Python interpreter and an executable embed-server. Gating on
+    # vectors_available? additionally demands enable_vectors? and
+    # vec_extension_path, which would skip these tests on a machine with a
+    # working embedder but no vec0.so or RECOLLECT_ENABLE_VECTORS unset.
+    # Probe the client for real (once per run) instead of predicting from
+    # config -- python_path always resolves to *some* string, even when
+    # nothing is actually installed at it.
     def skip_unless_vectors_available
-      return if Recollect.config.vectors_available?
+      return if self.class.embedding_client_functional?
 
-      skip "Vector stack not configured (#{Recollect.config.vector_status_message})"
+      skip "Embedding client not functional (no working Python embedder)"
     end
   end
 end
