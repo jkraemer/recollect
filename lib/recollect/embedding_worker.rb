@@ -71,6 +71,12 @@ module Recollect
         begin
           # Use pop with timeout
           item = @queue.pop(timeout: [remaining, 0.1].min)
+          # pop(timeout:) returns nil both on a plain timeout (queue still
+          # open, keep waiting for the batch to fill) and once a closed
+          # queue is drained (it never raises ThreadError for the timed
+          # form) -- @queue.closed? is the only way to tell those apart.
+          break if item.nil? && @queue.closed?
+
           batch << item if item
         rescue ThreadError
           # Queue closed

@@ -59,6 +59,23 @@ module Recollect
       assert_equal 0, @worker.queue_size
     end
 
+    def test_stop_returns_promptly_when_queue_closed_and_empty
+      # SizedQueue#pop(timeout:) returns nil on a closed queue -- it never
+      # raises ThreadError, so collect_batch's rescue is dead code. Without a
+      # closed-queue check, stop busy-spins in the background thread until
+      # collect_batch's BATCH_WAIT deadline, burning a full CPU core.
+      @worker.start
+      sleep 0.05 # let the background thread enter collect_batch's wait window
+
+      start_time = Time.now
+      @worker.stop
+      elapsed = Time.now - start_time
+
+      assert_operator elapsed, :<, EmbeddingWorker::BATCH_WAIT / 2.0,
+        "stop should return promptly once the queue is closed and drained, not busy-spin " \
+        "for the remaining BATCH_WAIT window (took #{elapsed.round(3)}s)"
+    end
+
     def test_worker_processes_queue_items
       skip_unless_vectors_available
 
