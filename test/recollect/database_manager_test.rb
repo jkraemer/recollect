@@ -454,17 +454,29 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # Test vectors_ready? returns false when no databases have vectors
   def test_vectors_ready_false_when_no_vectors
-    # Force vectors unavailable regardless of ambient env, so this
-    # deterministically exercises the "no vectors" path.
-    def @config.vectors_available?
+    # Stub vectors off on a fresh Config *before* constructing the
+    # DatabaseManager. Stubbing the shared @config (from setup) after the
+    # fact is too late: DatabaseManager#initialize already starts an
+    # embedding worker when vectors are available, and the worker's
+    # startup recovery pass opens the global database with
+    # load_vectors: true, populating @databases before this test's body
+    # ever runs. Once that happens, vectors_ready? is permanently true no
+    # matter what a later stub says.
+    config = Recollect::Config.new
+    def config.vectors_available?
       false
     end
+    manager = Recollect::DatabaseManager.new(config)
 
-    # Access a database to populate @databases
-    @manager.get_database("vectors-ready-test")
+    begin
+      # Access a database to populate @databases
+      manager.get_database("vectors-ready-test")
 
-    # vectors_ready? should return false since vectors are disabled
-    refute @manager.send(:vectors_ready?)
+      # vectors_ready? should return false since vectors are disabled
+      refute manager.send(:vectors_ready?)
+    ensure
+      manager.close_all
+    end
   end
 
   # ========== Recency Ranking Tests ==========
