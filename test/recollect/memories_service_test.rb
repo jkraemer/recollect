@@ -530,11 +530,16 @@ class MemoriesServiceTest < Recollect::TestCase
 
   private
 
+  # @config.vectors_available? only predicts whether the extension *should*
+  # load; it can be true while the real per-database load still fails (e.g.
+  # a RECOLLECT_SQLITE_VEC_PATH pointing at a file that exists but isn't a
+  # valid extension), which is exactly what has_embedding presence depends
+  # on. Check the database's actual post-load state instead.
   def skip_unless_vectors_enabled
-    skip "Vectors not enabled" unless @config.vectors_available?
+    skip "Vectors not enabled" unless @db_manager.get_database(nil).vectors_enabled?
   end
 
   def skip_if_vectors_enabled
-    skip "Vectors are enabled" if @config.vectors_available?
+    skip "Vectors are enabled" if @db_manager.get_database(nil).vectors_enabled?
   end
 end

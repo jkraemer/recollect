@@ -100,7 +100,14 @@ module Recollect
     # Vector search configuration tests
 
     def test_vectors_disabled_by_default
-      refute @config.enable_vectors
+      # @config was built in setup under whatever RECOLLECT_ENABLE_VECTORS
+      # the process ambiently has, so force it off and build a fresh Config
+      # here rather than asserting on @config's memoized value.
+      with_env("RECOLLECT_ENABLE_VECTORS" => nil) do
+        config = Config.new
+
+        refute config.enable_vectors
+      end
     end
 
     def test_vectors_enabled_from_env
@@ -155,7 +162,13 @@ module Recollect
     end
 
     def test_vectors_available_false_when_disabled
-      refute_predicate @config, :vectors_available?
+      # Force vectors off rather than relying on @config's memoized
+      # enable_vectors, which reflects whatever the process ambiently has.
+      with_env("RECOLLECT_ENABLE_VECTORS" => nil) do
+        config = Config.new
+
+        refute_predicate config, :vectors_available?
+      end
     end
 
     def test_vectors_available_false_when_extension_missing
@@ -233,8 +246,14 @@ module Recollect
     # vector_status_message tests
 
     def test_vector_status_message_when_disabled_by_env
-      refute @config.enable_vectors
-      assert_equal "Vector embeddings: disabled (RECOLLECT_ENABLE_VECTORS not set)", @config.vector_status_message
+      # Force vectors off rather than relying on @config's memoized
+      # enable_vectors, which reflects whatever the process ambiently has.
+      with_env("RECOLLECT_ENABLE_VECTORS" => nil) do
+        config = Config.new
+
+        refute config.enable_vectors
+        assert_equal "Vector embeddings: disabled (RECOLLECT_ENABLE_VECTORS not set)", config.vector_status_message
+      end
     end
 
     def test_vector_status_message_when_extension_missing
