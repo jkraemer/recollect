@@ -29,7 +29,11 @@ module Recollect
     end
 
     def test_enqueue_adds_to_queue
-      @worker.start
+      # Mark running without starting the consumer thread: this tests queue
+      # admission only. A live consumer races the size assertion and, on
+      # machines without the vector stack, fails the batch asynchronously -
+      # stderr noise no capture_io around this body can reliably catch.
+      @worker.instance_variable_set(:@running, true)
 
       @worker.enqueue(memory_id: 1, content: "test", project: nil)
 
