@@ -10,26 +10,32 @@ module Recollect
     end
 
     def test_default_data_dir
-      # When no env var set, should use ~/.recollect
-      original_value = ENV.fetch("RECOLLECT_DATA_DIR", nil)
-      ENV.delete("RECOLLECT_DATA_DIR")
-      config = Config.new
-      expected_path = File.join(Dir.home, ".recollect")
+      # When no env var set, should use ~/.recollect. HOME is pointed into the
+      # test sandbox because Config.new creates the directories it points at -
+      # otherwise this test writes the real ~/.recollect on whatever machine
+      # runs it.
+      fake_home = File.join(TEST_DATA_DIR, "fake_home")
+      FileUtils.mkdir_p(fake_home)
 
-      assert_equal Pathname.new(expected_path), config.data_dir
-    ensure
-      ENV["RECOLLECT_DATA_DIR"] = original_value if original_value
+      with_env("RECOLLECT_DATA_DIR" => nil, "HOME" => fake_home) do
+        config = Config.new
+        expected_path = File.join(fake_home, ".recollect")
+
+        assert_equal Pathname.new(expected_path), config.data_dir
+        assert_path_exists expected_path
+      end
     end
 
     def test_data_dir_from_env
-      # Should use RECOLLECT_DATA_DIR when set
-      test_dir = "/tmp/recollect_test"
-      ENV["RECOLLECT_DATA_DIR"] = test_dir
-      config = Config.new
+      # Should use RECOLLECT_DATA_DIR when set; the dir lives in the sandbox
+      # because Config.new creates it.
+      test_dir = File.join(TEST_DATA_DIR, "custom_data_dir")
 
-      assert_equal Pathname.new(test_dir), config.data_dir
-    ensure
-      ENV["RECOLLECT_DATA_DIR"] = File.join(__dir__, "..", "tmp", "test_data")
+      with_env("RECOLLECT_DATA_DIR" => test_dir) do
+        config = Config.new
+
+        assert_equal Pathname.new(test_dir), config.data_dir
+      end
     end
 
     def test_default_host
@@ -37,12 +43,11 @@ module Recollect
     end
 
     def test_host_from_env
-      ENV["RECOLLECT_HOST"] = "0.0.0.0"
-      config = Config.new
+      with_env("RECOLLECT_HOST" => "0.0.0.0") do
+        config = Config.new
 
-      assert_equal "0.0.0.0", config.host
-    ensure
-      ENV.delete("RECOLLECT_HOST")
+        assert_equal "0.0.0.0", config.host
+      end
     end
 
     def test_default_port
@@ -50,12 +55,11 @@ module Recollect
     end
 
     def test_port_from_env
-      ENV["RECOLLECT_PORT"] = "9999"
-      config = Config.new
+      with_env("RECOLLECT_PORT" => "9999") do
+        config = Config.new
 
-      assert_equal 9999, config.port
-    ensure
-      ENV.delete("RECOLLECT_PORT")
+        assert_equal 9999, config.port
+      end
     end
 
     def test_url
@@ -334,12 +338,11 @@ module Recollect
     end
 
     def test_max_vector_distance_from_env
-      ENV["RECOLLECT_MAX_VECTOR_DISTANCE"] = "0.5"
-      config = Config.new
+      with_env("RECOLLECT_MAX_VECTOR_DISTANCE" => "0.5") do
+        config = Config.new
 
-      assert_in_delta 0.5, config.max_vector_distance
-    ensure
-      ENV.delete("RECOLLECT_MAX_VECTOR_DISTANCE")
+        assert_in_delta 0.5, config.max_vector_distance
+      end
     end
 
     # Recency ranking tests
@@ -357,48 +360,43 @@ module Recollect
     end
 
     def test_recency_aging_factor_from_env
-      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "0.7"
-      config = Config.new
+      with_env("RECOLLECT_RECENCY_AGING_FACTOR" => "0.7") do
+        config = Config.new
 
-      assert_in_delta 0.7, config.recency_aging_factor
-    ensure
-      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+        assert_in_delta 0.7, config.recency_aging_factor
+      end
     end
 
     def test_recency_aging_factor_clamped_high
-      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "1.5"
-      config = Config.new
+      with_env("RECOLLECT_RECENCY_AGING_FACTOR" => "1.5") do
+        config = Config.new
 
-      assert_in_delta 1.0, config.recency_aging_factor
-    ensure
-      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+        assert_in_delta 1.0, config.recency_aging_factor
+      end
     end
 
     def test_recency_aging_factor_clamped_low
-      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "-0.5"
-      config = Config.new
+      with_env("RECOLLECT_RECENCY_AGING_FACTOR" => "-0.5") do
+        config = Config.new
 
-      assert_in_delta 0.0, config.recency_aging_factor
-    ensure
-      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+        assert_in_delta 0.0, config.recency_aging_factor
+      end
     end
 
     def test_recency_half_life_days_from_env
-      ENV["RECOLLECT_RECENCY_HALF_LIFE_DAYS"] = "14"
-      config = Config.new
+      with_env("RECOLLECT_RECENCY_HALF_LIFE_DAYS" => "14") do
+        config = Config.new
 
-      assert_in_delta 14.0, config.recency_half_life_days
-    ensure
-      ENV.delete("RECOLLECT_RECENCY_HALF_LIFE_DAYS")
+        assert_in_delta 14.0, config.recency_half_life_days
+      end
     end
 
     def test_recency_enabled_when_aging_factor_positive
-      ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = "0.5"
-      config = Config.new
+      with_env("RECOLLECT_RECENCY_AGING_FACTOR" => "0.5") do
+        config = Config.new
 
-      assert_predicate config, :recency_enabled?
-    ensure
-      ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
+        assert_predicate config, :recency_enabled?
+      end
     end
   end
 end
