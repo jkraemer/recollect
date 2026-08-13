@@ -139,13 +139,13 @@ class MCPIntegrationTest < Recollect::TestCase
     created = JSON.parse(last_response.body)
     memory_id = created["id"]
 
-    # Delete via MCP
+    # Delete via MCP; project is required and null targets the global database
     mcp_request = {
       jsonrpc: "2.0",
       method: "tools/call",
       params: {
         name: "delete_memory",
-        arguments: {id: memory_id}
+        arguments: {id: memory_id, project: nil}
       },
       id: 4
     }
@@ -160,6 +160,33 @@ class MCPIntegrationTest < Recollect::TestCase
     get "/api/memories/#{memory_id}"
 
     assert_equal 404, last_response.status
+  end
+
+  # A delete that names no project must be rejected, not silently routed to
+  # the global database - ids collide across per-project databases.
+  def test_delete_without_project_is_rejected_via_mcp
+    post "/api/memories", {content: "Global memory that must survive"}.to_json, "CONTENT_TYPE" => "application/json"
+    created = JSON.parse(last_response.body)
+    memory_id = created["id"]
+
+    mcp_request = {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "delete_memory",
+        arguments: {id: memory_id}
+      },
+      id: 5
+    }
+
+    post "/mcp", mcp_request.to_json, "CONTENT_TYPE" => "application/json"
+    mcp_response = JSON.parse(last_response.body)
+
+    assert mcp_response["result"]["isError"], "expected the tool call to be rejected"
+
+    get "/api/memories/#{memory_id}"
+
+    assert_equal 200, last_response.status
   end
 
   # Test get_context via MCP

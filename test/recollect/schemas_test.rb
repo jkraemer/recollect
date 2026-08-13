@@ -44,6 +44,14 @@ class SchemasTest < Minitest::Test
     end
   end
 
+  # project is part of a memory's identity: ids collide across databases, so a
+  # result without its project cannot be safely passed back to delete_memory.
+  def test_memory_fragment_rejects_a_record_missing_project
+    assert_raises(MCP::Tool::OutputSchema::ValidationError) do
+      schema_around_memory.validate_result({"memory" => SAMPLE_MEMORY.except("project")})
+    end
+  end
+
   def test_memory_fragment_is_frozen
     assert_predicate Recollect::Schemas::MEMORY, :frozen?
   end
