@@ -2,6 +2,10 @@
 
 ## Bugs
 
+- See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) for open items found by the CI
+pipeline, with file references and why each was left unfixed. Start with the
+cross-project `delete_memory` hazard.
+
 ## Refactoring
 
 - Is there a way to check for the vector extension *in sqlite*? I think the
