@@ -231,15 +231,6 @@ module Recollect
         [total_memories, total_embeddings]
       end
 
-      def determine_vector_unavailable_reason
-        config = Recollect.config
-        return "RECOLLECT_ENABLE_VECTORS not set" unless config.enable_vectors
-        return "sqlite-vec extension not found" unless config.vec_extension_path
-        return "embed script not executable" unless File.executable?(config.embed_server_script_path)
-
-        "unknown"
-      end
-
       def loopback_request?
         addr = request.env["REMOTE_ADDR"]
         %w[127.0.0.1 ::1].include?(addr)
@@ -635,7 +626,7 @@ module Recollect
       else
         json_response({
           enabled: false,
-          reason: determine_vector_unavailable_reason
+          reason: config.vector_unavailable_reason
         })
       end
     end

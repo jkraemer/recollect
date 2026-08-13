@@ -102,21 +102,24 @@ module Recollect
       enable_vectors? && vec_extension_path && File.executable?(embed_server_script_path)
     end
 
-    def vector_status_message
-      if vectors_available?
-        "Vector embeddings: enabled"
+    # Why the vector stack is unavailable, nil when it is available.
+    def vector_unavailable_reason
+      return nil if vectors_available?
+
+      if !enable_vectors?
+        "RECOLLECT_ENABLE_VECTORS not set"
+      elsif !vec_extension_path
+        "sqlite-vec extension not found"
+      elsif !File.executable?(embed_server_script_path)
+        "embed script not executable"
       else
-        reason = if !enable_vectors?
-          "RECOLLECT_ENABLE_VECTORS not set"
-        elsif !vec_extension_path
-          "sqlite-vec extension not found"
-        elsif !File.executable?(embed_server_script_path)
-          "embed script not executable"
-        else
-          "unknown reason"
-        end
-        "Vector embeddings: disabled (#{reason})"
+        "unknown reason"
       end
+    end
+
+    def vector_status_message
+      reason = vector_unavailable_reason
+      reason ? "Vector embeddings: disabled (#{reason})" : "Vector embeddings: enabled"
     end
 
     def python_path

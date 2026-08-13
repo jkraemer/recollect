@@ -300,6 +300,33 @@ module Recollect
       end
     end
 
+    # vector_unavailable_reason tests: the bare reason is the single home for
+    # the cascade; vector_status_message and the status endpoint both wrap it.
+
+    def test_vector_unavailable_reason_when_disabled_by_env
+      with_env("RECOLLECT_ENABLE_VECTORS" => nil) do
+        config = Config.new
+
+        assert_equal "RECOLLECT_ENABLE_VECTORS not set", config.vector_unavailable_reason
+      end
+    end
+
+    def test_vector_unavailable_reason_nil_when_available
+      with_env("RECOLLECT_ENABLE_VECTORS" => "true") do
+        config = Config.new
+
+        def config.vec_extension_path
+          "/some/path.so"
+        end
+
+        def config.embed_server_script_path
+          Pathname.new("/bin/true")
+        end
+
+        assert_nil config.vector_unavailable_reason
+      end
+    end
+
     # max_vector_distance tests
 
     def test_default_max_vector_distance
