@@ -196,6 +196,21 @@ class DatabaseManagerTest < Recollect::TestCase
     assert_same db1, db3, "Should be case-insensitive"
   end
 
+  # "global" is the global database's db_name; a project by that name would
+  # create projects/global.db, shadowing the real global database.
+  def test_get_database_rejects_reserved_global_name
+    error = assert_raises(ArgumentError) { @manager.get_database("global") }
+
+    assert_match(/reserved/, error.message)
+    refute_path_exists @config.projects_dir.join("global.db")
+  end
+
+  def test_get_database_rejects_reserved_global_name_case_insensitively
+    assert_raises(ArgumentError) { @manager.get_database("GLOBAL") }
+
+    refute_includes @manager.list_db_names.tally.values, 2
+  end
+
   # Test hyphens are preserved in project names
   def test_project_name_preserves_hyphens
     db1 = @manager.get_database("my-project")

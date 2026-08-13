@@ -257,7 +257,14 @@ module Recollect
     end
 
     def sanitize_project_name(name)
-      name.to_s.gsub(/[^a-zA-Z0-9_-]/, "_").downcase
+      sanitized = name.to_s.gsub(/[^a-zA-Z0-9_-]/, "_").downcase
+      if sanitized == GLOBAL_DB_NAME
+        # A project by this name would create projects/global.db, shadowing the
+        # global database: it collides with the global database's db_name in
+        # the sync mapping and could never sync.
+        raise ArgumentError, "project name #{GLOBAL_DB_NAME.inspect} is reserved for the global database"
+      end
+      sanitized
     end
 
     def project_db_path(project_name)

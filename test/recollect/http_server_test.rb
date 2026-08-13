@@ -46,6 +46,14 @@ class HTTPServerTest < Recollect::TestCase
     assert_match(/reserved/, JSON.parse(last_response.body)["error"])
   end
 
+  # Read paths must reject the reserved name too, not create projects/global.db.
+  def test_list_rejects_reserved_global_project
+    get "/api/memories?project=global"
+
+    assert_equal 400, last_response.status
+    assert_match(/reserved/, JSON.parse(last_response.body)["error"])
+  end
+
   # List memories
   def test_list_memories_returns_array
     get "/api/memories"
