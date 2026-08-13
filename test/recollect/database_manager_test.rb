@@ -458,10 +458,20 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # Test enqueue_embedding does not raise when worker is nil
   def test_enqueue_embedding_noop_when_vectors_disabled
-    # Default config has vectors disabled, so @embedding_worker is nil
-    # This should not raise
-    @manager.enqueue_embedding(memory_id: 1, content: "test", project: "test")
-    # If we got here without error, the safe navigation worked
+    # Vectors must be off for THIS manager, not just ambiently: under the
+    # nightly, setup's manager has a live embedding worker, and this test
+    # would enqueue a real job instead of exercising the nil-worker path.
+    config = Recollect::Config.new
+    def config.vectors_available?
+      false
+    end
+    manager = Recollect::DatabaseManager.new(config)
+
+    begin
+      assert_nil manager.enqueue_embedding(memory_id: 1, content: "test", project: "test")
+    ensure
+      manager.close_all
+    end
   end
 
   # ========== Vectors Ready Tests ==========
@@ -495,9 +505,10 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # ========== Recency Ranking Tests ==========
 
+  # No vector guard: with vectors off hybrid_search falls back to search_all,
+  # which applies recency itself, so the assertions hold on both paths. Under
+  # the nightly this exercises merge-time recency on the real hybrid path.
   def test_hybrid_search_applies_recency_when_enabled
-    skip "Vectors not available" unless Recollect.config.vectors_available?
-
     run_with_recency_env do
       config = Recollect::Config.new
       manager = Recollect::DatabaseManager.new(config)
