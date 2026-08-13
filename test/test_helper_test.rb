@@ -3,6 +3,23 @@
 require "test_helper"
 
 module Recollect
+  # with_env must be reachable from classes that do not subclass
+  # Recollect::TestCase (plain Minitest::Test subclasses, helper mixins) —
+  # unreachability is how three sweeps each left raw ENV sites behind.
+  class EnvHelpersOutsideTestCaseTest < Minitest::Test
+    include Recollect::EnvHelpers
+
+    def test_with_env_is_reachable_without_test_case
+      ENV.delete("RECOLLECT_TEST_VAR")
+
+      with_env("RECOLLECT_TEST_VAR" => "scoped") do
+        assert_equal "scoped", ENV.fetch("RECOLLECT_TEST_VAR", nil)
+      end
+
+      refute ENV.key?("RECOLLECT_TEST_VAR")
+    end
+  end
+
   class WithEnvTest < TestCase
     def test_with_env_restores_previously_set_value
       ENV["RECOLLECT_TEST_VAR"] = "original"

@@ -1091,23 +1091,23 @@ class HTTPServerTest < Recollect::TestCase
   end
 
   def test_push_queue_not_started_when_sync_disabled
-    ENV["RECOLLECT_SYNC_DISABLE"] = "1"
-    Recollect::HTTPServer.reset_db_manager!
+    with_env("RECOLLECT_SYNC_DISABLE" => "1") do
+      Recollect::HTTPServer.reset_db_manager!
 
-    assert_nil Recollect::HTTPServer.push_queue
+      assert_nil Recollect::HTTPServer.push_queue
+    end
   ensure
-    ENV.delete("RECOLLECT_SYNC_DISABLE")
     Recollect::HTTPServer.reset_db_manager!
   end
 
   def test_api_sync_sync_returns_503_when_disabled
-    ENV["RECOLLECT_SYNC_DISABLE"] = "1"
-    Recollect::HTTPServer.reset_db_manager!
-    post "/api/sync/sync"
+    with_env("RECOLLECT_SYNC_DISABLE" => "1") do
+      Recollect::HTTPServer.reset_db_manager!
+      post "/api/sync/sync"
 
-    assert_equal 503, last_response.status
+      assert_equal 503, last_response.status
+    end
   ensure
-    ENV.delete("RECOLLECT_SYNC_DISABLE")
     Recollect::HTTPServer.reset_db_manager!
   end
 

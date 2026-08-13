@@ -16,13 +16,12 @@ class DatabaseManagerTest < Recollect::TestCase
 
   private
 
-  def run_with_recency_env(aging_factor: "1.0", half_life_days: "7")
-    ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = aging_factor
-    ENV["RECOLLECT_RECENCY_HALF_LIFE_DAYS"] = half_life_days
-    yield
-  ensure
-    ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
-    ENV.delete("RECOLLECT_RECENCY_HALF_LIFE_DAYS")
+  def run_with_recency_env(aging_factor: "1.0", half_life_days: "7", &block)
+    with_env(
+      "RECOLLECT_RECENCY_AGING_FACTOR" => aging_factor,
+      "RECOLLECT_RECENCY_HALF_LIFE_DAYS" => half_life_days,
+      &block
+    )
   end
 
   public

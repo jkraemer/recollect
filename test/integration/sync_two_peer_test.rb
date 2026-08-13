@@ -8,6 +8,8 @@ class SyncTwoPeerTest < Minitest::Test
   def setup
     # Disable background sync threads (push_queue/sync_engine auto-start) — the
     # tests instantiate Sync::Engine manually and call reconcile directly.
+    # Snapshot the prior value so teardown restores ambient state exactly.
+    @prior_sync_disable = ENV["RECOLLECT_SYNC_DISABLE"]
     ENV["RECOLLECT_SYNC_DISABLE"] = "1"
     @a = make_peer(:a)
     @b = make_peer(:b)
@@ -17,7 +19,7 @@ class SyncTwoPeerTest < Minitest::Test
   def teardown
     teardown_peer(@a) if @a
     teardown_peer(@b) if @b
-    ENV.delete("RECOLLECT_SYNC_DISABLE")
+    ENV["RECOLLECT_SYNC_DISABLE"] = @prior_sync_disable
   end
 
   def test_pull_propagates_record_from_a_to_b
@@ -58,25 +60,26 @@ class SyncTwoPeerTest < Minitest::Test
     # Enable sync so A's push_queue starts (and short-circuits don't fire on
     # subsequent calls). HTTPServer.push_queue re-checks sync_disabled? on every
     # call, so the flag must stay unset for the duration of this test.
-    ENV["RECOLLECT_SYNC_DISABLE"] = nil
-    @a.with_config { @a.app_class.reset_db_manager! }
+    with_env("RECOLLECT_SYNC_DISABLE" => nil) do
+      @a.with_config { @a.app_class.reset_db_manager! }
 
-    # Touch A's push_queue to ensure it's running, then patch its client_factory.
-    factory = cross_peer_client_factory(from: @a, to: @b)
-    @a.with_config do
-      queue = @a.app_class.push_queue
+      # Touch A's push_queue to ensure it's running, then patch its client_factory.
+      factory = cross_peer_client_factory(from: @a, to: @b)
+      @a.with_config do
+        queue = @a.app_class.push_queue
 
-      refute_nil queue, "A's push_queue must be running for push-on-write"
-      queue.instance_variable_set(:@client_factory, factory)
+        refute_nil queue, "A's push_queue must be running for push-on-write"
+        queue.instance_variable_set(:@client_factory, factory)
+      end
+
+      memory = @a.store(content: "pushed", project: nil)
+      @a.with_config { @a.app_class.push_queue.flush(timeout: 5) }
+
+      contents = @b.list_global.map { |m| m["content"] }
+
+      assert_includes contents, "pushed"
+      refute_nil memory, "store should have returned the new memory"
     end
-
-    memory = @a.store(content: "pushed", project: nil)
-    @a.with_config { @a.app_class.push_queue.flush(timeout: 5) }
-
-    contents = @b.list_global.map { |m| m["content"] }
-
-    assert_includes contents, "pushed"
-    refute_nil memory, "store should have returned the new memory"
   end
 
   def test_pull_paginates_across_many_records
