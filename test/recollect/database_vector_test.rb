@@ -20,6 +20,8 @@ module Recollect
       refute_predicate @db, :vectors_enabled?
     end
 
+    # Deliberately gated on the File.exist? prediction: an extension that is
+    # on disk but fails to load must fail here, not skip.
     def test_load_vector_extension_succeeds
       skip_unless_vec_extension_available
 
@@ -38,9 +40,7 @@ module Recollect
     end
 
     def test_store_embedding_stores_correctly
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       memory_id = @db.store(content: "test memory", memory_type: "note", tags: [], metadata: nil)[:id]
       embedding = Array.new(384) { rand(-1.0..1.0) }
 
@@ -59,9 +59,7 @@ module Recollect
     end
 
     def test_vector_search_finds_similar_vectors
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
 
       # Store memories with embeddings
       id1 = @db.store(content: "ruby programming", memory_type: "note", tags: [], metadata: nil)[:id]
@@ -83,9 +81,7 @@ module Recollect
     end
 
     def test_vector_search_includes_memory_fields
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       id = @db.store(content: "test content", memory_type: "decision", tags: ["foo"], metadata: nil)[:id]
       embedding = normalized_vector(384)
       @db.store_embedding(id, embedding)
@@ -116,9 +112,7 @@ module Recollect
     end
 
     def test_memories_without_embeddings_finds_missing
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)[:id]
       id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id1, normalized_vector(384))
@@ -131,9 +125,7 @@ module Recollect
     end
 
     def test_memories_without_embeddings_excludes_tombstoned
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       alive = @db.store(content: "alive", memory_type: "note", tags: [], metadata: nil)[:id]
       dead = @db.store(content: "dead", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.instance_variable_get(:@db).execute(
@@ -147,9 +139,7 @@ module Recollect
     end
 
     def test_delete_removes_embedding
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       id = @db.store(content: "will be deleted", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id, normalized_vector(384))
 
@@ -161,9 +151,7 @@ module Recollect
     end
 
     def test_tombstone_removes_row_from_vec_index
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       memory_id = @db.store(content: "tombstone target", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(memory_id, Array.new(384) { rand(-1.0..1.0) })
 
@@ -179,9 +167,7 @@ module Recollect
     end
 
     def test_vector_search_filters_out_low_relevance_results
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
 
       # Store memories with embeddings
       id1 = @db.store(content: "relevant result", memory_type: "note", tags: [], metadata: nil)[:id]
@@ -201,9 +187,7 @@ module Recollect
     end
 
     def test_list_includes_has_embedding_when_vectors_enabled
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       id1 = @db.store(content: "has embedding", memory_type: "note", tags: [], metadata: nil)[:id]
       id2 = @db.store(content: "no embedding", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id1, normalized_vector(384))
@@ -226,9 +210,7 @@ module Recollect
     end
 
     def test_get_includes_has_embedding_when_vectors_enabled
-      skip_unless_vec_extension_available
-
-      @db = Database.new(@db_path, load_vectors: true)
+      open_vector_database_or_skip
       id = @db.store(content: "test", memory_type: "note", tags: [], metadata: nil)[:id]
       @db.store_embedding(id, normalized_vector(384))
 
@@ -239,8 +221,23 @@ module Recollect
 
     private
 
+    # Prediction gate: vec_extension_path is only a File.exist? check. Used
+    # solely by test_load_vector_extension_succeeds, whose job is to assert
+    # that a file on disk actually loads - everything else gates on the
+    # database's real post-load state via open_vector_database_or_skip.
     def skip_unless_vec_extension_available
       skip "sqlite-vec not available" unless Recollect.config.vec_extension_path
+    end
+
+    # Reality gate: opens the test database with load_vectors: true and skips
+    # unless the extension actually loaded. A present-but-unloadable vec0.so
+    # skips here; bin/verify-vector-stack is what turns that state into a red
+    # nightly before the suite runs.
+    def open_vector_database_or_skip
+      @db = Database.new(@db_path, load_vectors: true)
+      skip "sqlite-vec extension did not load" unless @db.vectors_enabled?
+
+      @db
     end
 
     def normalized_vector(dimensions)
