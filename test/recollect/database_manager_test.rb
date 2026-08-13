@@ -525,6 +525,34 @@ class DatabaseManagerTest < Recollect::TestCase
     end
   end
 
+  # hybrid_search applies recency once for both arms at merge time, so its
+  # FTS arm must arrive in pure BM25 order with no recency adjustment.
+  def test_fts_search_does_not_apply_recency
+    run_with_recency_env do
+      config = Recollect::Config.new
+      manager = Recollect::DatabaseManager.new(config)
+
+      begin
+        db = manager.get_database("recency-raw-fts-test")
+        db.store(content: "old memory about Elixir hacking")
+        db.store(content: "new memory about Elixir hacking")
+        # Backdate the first memory
+        db.instance_variable_get(:@db).execute(
+          "UPDATE memories SET created_at = ? WHERE id = 1",
+          ["2024-01-01T00:00:00Z"]
+        )
+
+        criteria = Recollect::SearchCriteria.new(query: "Elixir", project: "recency-raw-fts-test")
+        results = manager.fts_search(criteria)
+
+        assert_equal 2, results.size
+        results.each { |m| refute m.key?("recency_factor"), "fts_search must not recency-rank" }
+      ensure
+        manager&.close_all
+      end
+    end
+  end
+
   def test_search_all_applies_recency_when_enabled
     run_with_recency_env do
       config = Recollect::Config.new

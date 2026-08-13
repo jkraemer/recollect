@@ -65,15 +65,9 @@ module Recollect
     end
 
     def search_all(criteria)
-      results = if criteria.project?
-        search_project(criteria)
-      else
-        search_all_projects(criteria)
-      end
-
       # Get more results when recency enabled for re-ranking
       effective_limit = recency_enabled? ? criteria.limit * 2 : criteria.limit
-      sorted = results.sort_by { |m| m["rank"] || 0 }.take(effective_limit)
+      sorted = fts_search(criteria, limit: effective_limit)
 
       # Apply recency ranking if enabled
       if recency_enabled?
@@ -81,6 +75,19 @@ module Recollect
       end
 
       sorted.take(criteria.limit)
+    end
+
+    # BM25-ordered FTS results with no recency adjustment. hybrid_search feeds
+    # these to the ranker, which applies recency once for both arms at merge
+    # time; recency-ranking the FTS arm here as well would decay it twice.
+    def fts_search(criteria, limit: criteria.limit)
+      results = if criteria.project?
+        search_project(criteria)
+      else
+        search_all_projects(criteria)
+      end
+
+      results.sort_by { |m| m["rank"] || 0 }.take(limit)
     end
 
     def search_by_tags(criteria)
@@ -122,7 +129,7 @@ module Recollect
         # Get query embedding for each (could be optimized with batching)
         embedding = embedding_client.embed(q_text)
 
-        all_fts_results << search_all(expanded_criteria)
+        all_fts_results << fts_search(expanded_criteria)
 
         # Get raw vector results (might contain chunks)
         raw_vec_results = vector_search_all(embedding, expanded_criteria)
