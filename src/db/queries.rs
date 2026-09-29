@@ -38,6 +38,7 @@ impl Database {
             .collect()
     }
 
+    /// How many memories are not tombstoned.
     pub fn live_count(&self) -> Result<usize> {
         let count: i64 = self.conn.query_row(
             "SELECT count(*) FROM memories WHERE deleted_at IS NULL",

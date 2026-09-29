@@ -1,6 +1,6 @@
 //! Timestamps in the stored format and parsing of `--since` / `--until`.
 
-use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, Utc};
 
 use crate::error::{Error, Result};
 
@@ -16,24 +16,23 @@ pub fn now_timestamp() -> String {
 
 /// Inclusive lower bound: a date means its first millisecond (UTC).
 pub fn parse_since(raw: &str) -> Result<String> {
-    match NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
-        Ok(date) => Ok(format_timestamp(
-            date.and_hms_opt(0, 0, 0)
-                .expect("midnight exists")
-                .and_utc(),
-        )),
-        Err(_) => parse_rfc3339(raw),
-    }
+    parse_bound(raw, |date| {
+        date.and_hms_opt(0, 0, 0).expect("midnight exists")
+    })
 }
 
 /// Inclusive upper bound: a date means its last millisecond (UTC).
 pub fn parse_until(raw: &str) -> Result<String> {
+    parse_bound(raw, |date| {
+        date.and_hms_milli_opt(23, 59, 59, 999)
+            .expect("end of day exists")
+    })
+}
+
+/// A date becomes the moment `moment_of` picks within it; anything else must be RFC 3339.
+fn parse_bound(raw: &str, moment_of: impl Fn(NaiveDate) -> NaiveDateTime) -> Result<String> {
     match NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
-        Ok(date) => Ok(format_timestamp(
-            date.and_hms_milli_opt(23, 59, 59, 999)
-                .expect("end of day exists")
-                .and_utc(),
-        )),
+        Ok(date) => Ok(format_timestamp(moment_of(date).and_utc())),
         Err(_) => parse_rfc3339(raw),
     }
 }

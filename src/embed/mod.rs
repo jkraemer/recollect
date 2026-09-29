@@ -21,7 +21,10 @@ pub trait Embedder {
     fn model_id(&self) -> &str;
     /// Content tokens in `text`, without special tokens and without truncation.
     fn count_tokens(&self, text: &str) -> Result<usize>;
+    /// One vector per text, for storing; texts are embedded as given.
     fn embed_passages(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
+    /// A vector for searching the stored passages; implementations add
+    /// whatever instruction their model expects in front of queries.
     fn embed_query(&mut self, query: &str) -> Result<Vec<f32>>;
 }
 
