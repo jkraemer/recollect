@@ -12,6 +12,7 @@ use crate::filter::Filter;
 use crate::memory::{
     Memory, MemoryType, NewRecord, ProjectRef, ScoredMemory, normalize_content, normalize_tags,
 };
+use crate::output::print_diagnostic;
 use crate::search::fts_query::build_fts_query;
 use crate::search::{self, SearchRequest};
 use crate::time::now_timestamp;
@@ -353,10 +354,10 @@ impl Recollect {
     fn embedder(&mut self) -> std::result::Result<&mut dyn Embedder, String> {
         if matches!(self.embedder, EmbedderSlot::NotLoaded) {
             if !FastEmbedder::is_cached(&self.config.model_dir) {
-                eprintln!(
+                print_diagnostic(&format!(
                     "downloading embedding model {MODEL_ID} to {}",
                     self.config.model_dir.display()
-                );
+                ));
             }
             self.embedder = match FastEmbedder::load(&self.config.model_dir) {
                 Ok(model) => EmbedderSlot::Ready(Box::new(model)),

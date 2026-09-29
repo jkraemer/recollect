@@ -155,7 +155,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) if reader_went_away(&err) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            output::print_diagnostic(&format!("error: {err}"));
             ExitCode::FAILURE
         }
     }
@@ -301,7 +301,7 @@ fn read_stdin() -> anyhow::Result<String> {
 
 fn warn(warning: Option<&str>) {
     if let Some(warning) = warning {
-        eprintln!("warning: {warning}");
+        output::print_diagnostic(&format!("warning: {warning}"));
     }
 }
 

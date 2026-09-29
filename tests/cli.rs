@@ -488,6 +488,35 @@ fn a_reader_that_stops_early_ends_the_command_quietly() {
     assert_eq!(String::from_utf8_lossy(&output.stderr), "");
 }
 
+/// A pipe whose reader is already gone: every write to it fails with a broken pipe.
+fn pipe_without_reader() -> std::io::PipeWriter {
+    let (reader, writer) = std::io::pipe().unwrap();
+    drop(reader);
+    writer
+}
+
+#[test]
+fn a_stderr_nobody_reads_does_not_stop_the_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    let run = |args: &[&str]| {
+        StdCommand::new(assert_cmd::cargo::cargo_bin("recollect"))
+            .env("RECOLLECT_DATA_DIR", dir.path())
+            .env("RECOLLECT_MODEL_DIR", &blocker)
+            .args(args)
+            .stderr(pipe_without_reader())
+            .output()
+            .unwrap()
+    };
+    // Writes the download notice and a warning to stderr.
+    let stored = run(&["store", "x"]);
+    assert_eq!(stored.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&stored.stdout), "stored #1\n");
+    // Writes an error to stderr.
+    assert_eq!(run(&["show", "2"]).status.code(), Some(1));
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn an_output_write_failure_is_reported_as_an_error() {
