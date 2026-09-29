@@ -57,7 +57,7 @@ impl Database {
 
     /// Stores the embeddings of a live memory that has none yet.
     pub fn add_embeddings(&mut self, memory_id: i64, embedded: &Embedded) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self.write_transaction()?;
         let live: Option<bool> = tx
             .query_row(
                 "SELECT deleted_at IS NULL FROM memories WHERE id = ?1",
@@ -75,7 +75,7 @@ impl Database {
 
     /// Deletes every stored vector and the recorded model.
     pub fn clear_embeddings(&mut self) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self.write_transaction()?;
         tx.execute("DELETE FROM chunks", [])?;
         tx.execute("DELETE FROM meta WHERE key = 'embedding_model'", [])?;
         tx.commit()?;

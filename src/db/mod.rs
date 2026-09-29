@@ -1,10 +1,11 @@
 //! SQLite storage: one database file shared by the CLI and, later, the sync daemon.
 
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::sync::Once;
 use std::time::Duration;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::error::Result;
 
@@ -25,7 +26,7 @@ impl Database {
         register_sqlite_vec();
         let conn = Connection::open(path)?;
         conn.busy_timeout(Duration::from_secs(5))?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
+        enable_write_ahead_logging(&conn, path)?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         Self::migrated(conn)
@@ -43,6 +44,35 @@ impl Database {
         schema::migrate(&mut conn)?;
         Ok(Self { conn })
     }
+
+    /// Begins a transaction that holds the write lock from the start, waiting
+    /// up to the busy timeout for it. A deferred transaction reads first (the
+    /// statement's virtual tables load their configuration) and would then
+    /// have to upgrade to a write; SQLite fails such an upgrade with
+    /// `SQLITE_BUSY` at once, without consulting the busy timeout.
+    fn write_transaction(&mut self) -> Result<Transaction<'_>> {
+        Ok(self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?)
+    }
+}
+
+/// Puts the database file into WAL mode. The switch needs exclusive access and
+/// SQLite fails it with `SQLITE_BUSY` at once if another connection is
+/// reading the file, without consulting the busy timeout. Processes opening a
+/// new database therefore take turns through a lock file; once the first one
+/// has switched, the others find the file already in WAL mode.
+fn enable_write_ahead_logging(conn: &Connection, path: &Path) -> Result<()> {
+    let mut lock_path = path.as_os_str().to_owned();
+    lock_path.push(".lock");
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock_path)?;
+    lock.lock()?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    Ok(())
 }
 
 /// Serializes a vector the way sqlite-vec reads it: little-endian `f32`s.
@@ -86,6 +116,7 @@ mod tests {
     use super::*;
     use rusqlite::params;
 
+    use crate::db::test_support::concurrently;
     use crate::error::Error;
 
     fn user_version(db: &Database) -> i64 {
@@ -142,6 +173,34 @@ mod tests {
             .query_row("PRAGMA journal_mode", [], |row| row.get(0))
             .unwrap();
         assert_eq!(mode, "wal");
+    }
+
+    #[test]
+    fn a_fresh_database_can_be_opened_by_several_openers_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        for round in 0..10 {
+            let path = dir.path().join(format!("memories-{round}.db"));
+            for result in concurrently(8, |_| Database::open(&path)) {
+                if let Err(err) = result {
+                    panic!("a concurrent open failed: {err}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn write_transactions_hold_the_write_lock_from_the_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memories.db");
+        let mut db = Database::open(&path).unwrap();
+        let _write = db.write_transaction().unwrap();
+        let rival = Connection::open(&path).unwrap();
+        rival.busy_timeout(Duration::ZERO).unwrap();
+        let err = rival.execute_batch("BEGIN IMMEDIATE").unwrap_err();
+        assert_eq!(
+            err.sqlite_error_code(),
+            Some(rusqlite::ErrorCode::DatabaseBusy)
+        );
     }
 
     #[test]

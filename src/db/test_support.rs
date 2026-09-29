@@ -14,3 +14,24 @@ pub fn record(content: &str, project: Option<&str>, created_at: &str) -> NewReco
         created_at: created_at.to_string(),
     }
 }
+
+/// Runs `work(n)` for `n` in `0..threads`, all starting at the same moment,
+/// and returns the results in order of `n`.
+pub fn concurrently<T: Send>(threads: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
+    let start = std::sync::Barrier::new(threads);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|n| {
+                let (start, work) = (&start, &work);
+                scope.spawn(move || {
+                    start.wait();
+                    work(n)
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect()
+    })
+}

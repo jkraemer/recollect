@@ -44,7 +44,7 @@ impl Database {
         record: &NewRecord,
         embedded: Option<&Embedded>,
     ) -> Result<i64> {
-        let tx = self.conn.transaction()?;
+        let tx = self.write_transaction()?;
         tx.execute(
             "INSERT INTO memories (global_id, project, memory_type, content, tags, origin_peer, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -81,7 +81,7 @@ impl Database {
     /// Tombstones a live memory: drops its chunks and blanks its text. The row
     /// stays so sync can propagate the delete.
     pub fn delete(&mut self, id: i64, deleted_at: &str) -> Result<()> {
-        let tx = self.conn.transaction()?;
+        let tx = self.write_transaction()?;
         tx.execute("DELETE FROM chunks WHERE memory_id = ?1", [id])?;
         let changed = tx.execute(
             "UPDATE memories SET deleted_at = ?2, deleted_by_peer = NULL, content = '', tags = '[]'
@@ -101,7 +101,7 @@ mod tests {
     use rusqlite::params;
 
     use crate::db::Database;
-    use crate::db::test_support::record;
+    use crate::db::test_support::{concurrently, record};
     use crate::error::Error;
     use crate::memory::{Embedded, MemoryType, NewRecord};
 
@@ -146,6 +146,25 @@ mod tests {
             .insert_memory(&record("global memory", None, T0), None)
             .unwrap();
         assert_eq!(db.get(global).unwrap().project, None);
+    }
+
+    #[test]
+    fn inserts_from_separate_connections_wait_for_each_other_instead_of_failing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("memories.db");
+        drop(Database::open(&path).unwrap());
+        let inserted = concurrently(4, |n| -> Result<(), Error> {
+            let mut db = Database::open(&path)?;
+            for i in 0..5 {
+                db.insert_memory(&record(&format!("memory {n}-{i}"), None, T0), None)?;
+            }
+            Ok(())
+        });
+        for result in inserted {
+            if let Err(err) = result {
+                panic!("a concurrent insert failed: {err}");
+            }
+        }
     }
 
     #[test]
