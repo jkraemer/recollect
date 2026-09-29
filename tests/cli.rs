@@ -381,6 +381,37 @@ fn without_recollect_data_dir_the_home_directory_is_used() {
 }
 
 #[test]
+fn without_a_data_directory_or_home_the_command_fails_with_advice() {
+    Command::cargo_bin("recollect")
+        .unwrap()
+        .env_remove("RECOLLECT_DATA_DIR")
+        .env_remove("HOME")
+        .env("RECOLLECT_MODEL_DIR", common::model_dir())
+        .arg("list")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("error: HOME is not set; set RECOLLECT_DATA_DIR to choose the data directory\n");
+}
+
+#[test]
+fn file_errors_name_the_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("a-file");
+    std::fs::write(&file, "").unwrap();
+    let data = file.join("data");
+    recollect(&data)
+        .arg("list")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::starts_with(format!(
+            "error: {}: ",
+            data.join("config.toml").display()
+        )));
+}
+
+#[test]
 fn concurrent_writers_all_succeed() {
     let dir = tempfile::tempdir().unwrap();
     let _ = common::shared_model();

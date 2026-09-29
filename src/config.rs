@@ -13,7 +13,8 @@ use crate::error::{Error, Result};
 pub const DATABASE_FILE: &str = "memories.db";
 pub const CONFIG_FILE: &str = "config.toml";
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct RecencyConfig {
     /// 0 disables recency ranking, 1 applies the full decay.
     pub aging_factor: f64,
@@ -58,8 +59,10 @@ impl Config {
         if !(0.0..=1.0).contains(&file.recency.aging_factor) {
             return Err(invalid("recency.aging_factor must be between 0 and 1"));
         }
-        if file.recency.half_life_days <= 0.0 {
-            return Err(invalid("recency.half_life_days must be positive"));
+        if !(file.recency.half_life_days.is_finite() && file.recency.half_life_days > 0.0) {
+            return Err(invalid(
+                "recency.half_life_days must be finite and positive",
+            ));
         }
         if !(0.0..=2.0).contains(&file.search.max_vector_distance) {
             return Err(invalid(
@@ -70,10 +73,7 @@ impl Config {
             model_dir: model_dir.unwrap_or_else(|| data_dir.join("models")),
             data_dir,
             max_vector_distance: file.search.max_vector_distance,
-            recency: RecencyConfig {
-                aging_factor: file.recency.aging_factor,
-                half_life_days: file.recency.half_life_days,
-            },
+            recency: file.recency,
         })
     }
 
@@ -82,54 +82,26 @@ impl Config {
     }
 }
 
+/// `config.toml`; every missing section and key takes its default.
 #[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 struct FileConfig {
-    #[serde(default)]
     search: SearchSection,
-    #[serde(default)]
-    recency: RecencySection,
+    recency: RecencyConfig,
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 struct SearchSection {
-    #[serde(default = "default_max_vector_distance")]
     max_vector_distance: f64,
 }
 
 impl Default for SearchSection {
     fn default() -> Self {
         Self {
-            max_vector_distance: default_max_vector_distance(),
+            max_vector_distance: 1.0,
         }
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RecencySection {
-    #[serde(default)]
-    aging_factor: f64,
-    #[serde(default = "default_half_life_days")]
-    half_life_days: f64,
-}
-
-impl Default for RecencySection {
-    fn default() -> Self {
-        Self {
-            aging_factor: 0.0,
-            half_life_days: default_half_life_days(),
-        }
-    }
-}
-
-fn default_max_vector_distance() -> f64 {
-    1.0
-}
-
-fn default_half_life_days() -> f64 {
-    30.0
 }
 
 fn read_file_config(path: &Path) -> Result<FileConfig> {
@@ -139,7 +111,7 @@ fn read_file_config(path: &Path) -> Result<FileConfig> {
             message: err.message().to_string(),
         }),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(FileConfig::default()),
-        Err(err) => Err(err.into()),
+        Err(err) => Err(Error::file(path)(err)),
     }
 }
 
@@ -150,10 +122,7 @@ fn non_empty_env(name: &str) -> Option<PathBuf> {
 }
 
 fn home_dir() -> Result<PathBuf> {
-    non_empty_env("HOME").ok_or_else(|| Error::Config {
-        path: "$HOME".to_string(),
-        message: "HOME is not set; set RECOLLECT_DATA_DIR instead".to_string(),
-    })
+    non_empty_env("HOME").ok_or(Error::NoDataDir)
 }
 
 #[cfg(test)]
@@ -226,7 +195,15 @@ mod tests {
             ),
             (
                 "[recency]\nhalf_life_days = 0.0\n",
-                "recency.half_life_days must be positive",
+                "recency.half_life_days must be finite and positive",
+            ),
+            (
+                "[recency]\nhalf_life_days = nan\n",
+                "recency.half_life_days must be finite and positive",
+            ),
+            (
+                "[recency]\nhalf_life_days = inf\n",
+                "recency.half_life_days must be finite and positive",
             ),
             (
                 "[search]\nmax_vector_distance = 3.0\n",
@@ -241,5 +218,45 @@ mod tests {
                 "{err}"
             );
         }
+    }
+
+    #[test]
+    fn range_bounds_are_inclusive() {
+        let dir = tempfile::tempdir().unwrap();
+        for text in [
+            "[recency]\naging_factor = 0.0\n",
+            "[recency]\naging_factor = 1.0\n",
+            "[search]\nmax_vector_distance = 0.0\n",
+            "[search]\nmax_vector_distance = 2.0\n",
+        ] {
+            write_config(dir.path(), text);
+            assert!(
+                Config::load_from(dir.path().to_path_buf(), None).is_ok(),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_toml_names_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(dir.path(), "[search\n");
+        let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
+        let expected_path = dir.path().join(CONFIG_FILE).display().to_string();
+        assert!(
+            matches!(&err, Error::Config { path, .. } if *path == expected_path),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_config_file_names_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(CONFIG_FILE)).unwrap();
+        let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
+        assert!(
+            matches!(&err, Error::File { path, .. } if *path == dir.path().join(CONFIG_FILE)),
+            "{err}"
+        );
     }
 }

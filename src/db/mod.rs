@@ -1,14 +1,14 @@
 //! SQLite storage: one database file that several processes (the CLI, a sync daemon) open.
 
 use std::fs::OpenOptions;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Once;
 use std::time::Duration;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 pub use schema::SCHEMA_VERSION;
 
@@ -22,7 +22,7 @@ impl Database {
     /// Opens (creating it and its directory if needed) the database file.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            std::fs::create_dir_all(parent).map_err(Error::file(parent))?;
         }
         register_sqlite_vec();
         let conn = Connection::open(path)?;
@@ -66,12 +66,14 @@ impl Database {
 fn enable_write_ahead_logging(conn: &Connection, path: &Path) -> Result<()> {
     let mut lock_path = path.as_os_str().to_owned();
     lock_path.push(".lock");
+    let lock_path = PathBuf::from(lock_path);
     let lock = OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
-        .open(lock_path)?;
-    lock.lock()?;
+        .open(&lock_path)
+        .map_err(Error::file(&lock_path))?;
+    lock.lock().map_err(Error::file(&lock_path))?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     Ok(())
 }
@@ -137,6 +139,30 @@ mod tests {
         let path = dir.path().join("nested").join("memories.db");
         Database::open(&path).unwrap();
         assert!(path.is_file());
+    }
+
+    #[test]
+    fn a_data_directory_that_cannot_be_created_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("a-file");
+        std::fs::write(&file, "").unwrap();
+        let err = Database::open(&file.join("memories.db")).unwrap_err();
+        assert!(
+            matches!(&err, Error::File { path, .. } if *path == file),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn a_lock_file_that_cannot_be_opened_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock = dir.path().join("memories.db.lock");
+        std::fs::create_dir(&lock).unwrap();
+        let err = Database::open(&dir.path().join("memories.db")).unwrap_err();
+        assert!(
+            matches!(&err, Error::File { path, .. } if *path == lock),
+            "{err}"
+        );
     }
 
     #[test]

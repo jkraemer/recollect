@@ -1,5 +1,7 @@
 //! The library's error type; the CLI prints each variant as one line.
 
+use std::path::{Path, PathBuf};
+
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -28,10 +30,25 @@ pub enum Error {
     SchemaTooNew { found: i64, supported: i64 },
     #[error("invalid config {path}: {message}")]
     Config { path: String, message: String },
+    #[error("HOME is not set; set RECOLLECT_DATA_DIR to choose the data directory")]
+    NoDataDir,
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
-    #[error("i/o error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("{}: {source}", path.display())]
+    File {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+}
+
+impl Error {
+    /// Wraps an i/o failure on `path`, for `map_err`.
+    pub fn file(path: &Path) -> impl FnOnce(std::io::Error) -> Error + '_ {
+        move |source| Error::File {
+            path: path.to_path_buf(),
+            source,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
