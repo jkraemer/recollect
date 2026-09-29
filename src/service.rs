@@ -289,9 +289,9 @@ impl Recollect {
             let embedder = self.embedder().map_err(Error::EmbeddingUnavailable)?;
             let embedded = embed_memory(embedder, &content)?;
             match self.db.add_embeddings(id, &embedded) {
-                Ok(()) => embedded_count += 1,
-                // Deleted by another process since the pending list was read.
-                Err(Error::NotFound(_)) => {}
+                Ok(true) => embedded_count += 1,
+                // Embedded or deleted by another process since the pending list was read.
+                Ok(false) | Err(Error::NotFound(_)) => {}
                 Err(err) => return Err(err),
             }
         }

@@ -6,6 +6,10 @@ use super::{Database, embedding_blob};
 use crate::error::{Error, Result};
 use crate::memory::Embedded;
 
+/// Live memories without vectors, over the `memories` table aliased `m`.
+const PENDING: &str =
+    "m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.memory_id = m.id)";
+
 /// Inserts the chunks of one memory and records their model unless a model is
 /// already recorded (callers check compatibility before embedding).
 pub(super) fn insert_chunks(conn: &Connection, memory_id: i64, embedded: &Embedded) -> Result<()> {
@@ -36,41 +40,43 @@ impl Database {
 
     /// Live memories that have no chunks yet, as `(id, content)`, by id.
     pub fn pending_embeddings(&self) -> Result<Vec<(i64, String)>> {
-        let mut statement = self.conn.prepare(
-            "SELECT m.id, m.content FROM memories m
-             WHERE m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.memory_id = m.id)
-             ORDER BY m.id",
-        )?;
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT m.id, m.content FROM memories m WHERE {PENDING} ORDER BY m.id"
+        ))?;
         let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     pub fn pending_embedding_count(&self) -> Result<usize> {
         let count: i64 = self.conn.query_row(
-            "SELECT count(*) FROM memories m
-             WHERE m.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.memory_id = m.id)",
+            &format!("SELECT count(*) FROM memories m WHERE {PENDING}"),
             [],
             |row| row.get(0),
         )?;
         Ok(count as usize)
     }
 
-    /// Stores the embeddings of a live memory that has none yet.
-    pub fn add_embeddings(&mut self, memory_id: i64, embedded: &Embedded) -> Result<()> {
+    /// Stores the embeddings of a live memory. Returns false and stores
+    /// nothing when the memory already has vectors, as it does when another
+    /// process embedded it first.
+    pub fn add_embeddings(&mut self, memory_id: i64, embedded: &Embedded) -> Result<bool> {
         let tx = self.write_transaction()?;
-        let live: Option<bool> = tx
+        let state: Option<(bool, bool)> = tx
             .query_row(
-                "SELECT deleted_at IS NULL FROM memories WHERE id = ?1",
+                &format!("SELECT m.deleted_at IS NULL, {PENDING} FROM memories m WHERE m.id = ?1"),
                 [memory_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        if live != Some(true) {
-            return Err(Error::NotFound(memory_id));
+        match state {
+            Some((true, true)) => {
+                insert_chunks(&tx, memory_id, embedded)?;
+                tx.commit()?;
+                Ok(true)
+            }
+            Some((true, false)) => Ok(false),
+            _ => Err(Error::NotFound(memory_id)),
         }
-        insert_chunks(&tx, memory_id, embedded)?;
-        tx.commit()?;
-        Ok(())
     }
 
     /// Deletes every stored vector and the recorded model.
@@ -129,9 +135,32 @@ mod tests {
     fn adding_embeddings_resolves_a_pending_memory() {
         let mut db = Database::open_in_memory().unwrap();
         let id = db.insert_memory(&record("bare", None, T0), None).unwrap();
-        db.add_embeddings(id, &embedded("m1")).unwrap();
+        assert!(db.add_embeddings(id, &embedded("m1")).unwrap());
         assert!(db.pending_embeddings().unwrap().is_empty());
         assert_eq!(db.stored_embedding_model().unwrap().as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn a_memory_that_already_has_vectors_keeps_them() {
+        let mut db = Database::open_in_memory().unwrap();
+        let id = db
+            .insert_memory(&record("embedded", None, T0), Some(&embedded("m1")))
+            .unwrap();
+        let other = Embedded {
+            model_id: "m1".into(),
+            chunks: vec![vec![1.0, 0.0, 0.0], vec![1.0, 0.0, 0.0]],
+        };
+        assert!(!db.add_embeddings(id, &other).unwrap());
+        let blobs: Vec<Vec<u8>> = db
+            .conn
+            .prepare("SELECT embedding FROM chunks WHERE memory_id = ?1")
+            .unwrap()
+            .query_map([id], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        let zero_one_zero = [0, 0, 0, 0, 0, 0, 0x80, 0x3f, 0, 0, 0, 0];
+        assert_eq!(blobs, [zero_one_zero.to_vec()]);
     }
 
     #[test]
@@ -141,7 +170,7 @@ mod tests {
         db.delete(id, T0).unwrap();
         assert!(matches!(
             db.add_embeddings(id, &embedded("m1")),
-            Err(Error::NotFound(_))
+            Err(Error::NotFound(missing)) if missing == id
         ));
         assert!(matches!(
             db.add_embeddings(77, &embedded("m1")),

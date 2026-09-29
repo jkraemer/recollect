@@ -445,16 +445,16 @@ fn an_unavailable_model_degrades_with_warnings_on_stderr() {
         .stderr(predicate::str::contains("error: embedding unavailable:"));
 }
 
-/// Stores a memory of `size` bytes without going through the CLI, so it has no vectors.
-fn insert_large_memory(data_dir: &Path, size: usize) {
+/// Stores a memory without going through the CLI, so it has no vectors.
+fn insert_without_vectors(data_dir: &Path, global_id: &str, content: &str) {
     Database::open(&data_dir.join("memories.db"))
         .unwrap()
         .insert_memory(
             &NewRecord {
-                global_id: "large".to_string(),
+                global_id: global_id.to_string(),
                 project: None,
                 memory_type: MemoryType::Note,
-                content: "x".repeat(size),
+                content: content.to_string(),
                 tags: Vec::new(),
                 origin_peer: None,
                 created_at: "2026-01-01T00:00:00.000Z".to_string(),
@@ -465,10 +465,47 @@ fn insert_large_memory(data_dir: &Path, size: usize) {
 }
 
 #[test]
+fn concurrent_reindex_runs_embed_each_memory_once() {
+    let dir = tempfile::tempdir().unwrap();
+    for n in 0..20 {
+        insert_without_vectors(dir.path(), &format!("m{n}"), &format!("memory number {n}"));
+    }
+    let _ = common::shared_model();
+    let runs: Vec<_> = (0..2)
+        .map(|_| {
+            StdCommand::new(assert_cmd::cargo::cargo_bin("recollect"))
+                .env("RECOLLECT_DATA_DIR", dir.path())
+                .env("RECOLLECT_MODEL_DIR", common::model_dir())
+                .arg("reindex")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let mut embedded = 0;
+    for run in runs {
+        let output = run.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stderr}");
+        assert_eq!(stderr, "");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        embedded += stdout
+            .trim_start_matches("embedded ")
+            .trim_end_matches(" memories\n")
+            .parse::<usize>()
+            .unwrap();
+    }
+    assert_eq!(embedded, 20);
+    let status = json_of(recollect(dir.path()).args(["status", "--json"]));
+    assert_eq!(status["pending_embeddings"], 0);
+}
+
+#[test]
 fn a_reader_that_stops_early_ends_the_command_quietly() {
     let dir = tempfile::tempdir().unwrap();
     // Far more output than a pipe buffers, so the command is still writing when the reader leaves.
-    insert_large_memory(dir.path(), 300_000);
+    insert_without_vectors(dir.path(), "large", &"x".repeat(300_000));
     let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("recollect"))
         .env("RECOLLECT_DATA_DIR", dir.path())
         .env("RECOLLECT_MODEL_DIR", common::model_dir())
