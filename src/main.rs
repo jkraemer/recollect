@@ -31,23 +31,22 @@ enum Command {
     /// Show one memory in full
     Show {
         id: i64,
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        output: OutputArgs,
     },
     /// Delete a memory
     Delete { id: i64 },
     /// The latest session and the recent notes and todos
     Context {
-        /// Project name; "global" selects memories without a project
-        #[arg(short, long)]
-        project: Option<String>,
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        project: ProjectArg,
+        #[command(flatten)]
+        output: OutputArgs,
     },
     /// Projects and their memory counts
     Projects {
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        output: OutputArgs,
     },
     /// Tag frequencies
     Tags(TagsArgs),
@@ -59,35 +58,72 @@ enum Command {
     },
     /// Storage location, counts and vector health
     Status {
-        #[arg(long)]
-        json: bool,
+        #[command(flatten)]
+        output: OutputArgs,
     },
 }
 
 #[derive(Args)]
-struct StoreArgs {
-    /// The memory; read from stdin when omitted
-    content: Option<String>,
-    /// Project name; omitted or "global" stores a memory without a project
-    #[arg(short, long)]
-    project: Option<String>,
-    #[arg(short = 't', long = "type", value_enum, default_value_t = MemoryType::Note)]
-    memory_type: MemoryType,
-    /// Tags, comma-separated
-    #[arg(short = 'T', long, value_delimiter = ',')]
-    tags: Vec<String>,
+struct OutputArgs {
+    /// Print JSON instead of text
     #[arg(long)]
     json: bool,
 }
 
 #[derive(Args)]
-struct FilterArgs {
+struct StoreArgs {
+    /// The memory; read from stdin when omitted (put -- before content starting with -)
+    content: Option<String>,
+    /// Project name; omitted or "global" stores a memory without a project
+    #[arg(short, long)]
+    project: Option<String>,
+    /// Memory type
+    #[arg(short = 't', long = "type", value_enum, default_value_t = MemoryType::Note)]
+    memory_type: MemoryType,
+    /// Tags, comma-separated
+    #[arg(short = 'T', long, value_delimiter = ',')]
+    tags: Vec<String>,
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+#[derive(Args)]
+struct ProjectArg {
     /// Project name; "global" selects memories without a project
     #[arg(short, long)]
     project: Option<String>,
+}
+
+impl ProjectArg {
+    fn parse(&self) -> recollect::Result<Option<ProjectRef>> {
+        self.project.as_deref().map(ProjectRef::parse).transpose()
+    }
+}
+
+/// The project and memory types a command covers.
+#[derive(Args)]
+struct ScopeArgs {
+    #[command(flatten)]
+    project: ProjectArg,
     /// Memory types, comma-separated
     #[arg(short = 't', long = "type", value_enum, value_delimiter = ',')]
     types: Vec<MemoryType>,
+}
+
+impl ScopeArgs {
+    fn to_filter(&self) -> recollect::Result<Filter> {
+        Ok(Filter {
+            project: self.project.parse()?,
+            types: self.types.clone(),
+            ..Filter::default()
+        })
+    }
+}
+
+#[derive(Args)]
+struct FilterArgs {
+    #[command(flatten)]
+    scope: ScopeArgs,
     /// Only memories carrying all of these tags, comma-separated
     #[arg(short = 'T', long, value_delimiter = ',')]
     tags: Vec<String>,
@@ -101,12 +137,12 @@ struct FilterArgs {
 
 impl FilterArgs {
     fn to_filter(&self) -> recollect::Result<Filter> {
+        let scope = self.scope.to_filter()?;
         Ok(Filter {
-            project: self.project.as_deref().map(ProjectRef::parse).transpose()?,
-            types: self.types.clone(),
             tags: normalize_tags(&self.tags)?,
             since: self.since.as_deref().map(parse_since).transpose()?,
             until: self.until.as_deref().map(parse_until).transpose()?,
+            ..scope
         })
     }
 }
@@ -118,35 +154,33 @@ struct SearchArgs {
     query: Vec<String>,
     #[command(flatten)]
     filter: FilterArgs,
+    /// How many results to show
     #[arg(short, long, default_value_t = 10)]
     limit: usize,
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: OutputArgs,
 }
 
 #[derive(Args)]
 struct ListArgs {
     #[command(flatten)]
     filter: FilterArgs,
+    /// How many memories to show
     #[arg(short, long, default_value_t = 20)]
     limit: usize,
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: OutputArgs,
 }
 
 #[derive(Args)]
 struct TagsArgs {
-    /// Project name; "global" selects memories without a project
-    #[arg(short, long)]
-    project: Option<String>,
-    /// Memory types, comma-separated
-    #[arg(short = 't', long = "type", value_enum, value_delimiter = ',')]
-    types: Vec<MemoryType>,
+    #[command(flatten)]
+    scope: ScopeArgs,
     /// How many tags to show
     #[arg(short = 'n', long, default_value_t = 20)]
     top: usize,
-    #[arg(long)]
-    json: bool,
+    #[command(flatten)]
+    output: OutputArgs,
 }
 
 fn main() -> ExitCode {
@@ -155,7 +189,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) if reader_went_away(&err) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            output::print_diagnostic(&format!("error: {err}"));
             ExitCode::FAILURE
         }
     }
@@ -169,7 +203,7 @@ fn reader_went_away(err: &anyhow::Error) -> bool {
 }
 
 fn run(command: Command) -> anyhow::Result<()> {
-    let mut app = Recollect::open(Config::load()?)?;
+    let mut app = Recollect::open(Config::load()?)?.with_notices(output::print_diagnostic);
     match command {
         Command::Store(args) => {
             let content = match args.content {
@@ -187,7 +221,7 @@ fn run(command: Command) -> anyhow::Result<()> {
                 tags: args.tags,
             })?;
             warn(outcome.warning.as_deref());
-            if args.json {
+            if args.output.json {
                 print_json(
                     &serde_json::json!({ "id": outcome.id, "global_id": outcome.global_id }),
                 )?;
@@ -199,7 +233,7 @@ fn run(command: Command) -> anyhow::Result<()> {
             let outcome =
                 app.search(&args.query.join(" "), &args.filter.to_filter()?, args.limit)?;
             warn(outcome.warning.as_deref());
-            if args.json {
+            if args.output.json {
                 print_json(&outcome.results)?;
             } else {
                 print_text(&output::memory_blocks(
@@ -209,15 +243,15 @@ fn run(command: Command) -> anyhow::Result<()> {
         }
         Command::List(args) => {
             let memories = app.list(&args.filter.to_filter()?, args.limit)?;
-            if args.json {
+            if args.output.json {
                 print_json(&memories)?;
             } else {
                 print_text(&output::memory_blocks(&memories))?;
             }
         }
-        Command::Show { id, json } => {
+        Command::Show { id, output } => {
             let memory = app.show(id)?;
-            if json {
+            if output.json {
                 print_json(&memory)?;
             } else {
                 print_text(&output::memory_block(&memory))?;
@@ -227,18 +261,17 @@ fn run(command: Command) -> anyhow::Result<()> {
             app.delete(id)?;
             print_text(&format!("deleted #{id}"))?;
         }
-        Command::Context { project, json } => {
-            let project = project.as_deref().map(ProjectRef::parse).transpose()?;
-            let context = app.context(project.as_ref())?;
-            if json {
+        Command::Context { project, output } => {
+            let context = app.context(project.parse()?.as_ref())?;
+            if output.json {
                 print_json(&context)?;
             } else {
                 print_text(&output::context_text(&context))?;
             }
         }
-        Command::Projects { json } => {
+        Command::Projects { output } => {
             let projects = app.projects()?;
-            if json {
+            if output.json {
                 print_json(&projects)?;
             } else {
                 let rows: Vec<(&str, usize)> = projects
@@ -249,13 +282,8 @@ fn run(command: Command) -> anyhow::Result<()> {
             }
         }
         Command::Tags(args) => {
-            let filter = Filter {
-                project: args.project.as_deref().map(ProjectRef::parse).transpose()?,
-                types: args.types,
-                ..Filter::default()
-            };
-            let tags = app.tags(&filter, args.top)?;
-            if args.json {
+            let tags = app.tags(&args.scope.to_filter()?, args.top)?;
+            if args.output.json {
                 print_json(&tags)?;
             } else {
                 let rows: Vec<(&str, usize)> =
@@ -267,9 +295,9 @@ fn run(command: Command) -> anyhow::Result<()> {
             let count = app.reindex(all)?;
             print_text(&format!("embedded {count} memories"))?;
         }
-        Command::Status { json } => {
+        Command::Status { output } => {
             let status = app.status()?;
-            if json {
+            if output.json {
                 print_json(&status)?;
             } else {
                 print_text(&output::status_text(&status))?;
@@ -282,12 +310,7 @@ fn run(command: Command) -> anyhow::Result<()> {
 fn read_stdin() -> anyhow::Result<String> {
     let mut stdin = std::io::stdin();
     if stdin.is_terminal() {
-        Cli::command()
-            .error(
-                ErrorKind::MissingRequiredArgument,
-                "no content: pass it as an argument or pipe it on stdin",
-            )
-            .exit();
+        no_content_error().exit();
     }
     let mut content = String::new();
     stdin
@@ -299,9 +322,22 @@ fn read_stdin() -> anyhow::Result<String> {
     Ok(content)
 }
 
+/// The usage error for `store` without content and without piped input.
+fn no_content_error() -> clap::Error {
+    let mut cli = Cli::command();
+    // Building gives subcommands their full name for the usage line.
+    cli.build();
+    cli.find_subcommand_mut("store")
+        .expect("store is a subcommand")
+        .error(
+            ErrorKind::MissingRequiredArgument,
+            "no content: pass it as an argument or pipe it on stdin",
+        )
+}
+
 fn warn(warning: Option<&str>) {
     if let Some(warning) = warning {
-        eprintln!("warning: {warning}");
+        output::print_diagnostic(&format!("warning: {warning}"));
     }
 }
 
@@ -315,4 +351,18 @@ fn print_text(text: &str) -> std::io::Result<()> {
 
 fn print_json<T: Serialize>(value: &T) -> anyhow::Result<()> {
     Ok(print_text(&serde_json::to_string(value)?)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storing_without_content_shows_the_store_usage() {
+        let message = no_content_error().to_string();
+        assert!(
+            message.contains("Usage: recollect store [OPTIONS] [CONTENT]"),
+            "{message}"
+        );
+    }
 }

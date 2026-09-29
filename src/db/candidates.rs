@@ -3,7 +3,7 @@
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
 
-use super::{Database, embedding_blob};
+use super::{Database, embedding_blob, sql_limit};
 use crate::error::Result;
 use crate::filter::Filter;
 
@@ -23,8 +23,8 @@ impl Database {
         );
         let mut params = vec![Value::Text(fts_query.to_string())];
         params.extend(filter_params);
-        params.push(Value::Integer(limit as i64));
-        self.ids(&sql, params)
+        params.push(sql_limit(limit));
+        self.candidate_ids(&sql, params)
     }
 
     /// Live memories under `filter` whose closest chunk lies within
@@ -47,11 +47,11 @@ impl Database {
         let mut params = vec![Value::Blob(embedding_blob(query))];
         params.extend(filter_params);
         params.push(Value::Real(max_distance));
-        params.push(Value::Integer(limit as i64));
-        self.ids(&sql, params)
+        params.push(sql_limit(limit));
+        self.candidate_ids(&sql, params)
     }
 
-    fn ids(&self, sql: &str, params: Vec<Value>) -> Result<Vec<i64>> {
+    fn candidate_ids(&self, sql: &str, params: Vec<Value>) -> Result<Vec<i64>> {
         let mut statement = self.conn.prepare(sql)?;
         let rows = statement.query_map(params_from_iter(params), |row| row.get(0))?;
         Ok(rows.collect::<rusqlite::Result<Vec<i64>>>()?)
@@ -130,6 +130,38 @@ mod tests {
             let hits = fts(&db, text, &Filter::default());
             assert_eq!(hits, [id], "{text}");
         }
+    }
+
+    #[test]
+    fn full_text_candidates_stop_at_the_limit() {
+        let mut db = Database::open_in_memory().unwrap();
+        let best = db
+            .insert_memory(&record("wal wal wal", None, T0), None)
+            .unwrap();
+        db.insert_memory(&record("wal once among other words", None, T0), None)
+            .unwrap();
+        let query = build_fts_query("wal").unwrap();
+        assert_eq!(
+            db.fts_candidates(&query, &Filter::default(), 1).unwrap(),
+            [best]
+        );
+    }
+
+    #[test]
+    fn query_operators_are_plain_words() {
+        let mut db = Database::open_in_memory().unwrap();
+        let id = db
+            .insert_memory(&record("login flow", None, T0), None)
+            .unwrap();
+        assert!(
+            fts(&db, "logi*", &Filter::default()).is_empty(),
+            "* is not a prefix operator"
+        );
+        assert_eq!(
+            fts(&db, "flow NOT login", &Filter::default()),
+            [id],
+            "NOT is not an operator"
+        );
     }
 
     #[test]

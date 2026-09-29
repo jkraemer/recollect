@@ -29,7 +29,7 @@ pub struct SearchRequest<'a> {
 /// for recency, and cut to `limit`.
 pub fn search(db: &Database, request: &SearchRequest<'_>) -> Result<Vec<ScoredMemory>> {
     let fts_query = fts_query::build_fts_query(request.query).ok_or(Error::EmptyQuery)?;
-    let candidates = request.limit * 3;
+    let candidates = request.limit.saturating_mul(3);
     let fts = db.fts_candidates(&fts_query, request.filter, candidates)?;
     let vector = match request.query_vector {
         Some(query) => db.vector_candidates(
@@ -49,6 +49,7 @@ pub fn search(db: &Database, request: &SearchRequest<'_>) -> Result<Vec<ScoredMe
         .collect();
     Ok(rank::apply_recency(merged, &ages, request.recency)
         .into_iter()
+        // A memory deleted by another process since its id was fetched is skipped.
         .filter_map(|(id, score)| {
             memories.get(&id).map(|memory| ScoredMemory {
                 memory: memory.clone(),
@@ -156,6 +157,38 @@ mod tests {
     }
 
     #[test]
+    fn each_arm_looks_beyond_the_limit_before_merging() {
+        let mut db = Database::open_in_memory().unwrap();
+        // First in full text; its vector lies beyond max_vector_distance.
+        db.insert_memory(
+            &record("wal wal wal", None, &day(1)),
+            Some(&vectors([-1.0, 0.0, 0.0])),
+        )
+        .unwrap();
+        // Second in both arms.
+        db.insert_memory(
+            &record("wal among other words", None, &day(1)),
+            Some(&vectors([0.9, 0.3, 0.0])),
+        )
+        .unwrap();
+        // First by vector; no shared word.
+        db.insert_memory(
+            &record("journal mode", None, &day(1)),
+            Some(&vectors([1.0, 0.0, 0.0])),
+        )
+        .unwrap();
+        let filter = Filter::default();
+        let top = SearchRequest {
+            limit: 1,
+            ..request("wal", Some(&[1.0, 0.0, 0.0]), &filter)
+        };
+        assert_eq!(
+            contents(&search(&db, &top).unwrap()),
+            ["wal among other words"]
+        );
+    }
+
+    #[test]
     fn the_limit_applies_after_merging() {
         let mut db = Database::open_in_memory().unwrap();
         for n in 1..=5 {
@@ -168,6 +201,21 @@ mod tests {
             ..request("wal", None, &filter)
         };
         assert_eq!(search(&db, &limited).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn the_largest_limit_returns_every_match() {
+        let mut db = Database::open_in_memory().unwrap();
+        for n in 1..=3 {
+            db.insert_memory(&record(&format!("wal note {n}"), None, &day(n)), None)
+                .unwrap();
+        }
+        let filter = Filter::default();
+        let unbounded = SearchRequest {
+            limit: usize::MAX,
+            ..request("wal", None, &filter)
+        };
+        assert_eq!(search(&db, &unbounded).unwrap().len(), 3);
     }
 
     #[test]

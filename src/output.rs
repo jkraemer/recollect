@@ -1,7 +1,15 @@
 //! Text rendering of command results; `--json` output goes through serde.
 
+use std::io::Write;
+
 use crate::memory::{GLOBAL, Memory};
 use crate::service::{Context, Status};
+
+/// Writes one line to stderr, ignoring a stderr nobody reads (a closed pipe):
+/// a diagnostic must not stop a command that can still do its work.
+pub fn print_diagnostic(line: &str) {
+    let _ = writeln!(std::io::stderr().lock(), "{line}");
+}
 
 /// `#42 · project · type · date · tags` on one line, then the full content.
 pub fn memory_block(memory: &Memory) -> String {

@@ -186,6 +186,54 @@ mod tests {
     }
 
     #[test]
+    fn chunks_are_stored_in_order_as_little_endian_floats() {
+        let mut db = Database::open_in_memory().unwrap();
+        let chunks = Embedded {
+            model_id: "m".into(),
+            chunks: vec![vec![1.0, -2.0], vec![0.5, 0.0]],
+        };
+        let id = db
+            .insert_memory(&record("two chunks", None, T0), Some(&chunks))
+            .unwrap();
+        let stored: Vec<(i64, Vec<u8>)> = db
+            .conn
+            .prepare("SELECT chunk_index, embedding FROM chunks WHERE memory_id = ?1 ORDER BY id")
+            .unwrap()
+            .query_map([id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            stored,
+            [
+                (0, vec![0x00, 0x00, 0x80, 0x3f, 0x00, 0x00, 0x00, 0xc0]),
+                (1, vec![0x00, 0x00, 0x00, 0x3f, 0x00, 0x00, 0x00, 0x00]),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_failed_chunk_insert_leaves_no_memory_behind() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.conn
+            .execute_batch(
+                "CREATE TEMP TRIGGER refuse_chunks BEFORE INSERT ON chunks
+                 BEGIN SELECT RAISE(ABORT, 'refused'); END",
+            )
+            .unwrap();
+        let err = db
+            .insert_memory(&record("doomed", None, T0), Some(&embedded("m", 1)))
+            .unwrap_err();
+        assert!(err.to_string().contains("refused"), "{err}");
+        let memories: i64 = db
+            .conn
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(memories, 0);
+        assert_eq!(fts_hits(&db, "doomed"), 0);
+    }
+
+    #[test]
     fn embeddings_are_stored_with_the_memory_and_the_first_model_is_recorded() {
         let mut db = Database::open_in_memory().unwrap();
         let id = db
@@ -221,7 +269,8 @@ mod tests {
             ..record("zanzibar plans", None, T0)
         };
         let id = db.insert_memory(&doomed, Some(&embedded("m", 2))).unwrap();
-        db.insert_memory(&record("zanzibar trip", None, T0), None)
+        let kept = db
+            .insert_memory(&record("zanzibar trip", None, T0), Some(&embedded("m", 1)))
             .unwrap();
 
         db.delete(id, LATER).unwrap();
@@ -250,11 +299,15 @@ mod tests {
             "the tombstoned tags must leave the index"
         );
         assert_eq!(fts_hits(&db, "zanzibar"), 1, "other memories stay indexed");
-        let chunks: i64 = db
+        let chunks: Vec<i64> = db
             .conn
-            .query_row("SELECT count(*) FROM chunks", [], |row| row.get(0))
+            .prepare("SELECT memory_id FROM chunks")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
             .unwrap();
-        assert_eq!(chunks, 0);
+        assert_eq!(chunks, [kept], "only the deleted memory's chunks go");
     }
 
     #[test]
