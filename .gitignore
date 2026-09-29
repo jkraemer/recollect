@@ -4,3 +4,5 @@
 /.venv
 /.worktrees
 /bin/start-service
+/target
+/.model-cache
