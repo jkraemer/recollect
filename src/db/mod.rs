@@ -75,6 +75,7 @@ fn register_sqlite_vec() {
 
 mod chunks;
 mod memories;
+mod queries;
 mod schema;
 #[cfg(test)]
 pub(crate) mod test_support;

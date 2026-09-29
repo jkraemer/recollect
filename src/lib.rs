@@ -3,6 +3,7 @@
 pub mod config;
 pub mod db;
 pub mod error;
+pub mod filter;
 pub mod memory;
 pub mod time;
 
