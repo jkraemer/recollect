@@ -1,0 +1,15 @@
+[package]
+name = "recollect"
+version = "0.1.0"
+edition = "2024"
+description = "Persistent, searchable memory for coding agents"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+
+[dev-dependencies]
+assert_cmd = "2.2"
+predicates = "3.1"
+tempfile = "3.27"

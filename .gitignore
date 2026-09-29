@@ -4,3 +4,4 @@
 /.venv
 /.worktrees
 /bin/start-service
+/target
