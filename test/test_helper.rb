@@ -32,23 +32,10 @@ require "ed25519"
 FileUtils.mkdir_p(TEST_DATA_DIR)
 
 module Recollect
-  class TestCase < Minitest::Test
-    include Rack::Test::Methods
-
-    def setup
-      # Reset HTTP server singletons to ensure fresh state
-      HTTPServer.reset_db_manager!
-
-      # Clean databases between tests
-      Dir.glob(File.join(TEST_DATA_DIR, "**/*.db*")).each do |f|
-        FileUtils.rm_f(f)
-      end
-    end
-
-    def teardown
-      # Subclasses can override
-    end
-
+  # Scoped ENV manipulation for tests. A module rather than a method on
+  # TestCase so that plain Minitest::Test subclasses and helper mixins
+  # (e.g. TwoPeerHelper) can reach it too.
+  module EnvHelpers
     # Sets the given ENV vars for the duration of the block, restoring the
     # exact prior state afterwards (including restoring a key to absent if
     # it was absent before). A nil value unsets the key for the duration.
@@ -72,6 +59,25 @@ module Recollect
           ENV[k] = orig
         end
       end
+    end
+  end
+
+  class TestCase < Minitest::Test
+    include Rack::Test::Methods
+    include EnvHelpers
+
+    def setup
+      # Reset HTTP server singletons to ensure fresh state
+      HTTPServer.reset_db_manager!
+
+      # Clean databases between tests
+      Dir.glob(File.join(TEST_DATA_DIR, "**/*.db*")).each do |f|
+        FileUtils.rm_f(f)
+      end
+    end
+
+    def teardown
+      # Subclasses can override
     end
 
     def setup_trusted_peer(peer_id)

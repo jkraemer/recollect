@@ -6,9 +6,9 @@ class HybridSearchRankerTest < Recollect::TestCase
   # Test merge with FTS-only results
   def test_merge_fts_only
     fts_results = [
-      {"id" => 1, "content" => "best match", "rank" => -10.0},
-      {"id" => 2, "content" => "good match", "rank" => -5.0},
-      {"id" => 3, "content" => "weak match", "rank" => -1.0}
+      {"id" => 1, "project" => nil, "content" => "best match", "rank" => -10.0},
+      {"id" => 2, "project" => nil, "content" => "good match", "rank" => -5.0},
+      {"id" => 3, "project" => nil, "content" => "weak match", "rank" => -1.0}
     ]
     vec_results = []
 
@@ -24,9 +24,9 @@ class HybridSearchRankerTest < Recollect::TestCase
   def test_merge_vector_only
     fts_results = []
     vec_results = [
-      {"id" => 1, "content" => "closest", "distance" => 0.1},
-      {"id" => 2, "content" => "medium", "distance" => 0.5},
-      {"id" => 3, "content" => "farthest", "distance" => 1.0}
+      {"id" => 1, "project" => nil, "content" => "closest", "distance" => 0.1},
+      {"id" => 2, "project" => nil, "content" => "medium", "distance" => 0.5},
+      {"id" => 3, "project" => nil, "content" => "farthest", "distance" => 1.0}
     ]
 
     results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
@@ -40,12 +40,12 @@ class HybridSearchRankerTest < Recollect::TestCase
   # Test that dual presence boosts ranking
   def test_merge_dual_presence_wins
     fts_results = [
-      {"id" => 1, "content" => "dual presence", "rank" => -8.0},
-      {"id" => 2, "content" => "fts only", "rank" => -5.0}
+      {"id" => 1, "project" => nil, "content" => "dual presence", "rank" => -8.0},
+      {"id" => 2, "project" => nil, "content" => "fts only", "rank" => -5.0}
     ]
     vec_results = [
-      {"id" => 1, "content" => "dual presence", "distance" => 0.2},
-      {"id" => 3, "content" => "vec only", "distance" => 0.3}
+      {"id" => 1, "project" => nil, "content" => "dual presence", "distance" => 0.2},
+      {"id" => 3, "project" => nil, "content" => "vec only", "distance" => 0.3}
     ]
 
     results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
@@ -59,7 +59,7 @@ class HybridSearchRankerTest < Recollect::TestCase
 
   # Test limit is respected
   def test_merge_respects_limit
-    fts_results = 5.times.map { |i| {"id" => i, "content" => "item #{i}", "rank" => -(i + 1).to_f} }
+    fts_results = 5.times.map { |i| {"id" => i, "project" => nil, "content" => "item #{i}", "rank" => -(i + 1).to_f} }
     vec_results = []
 
     results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 2)
@@ -76,8 +76,8 @@ class HybridSearchRankerTest < Recollect::TestCase
 
   # Test zero/nil values don't cause errors
   def test_merge_handles_zero_values
-    fts_results = [{"id" => 1, "content" => "test", "rank" => 0}]
-    vec_results = [{"id" => 2, "content" => "test2", "distance" => 0}]
+    fts_results = [{"id" => 1, "project" => nil, "content" => "test", "rank" => 0}]
+    vec_results = [{"id" => 2, "project" => nil, "content" => "test2", "distance" => 0}]
 
     results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
 
@@ -86,14 +86,33 @@ class HybridSearchRankerTest < Recollect::TestCase
 
   # Test 60/40 weighting between FTS and vector scores
   def test_merge_weighting
-    fts_results = [{"id" => 1, "content" => "test", "rank" => -1.0}]
-    vec_results = [{"id" => 1, "content" => "test", "distance" => 0.0}]
+    fts_results = [{"id" => 1, "project" => nil, "content" => "test", "rank" => -1.0}]
+    vec_results = [{"id" => 1, "project" => nil, "content" => "test", "distance" => 0.0}]
 
     results = Recollect::HybridSearchRanker.merge(fts_results, vec_results, limit: 10)
 
     # RRF rank 1 for both: 0.6 * (1/61) + 0.4 * (1/61) = 1.0 / 61 = 0.016393
     assert_equal 1, results.length
     assert_in_delta 0.016393, results.first["combined_score"], 0.001
+  end
+
+  # rrf_merge keys its score map by [project, id]; a result lacking the key
+  # would silently reintroduce cross-project id collisions. Producers must
+  # stamp project (nil for global) before results reach the ranker.
+  def test_merge_rejects_results_missing_project
+    fts_results = [{"id" => 1, "content" => "no project key", "rank" => -1.0}]
+
+    assert_raises(KeyError) do
+      Recollect::HybridSearchRanker.merge(fts_results, [], limit: 10)
+    end
+  end
+
+  def test_merge_rejects_vector_results_missing_project
+    vec_results = [{"id" => 1, "content" => "no project key", "distance" => 0.1}]
+
+    assert_raises(KeyError) do
+      Recollect::HybridSearchRanker.merge([], vec_results, limit: 10)
+    end
   end
 
   # Test that memories from different projects sharing the same numeric id
@@ -135,9 +154,9 @@ class HybridSearchRankerTest < Recollect::TestCase
     )
 
     fts_results = [
-      {"id" => 1, "content" => "old but relevant", "rank" => -10.0,
+      {"id" => 1, "project" => nil, "content" => "old but relevant", "rank" => -10.0,
        "created_at" => "2025-01-01T12:00:00Z"}, # 14 days old = 2 half-lives
-      {"id" => 2, "content" => "recent but less relevant", "rank" => -5.0,
+      {"id" => 2, "project" => nil, "content" => "recent but less relevant", "rank" => -5.0,
        "created_at" => "2025-01-14T12:00:00Z"}  # 1 day old
     ]
     vec_results = []
@@ -155,9 +174,9 @@ class HybridSearchRankerTest < Recollect::TestCase
 
   def test_merge_without_recency_ranker_unchanged
     fts_results = [
-      {"id" => 1, "content" => "relevant", "rank" => -10.0,
+      {"id" => 1, "project" => nil, "content" => "relevant", "rank" => -10.0,
        "created_at" => "2025-01-01T12:00:00Z"},
-      {"id" => 2, "content" => "less relevant", "rank" => -5.0,
+      {"id" => 2, "project" => nil, "content" => "less relevant", "rank" => -5.0,
        "created_at" => "2025-01-14T12:00:00Z"}
     ]
     vec_results = []

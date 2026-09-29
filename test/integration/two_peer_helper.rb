@@ -13,6 +13,8 @@ require "pathname"
 # db_manager, etc.) stay isolated between peers. Cross-peer HTTP goes through
 # Faraday's :rack adapter pointing at the other peer's Sinatra subclass.
 module TwoPeerHelper
+  include Recollect::EnvHelpers
+
   Peer = Struct.new(:label, :data_dir, :config, :app_class, keyword_init: true) do
     # Swaps Recollect.config to this peer's config for the duration of the block.
     # Required because db_manager, sync_store, etc. read Recollect.config when
@@ -60,10 +62,7 @@ module TwoPeerHelper
     dir = Pathname.new(Dir.mktmpdir("recollect-#{label}-"))
 
     # Construct Config under an ENV override so data_dir picks up the tmp path.
-    previous_data_dir = ENV["RECOLLECT_DATA_DIR"]
-    ENV["RECOLLECT_DATA_DIR"] = dir.to_s
-    cfg = Recollect::Config.new
-    ENV["RECOLLECT_DATA_DIR"] = previous_data_dir
+    cfg = with_env("RECOLLECT_DATA_DIR" => dir.to_s) { Recollect::Config.new }
 
     klass = Class.new(Recollect::HTTPServer)
     klass.instance_variable_set(:@init_mutex, Mutex.new)

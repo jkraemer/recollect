@@ -16,13 +16,12 @@ class DatabaseManagerTest < Recollect::TestCase
 
   private
 
-  def run_with_recency_env(aging_factor: "1.0", half_life_days: "7")
-    ENV["RECOLLECT_RECENCY_AGING_FACTOR"] = aging_factor
-    ENV["RECOLLECT_RECENCY_HALF_LIFE_DAYS"] = half_life_days
-    yield
-  ensure
-    ENV.delete("RECOLLECT_RECENCY_AGING_FACTOR")
-    ENV.delete("RECOLLECT_RECENCY_HALF_LIFE_DAYS")
+  def run_with_recency_env(aging_factor: "1.0", half_life_days: "7", &block)
+    with_env(
+      "RECOLLECT_RECENCY_AGING_FACTOR" => aging_factor,
+      "RECOLLECT_RECENCY_HALF_LIFE_DAYS" => half_life_days,
+      &block
+    )
   end
 
   public
@@ -194,6 +193,21 @@ class DatabaseManagerTest < Recollect::TestCase
 
     assert_same db1, db2, "Space should be sanitized to underscore"
     assert_same db1, db3, "Should be case-insensitive"
+  end
+
+  # "global" is the global database's db_name; a project by that name would
+  # create projects/global.db, shadowing the real global database.
+  def test_get_database_rejects_reserved_global_name
+    error = assert_raises(ArgumentError) { @manager.get_database("global") }
+
+    assert_match(/reserved/, error.message)
+    refute_path_exists @config.projects_dir.join("global.db")
+  end
+
+  def test_get_database_rejects_reserved_global_name_case_insensitively
+    assert_raises(ArgumentError) { @manager.get_database("GLOBAL") }
+
+    refute_includes @manager.list_db_names.tally.values, 2
   end
 
   # Test hyphens are preserved in project names
@@ -444,10 +458,20 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # Test enqueue_embedding does not raise when worker is nil
   def test_enqueue_embedding_noop_when_vectors_disabled
-    # Default config has vectors disabled, so @embedding_worker is nil
-    # This should not raise
-    @manager.enqueue_embedding(memory_id: 1, content: "test", project: "test")
-    # If we got here without error, the safe navigation worked
+    # Vectors must be off for THIS manager, not just ambiently: under the
+    # nightly, setup's manager has a live embedding worker, and this test
+    # would enqueue a real job instead of exercising the nil-worker path.
+    config = Recollect::Config.new
+    def config.vectors_available?
+      false
+    end
+    manager = Recollect::DatabaseManager.new(config)
+
+    begin
+      assert_nil manager.enqueue_embedding(memory_id: 1, content: "test", project: "test")
+    ensure
+      manager.close_all
+    end
   end
 
   # ========== Vectors Ready Tests ==========
@@ -481,9 +505,10 @@ class DatabaseManagerTest < Recollect::TestCase
 
   # ========== Recency Ranking Tests ==========
 
+  # No vector guard: with vectors off hybrid_search falls back to search_all,
+  # which applies recency itself, so the assertions hold on both paths. Under
+  # the nightly this exercises merge-time recency on the real hybrid path.
   def test_hybrid_search_applies_recency_when_enabled
-    skip "Vectors not available" unless Recollect.config.vectors_available?
-
     run_with_recency_env do
       config = Recollect::Config.new
       manager = Recollect::DatabaseManager.new(config)
@@ -504,6 +529,34 @@ class DatabaseManagerTest < Recollect::TestCase
         # New memory should rank higher due to recency
         assert_equal id_new, results.first["id"]
         assert results.first.key?("recency_factor")
+      ensure
+        manager&.close_all
+      end
+    end
+  end
+
+  # hybrid_search applies recency once for both arms at merge time, so its
+  # FTS arm must arrive in pure BM25 order with no recency adjustment.
+  def test_fts_search_does_not_apply_recency
+    run_with_recency_env do
+      config = Recollect::Config.new
+      manager = Recollect::DatabaseManager.new(config)
+
+      begin
+        db = manager.get_database("recency-raw-fts-test")
+        db.store(content: "old memory about Elixir hacking")
+        db.store(content: "new memory about Elixir hacking")
+        # Backdate the first memory
+        db.instance_variable_get(:@db).execute(
+          "UPDATE memories SET created_at = ? WHERE id = 1",
+          ["2024-01-01T00:00:00Z"]
+        )
+
+        criteria = Recollect::SearchCriteria.new(query: "Elixir", project: "recency-raw-fts-test")
+        results = manager.fts_search(criteria)
+
+        assert_equal 2, results.size
+        results.each { |m| refute m.key?("recency_factor"), "fts_search must not recency-rank" }
       ensure
         manager&.close_all
       end

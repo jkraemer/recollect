@@ -28,8 +28,9 @@ module Recollect
         # Memory ids are only unique within a single project's database, so the
         # score map must be keyed by [project, id] or memories from different
         # projects sharing the same id (e.g. both id 1) collide and clobber
-        # each other.
-        key = [mem["project"], mem["id"]]
+        # each other. fetch enforces the producer contract: every result must
+        # carry its project (nil for global) before reaching the ranker.
+        key = [mem.fetch("project"), mem["id"]]
         scores[key] ||= {memory: mem, score: 0.0}
         scores[key][:score] += FTS_WEIGHT * (1.0 / (RRF_K + rank))
       end
@@ -37,7 +38,7 @@ module Recollect
       # vec_results are already sorted by distance (ascending)
       vec_results.each_with_index do |mem, idx|
         rank = idx + 1
-        key = [mem["project"], mem["id"]]
+        key = [mem.fetch("project"), mem["id"]]
         scores[key] ||= {memory: mem, score: 0.0}
         scores[key][:score] += VECTOR_WEIGHT * (1.0 / (RRF_K + rank))
       end

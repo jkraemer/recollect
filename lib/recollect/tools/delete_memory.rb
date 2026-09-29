@@ -14,11 +14,11 @@ module Recollect
             description: "Memory ID to delete"
           },
           project: {
-            type: "string",
-            description: "Project name (omit for global)"
+            type: %w[string null],
+            description: "Project the memory belongs to, as returned in search results (null for a global memory)"
           }
         },
-        required: ["id"]
+        required: %w[id project]
       )
 
       output_schema(
@@ -30,7 +30,7 @@ module Recollect
       )
 
       class << self
-        def call(id:, server_context:, project: nil)
+        def call(id:, project:, server_context:)
           service = server_context[:memories_service]
 
           success = service.delete(id, project: project)

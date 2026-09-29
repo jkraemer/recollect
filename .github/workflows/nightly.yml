@@ -10,6 +10,12 @@ on:
 permissions:
   contents: read
 
+# A workflow_dispatch must queue behind the cron (and vice versa), not race
+# it over the same cache key or kill it mid-suite.
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
 jobs:
   full-suite:
     runs-on: ubuntu-latest
@@ -29,11 +35,17 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # The per-run key never exact-hits, so every run restores the newest
+      # prior entry via the prefix and saves a fresh one. With a fixed key,
+      # the first saved entry - even a partial one - would be served
+      # verbatim forever, and the save step would never run again.
       - name: Cache the embedding model
         uses: actions/cache@v6
         with:
           path: ~/.cache/huggingface
-          key: huggingface-all-MiniLM-L6-v2
+          key: huggingface-all-MiniLM-L6-v2-${{ github.run_id }}
+          restore-keys: |
+            huggingface-all-MiniLM-L6-v2-
 
       # Torch first, from the CPU index. The default PyPI Linux wheel bundles
       # CUDA libraries and runs 2-3 GB against roughly 200 MB here, and the
@@ -41,7 +53,7 @@ jobs:
       - name: Install the embedding stack
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r requirements.txt sqlite-vec
+          pip install -r requirements.txt
 
       - name: Resolve the vector stack paths
         run: |

@@ -9,11 +9,6 @@ module Recollect
 
     def create(content:, project: nil, memory_type: nil, tags: [])
       project = project&.downcase
-      if project == DatabaseManager::GLOBAL_DB_NAME
-        # A project by this name would collide with the global database's
-        # db_name in the sync mapping and could never sync.
-        raise ArgumentError, "project name #{DatabaseManager::GLOBAL_DB_NAME.inspect} is reserved for the global database"
-      end
 
       result = @db_manager.store_with_embedding(
         project: project,

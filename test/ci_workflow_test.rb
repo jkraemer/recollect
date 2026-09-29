@@ -60,6 +60,59 @@ class CIWorkflowTest < Minitest::Test
     assert triggers.key?("schedule"), "nightly.yml must have a cron schedule"
   end
 
+  # Auto-cancelling by github.ref applies to master pushes too: two quick
+  # pushes leave the first commit with no CI result. Only PR runs are safe
+  # to cancel (each new push supersedes the old head).
+  def test_ci_cancels_only_pull_request_runs
+    cancel = workflow("ci.yml").fetch("concurrency").fetch("cancel-in-progress")
+
+    refute_equal true, cancel, "master pushes must not cancel each other's runs"
+    assert_includes cancel.to_s, "pull_request",
+      "cancel-in-progress should be conditional on the run being a pull_request"
+  end
+
+  # Without a concurrency group, a workflow_dispatch can race the cron over
+  # the same cache key.
+  def test_nightly_serializes_concurrent_runs
+    concurrency = workflow("nightly.yml")["concurrency"]
+
+    refute_nil concurrency, "nightly.yml must declare a concurrency group"
+    refute_equal true, concurrency["cancel-in-progress"],
+      "a dispatched run must queue behind the cron, not kill it mid-suite"
+  end
+
+  # A hung run without a timeout burns the 360-minute default.
+  def test_ci_jobs_have_timeouts
+    workflow("ci.yml").fetch("jobs").each do |name, job|
+      assert job.key?("timeout-minutes"), "ci.yml job #{name.inspect} must set timeout-minutes"
+    end
+  end
+
+  # A fixed cache key with no restore-keys is an exact hit forever once
+  # saved: a partial entry would be permanently sticky, recoverable only by
+  # deleting the cache or bumping the key string.
+  def test_nightly_model_cache_can_recover_from_a_bad_entry
+    cache_step = nightly_steps.find { |step| step.dig("with", "path").to_s.include?("huggingface") }
+
+    refute_nil cache_step, "the nightly must cache the embedding model"
+    assert cache_step["with"].key?("restore-keys"),
+      "the model cache needs restore-keys so a fresh key can still restore prior entries"
+  end
+
+  # sqlite-vec's one home is requirements.txt; an inline pip argument in the
+  # workflow is where version drift hides.
+  def test_python_vector_stack_is_declared_in_requirements
+    requirements = File.read(File.join(ROOT, "requirements.txt"))
+
+    assert_match(/^sqlite-vec/, requirements, "requirements.txt must declare sqlite-vec")
+
+    install = nightly_steps.map { |step| step["run"].to_s }.find { |run| run.include?("requirements.txt") }
+
+    refute_nil install, "the nightly must install from requirements.txt"
+    refute_match(/sqlite-vec/, install,
+      "sqlite-vec belongs in requirements.txt, not inline in the workflow")
+  end
+
   private
 
   def workflow(name)

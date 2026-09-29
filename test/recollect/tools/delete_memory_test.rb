@@ -19,6 +19,7 @@ class DeleteMemoryTest < Recollect::TestCase
     id = db.store(content: "To delete")[:id]
     result = Recollect::Tools::DeleteMemory.call(
       id: id,
+      project: nil,
       server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
@@ -51,6 +52,7 @@ class DeleteMemoryTest < Recollect::TestCase
   def test_returns_failure_for_missing_id
     result = Recollect::Tools::DeleteMemory.call(
       id: 99_999,
+      project: nil,
       server_context: {db_manager: @db_manager, memories_service: @memories_service}
     )
 
@@ -64,5 +66,27 @@ class DeleteMemoryTest < Recollect::TestCase
     schema = Recollect::Tools::DeleteMemory.output_schema.to_h
 
     assert_equal %w[success id], schema[:required]
+  end
+
+  # ids collide across databases, so deleting without naming the project would
+  # silently target the global database. The schema must force the choice.
+  def test_input_schema_requires_project
+    schema = Recollect::Tools::DeleteMemory.input_schema.to_h
+
+    assert_equal %w[id project], schema[:required]
+  end
+
+  def test_call_without_project_raises_instead_of_defaulting_to_global
+    db = @db_manager.get_database(nil)
+    id = db.store(content: "Global memory that must survive")[:id]
+
+    assert_raises(ArgumentError) do
+      Recollect::Tools::DeleteMemory.call(
+        id: id,
+        server_context: {db_manager: @db_manager, memories_service: @memories_service}
+      )
+    end
+
+    refute_nil db.get(id)
   end
 end

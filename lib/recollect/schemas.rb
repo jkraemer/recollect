@@ -18,7 +18,7 @@ module Recollect
         updated_at: {type: "string"},
         rank: {type: "number"}
       },
-      required: %w[id content memory_type tags created_at updated_at]
+      required: %w[id content memory_type tags project created_at updated_at]
     }.freeze
   end
 end
