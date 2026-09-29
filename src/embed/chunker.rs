@@ -103,24 +103,38 @@ fn flush(chunks: &mut Vec<String>, current: &mut String, current_tokens: &mut us
     *current_tokens = 0;
 }
 
-/// Cuts a word with no whitespace into the longest prefixes that fit.
+/// Cuts a word with no whitespace into the longest prefixes that fit. Each
+/// prefix length is found by doubling until a candidate no longer fits, then
+/// bisecting, so the text counted stays proportional to the piece instead of
+/// to the rest of the word.
 fn split_characters(word: &str, max_tokens: usize, count: &dyn Fn(&str) -> usize) -> Vec<String> {
     let chars: Vec<char> = word.chars().collect();
     let mut pieces = Vec::new();
     let mut start = 0;
     while start < chars.len() {
-        let (mut fits, mut too_long) = (start + 1, chars.len());
-        while fits < too_long {
-            let middle = (fits + too_long).div_ceil(2);
-            let candidate: String = chars[start..middle].iter().collect();
-            if count(&candidate) <= max_tokens {
-                fits = middle;
+        let rest = &chars[start..];
+        let fits = |length: usize| count(&rest[..length].iter().collect::<String>()) <= max_tokens;
+        // A single character is taken even if it does not fit, so cutting always advances.
+        let (mut longest_fitting, mut shortest_too_long) = (1, rest.len() + 1);
+        while longest_fitting < rest.len() {
+            let candidate = (longest_fitting * 2).min(rest.len());
+            if fits(candidate) {
+                longest_fitting = candidate;
             } else {
-                too_long = middle - 1;
+                shortest_too_long = candidate;
+                break;
             }
         }
-        pieces.push(chars[start..fits].iter().collect());
-        start = fits;
+        while longest_fitting + 1 < shortest_too_long {
+            let middle = (longest_fitting + shortest_too_long) / 2;
+            if fits(middle) {
+                longest_fitting = middle;
+            } else {
+                shortest_too_long = middle;
+            }
+        }
+        pieces.push(rest[..longest_fitting].iter().collect());
+        start += longest_fitting;
     }
     pieces
 }
@@ -203,6 +217,25 @@ mod tests {
     #[test]
     fn an_overlong_word_is_cut_by_characters() {
         assert_eq!(chunk("abcdefghij", 4, &chars), ["abcd", "efgh", "ij"]);
+    }
+
+    #[test]
+    fn cutting_a_long_word_counts_each_character_a_bounded_number_of_times() {
+        let word = "x".repeat(20_000);
+        let counted = std::cell::Cell::new(0);
+        let counting = |text: &str| {
+            counted.set(counted.get() + text.len());
+            chars(text)
+        };
+        let chunks = chunk(&word, 100, &counting);
+        assert_eq!(chunks.len(), 200);
+        assert!(chunks.iter().all(|c| c.len() == 100));
+        assert!(
+            counted.get() < 25 * word.len(),
+            "counted {} characters for {}",
+            counted.get(),
+            word.len()
+        );
     }
 
     #[test]
