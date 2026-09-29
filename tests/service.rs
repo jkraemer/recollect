@@ -268,10 +268,17 @@ fn vectors_from_another_model_degrade_to_full_text_until_reindexed() {
     );
     assert_eq!(search.results.len(), 2);
 
+    let before = app.status().unwrap();
     assert!(matches!(
         app.reindex(false),
         Err(Error::ModelMismatch { .. })
     ));
+    let refused = app.status().unwrap();
+    assert_eq!(
+        refused.stored_embedding_model.as_deref(),
+        Some("all-minilm-l6-v2")
+    );
+    assert_eq!(refused.pending_embeddings, before.pending_embeddings);
     assert_eq!(app.reindex(true).unwrap(), 2);
     let status = app.status().unwrap();
     assert_eq!(status.stored_embedding_model.as_deref(), Some(MODEL_ID));
@@ -320,6 +327,29 @@ fn an_unavailable_model_keeps_store_and_search_working() {
     let status = app.status().unwrap();
     assert_eq!(status.pending_embeddings, 1);
     assert!(!status.vectors_usable);
+}
+
+#[test]
+fn reindex_all_without_a_model_keeps_the_stored_vectors() {
+    let dir = tempfile::tempdir().unwrap();
+    app(&dir)
+        .store(note(
+            "embedded while the model was there",
+            ProjectRef::Global,
+        ))
+        .unwrap();
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    let config = Config::load_from(dir.path().to_path_buf(), Some(blocker)).unwrap();
+    let mut without_model = Recollect::open(config).unwrap();
+
+    assert!(matches!(
+        without_model.reindex(true),
+        Err(Error::EmbeddingUnavailable(_))
+    ));
+    let status = without_model.status().unwrap();
+    assert_eq!(status.stored_embedding_model.as_deref(), Some(MODEL_ID));
+    assert_eq!(status.pending_embeddings, 0);
 }
 
 #[test]
