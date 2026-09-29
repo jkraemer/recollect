@@ -262,7 +262,7 @@ impl Recollect {
     /// were embedded. Without `all`, vectors from another model are refused
     /// before the model loads; an unavailable model fails before anything changes.
     pub fn reindex(&mut self, all: bool) -> Result<usize> {
-        if !all && let Some(mismatch) = self.vectors_mismatch()? {
+        if !all && let Some(mismatch) = self.vectors_mismatch(self.db.stored_embedding_model()?) {
             return Err(mismatch);
         }
         self.embedder().map_err(Error::EmbeddingUnavailable)?;
@@ -285,7 +285,8 @@ impl Recollect {
 
     /// Counts and vector health; never loads or downloads the model.
     pub fn status(&self) -> Result<Status> {
-        let vectors_reason = match (self.vectors_mismatch()?, &self.embedder) {
+        let stored = self.db.stored_embedding_model()?;
+        let vectors_reason = match (self.vectors_mismatch(stored.clone()), &self.embedder) {
             (Some(mismatch), _) => Some(mismatch.to_string()),
             (None, EmbedderSlot::Failed(reason)) => {
                 Some(VectorsUnusable::Unavailable(reason.clone()).describe())
@@ -302,7 +303,7 @@ impl Recollect {
             memories: self.db.live_count()?,
             projects: self.db.project_counts()?.len(),
             embedding_model: self.model_id().to_string(),
-            stored_embedding_model: self.db.stored_embedding_model()?,
+            stored_embedding_model: stored,
             vectors_usable: vectors_reason.is_none(),
             vectors_reason,
             pending_embeddings: self.db.pending_embedding_count()?,
@@ -316,7 +317,7 @@ impl Recollect {
         &mut self,
         work: impl FnOnce(&mut dyn Embedder) -> Result<T>,
     ) -> Result<std::result::Result<T, VectorsUnusable>> {
-        if let Some(mismatch) = self.vectors_mismatch()? {
+        if let Some(mismatch) = self.vectors_mismatch(self.db.stored_embedding_model()?) {
             return Ok(Err(VectorsUnusable::ModelMismatch(mismatch)));
         }
         Ok(match self.embedder() {
@@ -335,17 +336,16 @@ impl Recollect {
         }
     }
 
-    /// `Error::ModelMismatch` when the stored vectors come from another model.
-    fn vectors_mismatch(&self) -> Result<Option<Error>> {
+    /// `Error::ModelMismatch` when `stored`, the model of the stored vectors,
+    /// is not this instance's model.
+    fn vectors_mismatch(&self, stored: Option<String>) -> Option<Error> {
         let current = self.model_id();
-        Ok(self
-            .db
-            .stored_embedding_model()?
+        stored
             .filter(|stored| stored != current)
             .map(|stored| Error::ModelMismatch {
                 stored,
                 current: current.to_string(),
-            }))
+            })
     }
 
     /// Loads the model on first use; later calls reuse it or repeat the load failure.
