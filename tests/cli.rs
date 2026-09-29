@@ -411,6 +411,40 @@ fn concurrent_writers_all_succeed() {
     );
 }
 
+#[test]
+fn an_unavailable_model_degrades_with_warnings_on_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    let without_model = || {
+        let mut command = recollect(dir.path());
+        command.env("RECOLLECT_MODEL_DIR", &blocker);
+        command
+    };
+    without_model()
+        .args(["store", "x"])
+        .assert()
+        .success()
+        .stdout("stored #1\n")
+        .stderr(predicate::str::contains(
+            "warning: stored #1 without embedding:",
+        ))
+        .stderr(predicate::str::contains("error:").not());
+    without_model()
+        .args(["search", "x"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("#1 · global · note · "))
+        .stderr(predicate::str::contains("warning: full-text search only:"))
+        .stderr(predicate::str::contains("error:").not());
+    without_model()
+        .arg("reindex")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::contains("error: embedding unavailable:"));
+}
+
 /// Stores a memory of `size` bytes without going through the CLI, so it has no vectors.
 fn insert_large_memory(data_dir: &Path, size: usize) {
     Database::open(&data_dir.join("memories.db"))
