@@ -326,6 +326,18 @@ fn vectors_from_another_model_are_reported_without_loading_the_model() {
 }
 
 #[test]
+fn reindex_reports_vectors_from_another_model_without_loading_the_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_without_model(&dir);
+    insert_with_other_model(&config);
+    let mut app = Recollect::open(config).unwrap();
+    assert!(matches!(
+        app.reindex(false),
+        Err(Error::ModelMismatch { .. })
+    ));
+}
+
+#[test]
 fn a_model_download_is_announced_to_the_notice_sink() {
     let dir = tempfile::tempdir().unwrap();
     let config = config_without_model(&dir);

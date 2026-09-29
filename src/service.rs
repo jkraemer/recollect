@@ -259,14 +259,15 @@ impl Recollect {
 
     /// Embeds live memories that have no vectors; `all` first discards every
     /// stored vector (needed after a model change). Returns how many memories
-    /// were embedded. An unavailable model fails before anything changes.
+    /// were embedded. Without `all`, vectors from another model are refused
+    /// before the model loads; an unavailable model fails before anything changes.
     pub fn reindex(&mut self, all: bool) -> Result<usize> {
+        if !all && let Some(mismatch) = self.vectors_mismatch()? {
+            return Err(mismatch);
+        }
         self.embedder().map_err(Error::EmbeddingUnavailable)?;
         if all {
             self.db.clear_embeddings()?;
-        }
-        if let Some(mismatch) = self.vectors_mismatch()? {
-            return Err(mismatch);
         }
         let mut embedded_count = 0;
         for (id, content) in self.db.pending_embeddings()? {
