@@ -14,6 +14,9 @@ pub const MODEL_ID: &str = "bge-small-en-v1.5-q";
 /// BGE's retrieval instruction, prepended to queries but not to stored passages.
 const QUERY_PREFIX: &str = "Represent this sentence for searching relevant passages: ";
 
+/// Chunks per ONNX batch: bounds peak memory independent of the memory's size.
+const EMBED_BATCH_SIZE: usize = 4;
+
 /// The model's hf-hub cache entry inside the model directory.
 const MODEL_CACHE_ENTRY: &str = "models--Qdrant--bge-small-en-v1.5-onnx-Q";
 
@@ -63,13 +66,15 @@ impl Embedder for FastEmbedder {
     }
 
     fn embed_passages(&mut self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        self.model.embed(texts, None).map_err(unavailable)
+        self.model
+            .embed(texts, Some(EMBED_BATCH_SIZE))
+            .map_err(unavailable)
     }
 
     fn embed_query(&mut self, query: &str) -> Result<Vec<f32>> {
         let mut vectors = self
             .model
-            .embed([format!("{QUERY_PREFIX}{query}")], None)
+            .embed([format!("{QUERY_PREFIX}{query}")], Some(EMBED_BATCH_SIZE))
             .map_err(unavailable)?;
         vectors
             .pop()

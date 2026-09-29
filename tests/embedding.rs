@@ -87,6 +87,52 @@ fn long_memories_are_chunked_within_the_window() {
 }
 
 #[test]
+fn memories_with_many_chunks_embed_one_vector_per_chunk_in_order() {
+    let mut model = common::shared_model();
+    let topics = [
+        "sqlite schema migrations",
+        "banana bread baking",
+        "sailing across the atlantic",
+        "quarterly tax filing",
+    ];
+    let content = topics
+        .iter()
+        .map(|topic| format!("# {topic}\n{}", format!("Notes about {topic}. ").repeat(90)))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let chunks = chunk(&content, MAX_CHUNK_TOKENS, &|text| {
+        model.count_tokens(text).unwrap()
+    });
+    assert!(chunks.len() > 4, "{} chunks", chunks.len());
+
+    let embedded = embed_memory(&mut model, &content).unwrap();
+    assert_eq!(embedded.chunks.len(), chunks.len());
+    assert!(embedded.chunks.iter().all(|v| v.len() == 384));
+    for (index, piece) in chunks.iter().enumerate() {
+        let alone = model
+            .embed_passages(std::slice::from_ref(piece))
+            .unwrap()
+            .remove(0);
+        let similarities: Vec<f32> = embedded
+            .chunks
+            .iter()
+            .map(|vector| cosine(vector, &alone))
+            .collect();
+        let best = similarities
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .unwrap()
+            .0;
+        assert_eq!(best, index, "chunk {index}: {similarities:?}");
+        assert!(
+            similarities[index] > 0.999,
+            "chunk {index}: {similarities:?}"
+        );
+    }
+}
+
+#[test]
 fn an_unusable_model_directory_is_reported_as_unavailable() {
     let file = tempfile::NamedTempFile::new().unwrap();
     let err = FastEmbedder::load(file.path())
