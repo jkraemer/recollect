@@ -6,6 +6,7 @@ pub mod embed;
 pub mod error;
 pub mod filter;
 pub mod memory;
+pub mod output;
 pub mod search;
 pub mod service;
 pub mod time;

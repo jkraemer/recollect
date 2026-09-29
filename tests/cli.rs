@@ -1,4 +1,49 @@
+mod common;
+
+use std::path::Path;
+use std::process::{Command as StdCommand, Stdio};
+
 use assert_cmd::Command;
+use predicates::prelude::*;
+use serde_json::{Value, json};
+
+/// `recollect` against `data_dir`, with the model already downloaded so no
+/// download notice appears on stderr.
+fn recollect(data_dir: &Path) -> Command {
+    let _ = common::shared_model();
+    let mut command = Command::cargo_bin("recollect").unwrap();
+    command
+        .env("RECOLLECT_DATA_DIR", data_dir)
+        .env("RECOLLECT_MODEL_DIR", common::model_dir());
+    command
+}
+
+/// Runs a command that must succeed silently on stderr and parses its stdout as JSON.
+fn json_of(command: &mut Command) -> Value {
+    let output = command.output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
+fn store(data_dir: &Path, args: &[&str]) {
+    recollect(data_dir)
+        .arg("store")
+        .args(args)
+        .assert()
+        .success()
+        .stderr("");
+}
+
+fn contents(listed: &Value) -> Vec<String> {
+    listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["content"].as_str().unwrap().to_string())
+        .collect()
+}
 
 #[test]
 fn version_flag_prints_the_crate_version() {
@@ -9,4 +54,356 @@ fn version_flag_prints_the_crate_version() {
         .success()
         .stdout(format!("recollect {}\n", env!("CARGO_PKG_VERSION")))
         .stderr("");
+}
+
+#[test]
+fn store_from_an_argument_then_show_it() {
+    let dir = tempfile::tempdir().unwrap();
+    recollect(dir.path())
+        .args([
+            "store",
+            "Single SQLite DB",
+            "-p",
+            "Recollect",
+            "-T",
+            "sync,Decision",
+        ])
+        .assert()
+        .success()
+        .stdout("stored #1\n")
+        .stderr("");
+    recollect(dir.path())
+        .args(["show", "1"])
+        .assert()
+        .success()
+        .stdout(
+            predicate::str::is_match(
+                r"^#1 · recollect · note · \d{4}-\d{2}-\d{2} · decision, sync\nSingle SQLite DB\n$",
+            )
+            .unwrap(),
+        )
+        .stderr("");
+}
+
+#[test]
+fn store_reads_multi_line_markdown_from_stdin() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = "## Decision\nUse `sqlite` with \"quotes\" and 'apostrophes'.\n\n- item $HOME\n";
+    recollect(dir.path())
+        .arg("store")
+        .write_stdin(content)
+        .assert()
+        .success()
+        .stdout("stored #1\n")
+        .stderr("");
+    let memory = json_of(recollect(dir.path()).args(["show", "1", "--json"]));
+    assert_eq!(memory["content"], content.trim());
+    assert_eq!(memory["project"], Value::Null);
+    assert_eq!(memory["memory_type"], "note");
+}
+
+#[test]
+fn store_json_reports_both_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let stored = json_of(recollect(dir.path()).args(["store", "x", "--json"]));
+    assert_eq!(stored["id"], 1);
+    assert_eq!(stored["global_id"].as_str().unwrap().len(), 36);
+}
+
+#[test]
+fn store_rejects_empty_and_invalid_input() {
+    let dir = tempfile::tempdir().unwrap();
+    recollect(dir.path())
+        .arg("store")
+        .write_stdin("  \n")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("error: content must not be empty\n");
+    recollect(dir.path())
+        .arg("store")
+        .write_stdin(vec![0xff_u8, 0xfe])
+        .assert()
+        .code(1)
+        .stderr("error: content is not valid UTF-8\n");
+    recollect(dir.path())
+        .args(["store", "x", "-p", "a b"])
+        .assert()
+        .code(1)
+        .stderr("error: invalid project name \"a b\": allowed are a-z 0-9 . _ -\n");
+    recollect(dir.path())
+        .args(["store", "x", "-t", "decision"])
+        .assert()
+        .code(2);
+}
+
+#[test]
+fn search_returns_scored_json_and_readable_text() {
+    let dir = tempfile::tempdir().unwrap();
+    store(
+        dir.path(),
+        &[
+            "We keep every memory in one SQLite file.",
+            "-p",
+            "recollect",
+        ],
+    );
+    store(
+        dir.path(),
+        &["Banana bread needs ripe bananas.", "-p", "kitchen"],
+    );
+    let results = json_of(recollect(dir.path()).args(["search", "sqlite", "file", "--json"]));
+    let first = &results[0];
+    for key in [
+        "id",
+        "global_id",
+        "project",
+        "memory_type",
+        "content",
+        "tags",
+        "created_at",
+        "score",
+    ] {
+        assert!(first.get(key).is_some(), "missing {key}");
+    }
+    assert_eq!(first["project"], "recollect");
+    recollect(dir.path())
+        .args(["search", "sqlite"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with("#1 · recollect · note · "))
+        .stderr("");
+}
+
+#[test]
+fn search_treats_fts_syntax_as_words_and_rejects_empty_queries() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["auth bug in login"]);
+    recollect(dir.path())
+        .args(["search", r#"auth-bug: "unclosed"#])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("auth bug in login"))
+        .stderr("");
+    recollect(dir.path())
+        .args(["search", "***"])
+        .assert()
+        .code(1)
+        .stderr("error: search query must contain at least one term\n");
+}
+
+#[test]
+fn list_filters_by_project_type_tags_and_dates() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["one", "-p", "a", "-T", "x"]);
+    store(dir.path(), &["two", "-p", "a", "-t", "todo", "-T", "x,y"]);
+    store(dir.path(), &["three", "-t", "session"]);
+    let list = |args: &[&str]| {
+        contents(&json_of(
+            recollect(dir.path()).arg("list").args(args).arg("--json"),
+        ))
+    };
+    assert_eq!(list(&[]), ["three", "two", "one"]);
+    assert_eq!(list(&["-p", "a"]), ["two", "one"]);
+    assert_eq!(list(&["-p", "global"]), ["three"]);
+    assert_eq!(list(&["-t", "todo,session"]), ["three", "two"]);
+    assert_eq!(list(&["-T", "y,X"]), ["two"]);
+    assert_eq!(
+        list(&["--since", "2000-01-01", "--until", "2999-12-31"]).len(),
+        3
+    );
+    assert!(list(&["--until", "2000-01-01"]).is_empty());
+    assert_eq!(list(&["-l", "1"]), ["three"]);
+    recollect(dir.path())
+        .args(["list", "--since", "yesterday"])
+        .assert()
+        .code(1)
+        .stderr("error: invalid date \"yesterday\": use YYYY-MM-DD or an RFC 3339 timestamp\n");
+}
+
+#[test]
+fn delete_hides_a_memory_and_unknown_ids_fail() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["x"]);
+    recollect(dir.path())
+        .args(["delete", "1"])
+        .assert()
+        .success()
+        .stdout("deleted #1\n")
+        .stderr("");
+    recollect(dir.path())
+        .args(["show", "1"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("error: memory 1 not found\n");
+    recollect(dir.path())
+        .args(["delete", "1"])
+        .assert()
+        .code(1)
+        .stderr("error: memory 1 not found\n");
+}
+
+#[test]
+fn context_shows_the_latest_session_and_recent_notes() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["older session", "-p", "p", "-t", "session"]);
+    store(dir.path(), &["latest session", "-p", "p", "-t", "session"]);
+    store(dir.path(), &["a note", "-p", "p"]);
+    store(dir.path(), &["a todo", "-p", "p", "-t", "todo"]);
+    recollect(dir.path())
+        .args(["context", "-p", "p"])
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(
+            "Last session\n#2 · p · session · ",
+        ))
+        .stderr("");
+    let context = json_of(recollect(dir.path()).args(["context", "-p", "p", "--json"]));
+    assert_eq!(context["project"], "p");
+    assert_eq!(context["last_session"]["content"], "latest session");
+    assert_eq!(
+        contents(&context["recent_notes_todos"]),
+        ["a todo", "a note"]
+    );
+    let everywhere = json_of(recollect(dir.path()).args(["context", "--json"]));
+    assert_eq!(everywhere["project"], Value::Null);
+    assert_eq!(
+        contents(&everywhere["recent_sessions"]),
+        ["latest session", "older session"]
+    );
+}
+
+#[test]
+fn projects_and_tags_count_live_memories() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["a", "-p", "p", "-T", "x"]);
+    store(dir.path(), &["b", "-p", "p", "-T", "x,y"]);
+    store(dir.path(), &["c", "-T", "y"]);
+    recollect(dir.path())
+        .arg("projects")
+        .assert()
+        .success()
+        .stdout("global  1\np       2\n")
+        .stderr("");
+    assert_eq!(
+        json_of(recollect(dir.path()).args(["projects", "--json"])),
+        json!([{"name": "global", "count": 1}, {"name": "p", "count": 2}])
+    );
+    recollect(dir.path())
+        .arg("tags")
+        .assert()
+        .success()
+        .stdout("x  2\ny  2\n")
+        .stderr("");
+    assert_eq!(
+        json_of(recollect(dir.path()).args(["tags", "-p", "p", "-n", "1", "--json"])),
+        json!([{"tag": "x", "count": 2}])
+    );
+}
+
+#[test]
+fn status_and_reindex_report_vector_health() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["x"]);
+    let status = json_of(recollect(dir.path()).args(["status", "--json"]));
+    assert_eq!(status["memories"], 1);
+    assert_eq!(status["pending_embeddings"], 0);
+    assert_eq!(status["vectors_usable"], true);
+    assert_eq!(status["embedding_model"], "bge-small-en-v1.5-q");
+    assert_eq!(
+        status["database"],
+        dir.path().join("memories.db").display().to_string()
+    );
+    recollect(dir.path())
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pending embeddings:  0"))
+        .stderr("");
+    recollect(dir.path())
+        .arg("reindex")
+        .assert()
+        .success()
+        .stdout("embedded 0 memories\n")
+        .stderr("");
+    recollect(dir.path())
+        .args(["reindex", "--all"])
+        .assert()
+        .success()
+        .stdout("embedded 1 memories\n")
+        .stderr("");
+}
+
+#[test]
+fn a_fresh_data_directory_answers_read_commands_with_empty_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().join("fresh");
+    for args in [
+        &["list"][..],
+        &["projects"],
+        &["tags"],
+        &["search", "anything"],
+    ] {
+        recollect(&data)
+            .args(args)
+            .assert()
+            .success()
+            .stdout("")
+            .stderr("");
+    }
+    recollect(&data)
+        .arg("context")
+        .assert()
+        .success()
+        .stdout("Recent sessions\n(none)\n\nRecent notes and todos\n(none)\n")
+        .stderr("");
+    assert!(data.join("memories.db").is_file());
+}
+
+#[test]
+fn without_recollect_data_dir_the_home_directory_is_used() {
+    let home = tempfile::tempdir().unwrap();
+    let _ = common::shared_model();
+    Command::cargo_bin("recollect")
+        .unwrap()
+        .env_remove("RECOLLECT_DATA_DIR")
+        .env("HOME", home.path())
+        .env("RECOLLECT_MODEL_DIR", common::model_dir())
+        .args(["store", "x"])
+        .assert()
+        .success()
+        .stdout("stored #1\n");
+    assert!(home.path().join(".recollect").join("memories.db").is_file());
+}
+
+#[test]
+fn concurrent_writers_all_succeed() {
+    let dir = tempfile::tempdir().unwrap();
+    let _ = common::shared_model();
+    let children: Vec<_> = (0..4)
+        .map(|n| {
+            StdCommand::new(assert_cmd::cargo::cargo_bin("recollect"))
+                .env("RECOLLECT_DATA_DIR", dir.path())
+                .env("RECOLLECT_MODEL_DIR", common::model_dir())
+                .args(["store", &format!("concurrent memory {n}")])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    for child in children {
+        let output = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stderr}");
+        assert!(stderr.is_empty(), "{stderr}");
+    }
+    assert_eq!(
+        json_of(recollect(dir.path()).args(["list", "--json"]))
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
 }
