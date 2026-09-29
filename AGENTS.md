@@ -60,7 +60,13 @@ cargo run -- search "query" --json
 
 Data lives in `$RECOLLECT_DATA_DIR/memories.db` (default `~/.recollect`); the
 embedding model is cached in `$RECOLLECT_MODEL_DIR` (default
-`<data dir>/models`).
+`<data dir>/models`). fastembed lets `HF_HOME` override the model directory, so
+keep `HF_HOME` unset: the tests expect it to be.
+
+The data directory also holds `memories.db.lock`. Every process that opens the
+database (the CLI, a sync daemon) must take a blocking `flock` on it around the
+switch to WAL mode, because SQLite does not invoke the busy handler for that
+switch.
 
 ## Architecture
 
