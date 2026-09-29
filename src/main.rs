@@ -1,4 +1,4 @@
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::process::ExitCode;
 
 use clap::error::ErrorKind;
@@ -153,11 +153,19 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli.command) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(err) if reader_went_away(&err) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("error: {err}");
             ExitCode::FAILURE
         }
     }
+}
+
+/// Whether writing to stdout failed because its reader closed the pipe, as
+/// `recollect list | head -1` does; that ends the command without an error.
+fn reader_went_away(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<std::io::Error>()
+        .is_some_and(|err| err.kind() == std::io::ErrorKind::BrokenPipe)
 }
 
 fn run(command: Command) -> anyhow::Result<()> {
@@ -184,7 +192,7 @@ fn run(command: Command) -> anyhow::Result<()> {
                     &serde_json::json!({ "id": outcome.id, "global_id": outcome.global_id }),
                 )?;
             } else {
-                println!("stored #{}", outcome.id);
+                print_text(&format!("stored #{}", outcome.id))?;
             }
         }
         Command::Search(args) => {
@@ -196,7 +204,7 @@ fn run(command: Command) -> anyhow::Result<()> {
             } else {
                 print_text(&output::memory_blocks(
                     outcome.results.iter().map(|result| &result.memory),
-                ));
+                ))?;
             }
         }
         Command::List(args) => {
@@ -204,7 +212,7 @@ fn run(command: Command) -> anyhow::Result<()> {
             if args.json {
                 print_json(&memories)?;
             } else {
-                print_text(&output::memory_blocks(&memories));
+                print_text(&output::memory_blocks(&memories))?;
             }
         }
         Command::Show { id, json } => {
@@ -212,12 +220,12 @@ fn run(command: Command) -> anyhow::Result<()> {
             if json {
                 print_json(&memory)?;
             } else {
-                print_text(&output::memory_block(&memory));
+                print_text(&output::memory_block(&memory))?;
             }
         }
         Command::Delete { id } => {
             app.delete(id)?;
-            println!("deleted #{id}");
+            print_text(&format!("deleted #{id}"))?;
         }
         Command::Context { project, json } => {
             let project = project.as_deref().map(ProjectRef::parse).transpose()?;
@@ -225,7 +233,7 @@ fn run(command: Command) -> anyhow::Result<()> {
             if json {
                 print_json(&context)?;
             } else {
-                print_text(&output::context_text(&context));
+                print_text(&output::context_text(&context))?;
             }
         }
         Command::Projects { json } => {
@@ -237,7 +245,7 @@ fn run(command: Command) -> anyhow::Result<()> {
                     .iter()
                     .map(|p| (p.name.as_str(), p.count))
                     .collect();
-                print_text(&output::counts_text(&rows));
+                print_text(&output::counts_text(&rows))?;
             }
         }
         Command::Tags(args) => {
@@ -252,19 +260,19 @@ fn run(command: Command) -> anyhow::Result<()> {
             } else {
                 let rows: Vec<(&str, usize)> =
                     tags.iter().map(|t| (t.tag.as_str(), t.count)).collect();
-                print_text(&output::counts_text(&rows));
+                print_text(&output::counts_text(&rows))?;
             }
         }
         Command::Reindex { all } => {
             let count = app.reindex(all)?;
-            println!("embedded {count} memories");
+            print_text(&format!("embedded {count} memories"))?;
         }
         Command::Status { json } => {
             let status = app.status()?;
             if json {
                 print_json(&status)?;
             } else {
-                print_text(&output::status_text(&status));
+                print_text(&output::status_text(&status))?;
             }
         }
     }
@@ -298,13 +306,13 @@ fn warn(warning: Option<&str>) {
 }
 
 /// Prints `text` and a newline; prints nothing at all for empty text.
-fn print_text(text: &str) {
-    if !text.is_empty() {
-        println!("{text}");
+fn print_text(text: &str) -> std::io::Result<()> {
+    if text.is_empty() {
+        return Ok(());
     }
+    writeln!(std::io::stdout().lock(), "{text}")
 }
 
 fn print_json<T: Serialize>(value: &T) -> anyhow::Result<()> {
-    println!("{}", serde_json::to_string(value)?);
-    Ok(())
+    Ok(print_text(&serde_json::to_string(value)?)?)
 }

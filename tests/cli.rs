@@ -1,10 +1,13 @@
 mod common;
 
+use std::io::Read;
 use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use recollect::db::Database;
+use recollect::memory::{MemoryType, NewRecord};
 use serde_json::{Value, json};
 
 /// `recollect` against `data_dir`, with the model already downloaded so no
@@ -405,5 +408,72 @@ fn concurrent_writers_all_succeed() {
             .unwrap()
             .len(),
         4
+    );
+}
+
+/// Stores a memory of `size` bytes without going through the CLI, so it has no vectors.
+fn insert_large_memory(data_dir: &Path, size: usize) {
+    Database::open(&data_dir.join("memories.db"))
+        .unwrap()
+        .insert_memory(
+            &NewRecord {
+                global_id: "large".to_string(),
+                project: None,
+                memory_type: MemoryType::Note,
+                content: "x".repeat(size),
+                tags: Vec::new(),
+                origin_peer: None,
+                created_at: "2026-01-01T00:00:00.000Z".to_string(),
+            },
+            None,
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_reader_that_stops_early_ends_the_command_quietly() {
+    let dir = tempfile::tempdir().unwrap();
+    // Far more output than a pipe buffers, so the command is still writing when the reader leaves.
+    insert_large_memory(dir.path(), 300_000);
+    let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("recollect"))
+        .env("RECOLLECT_DATA_DIR", dir.path())
+        .env("RECOLLECT_MODEL_DIR", common::model_dir())
+        .arg("list")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_exact(&mut [0_u8; 16])
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn an_output_write_failure_is_reported_as_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["x"]);
+    let full = std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/full")
+        .unwrap();
+    let output = StdCommand::new(assert_cmd::cargo::cargo_bin("recollect"))
+        .env("RECOLLECT_DATA_DIR", dir.path())
+        .env("RECOLLECT_MODEL_DIR", common::model_dir())
+        .args(["show", "1"])
+        .stdout(full)
+        .stderr(Stdio::piped())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "error: No space left on device (os error 28)\n"
     );
 }
