@@ -24,11 +24,19 @@ fn passages_embed_to_384_deterministic_dimensions() {
 fn queries_get_the_retrieval_prefix() {
     let mut model = common::shared_model();
     let query = model.embed_query("sqlite schema").unwrap();
-    let passage = model
-        .embed_passages(&["sqlite schema".to_string()])
+    let prefixed = model
+        .embed_passages(&[
+            "Represent this sentence for searching relevant passages: sqlite schema".to_string(),
+        ])
         .unwrap()
         .remove(0);
-    assert_ne!(query, passage);
+    assert_eq!(query, prefixed);
+}
+
+#[test]
+fn a_loaded_model_counts_as_cached() {
+    let _ = common::shared_model();
+    assert!(FastEmbedder::is_cached(&common::model_dir()));
 }
 
 #[test]

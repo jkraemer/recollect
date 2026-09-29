@@ -49,6 +49,7 @@ pub fn search(db: &Database, request: &SearchRequest<'_>) -> Result<Vec<ScoredMe
         .collect();
     Ok(rank::apply_recency(merged, &ages, request.recency)
         .into_iter()
+        // A memory deleted by another process since its id was fetched is skipped.
         .filter_map(|(id, score)| {
             memories.get(&id).map(|memory| ScoredMemory {
                 memory: memory.clone(),
@@ -153,6 +154,38 @@ mod tests {
                 .all(|pair| pair[0].score >= pair[1].score)
         );
         assert!(results.iter().all(|r| r.score > 0.0));
+    }
+
+    #[test]
+    fn each_arm_looks_beyond_the_limit_before_merging() {
+        let mut db = Database::open_in_memory().unwrap();
+        // First in full text; its vector lies beyond max_vector_distance.
+        db.insert_memory(
+            &record("wal wal wal", None, &day(1)),
+            Some(&vectors([-1.0, 0.0, 0.0])),
+        )
+        .unwrap();
+        // Second in both arms.
+        db.insert_memory(
+            &record("wal among other words", None, &day(1)),
+            Some(&vectors([0.9, 0.3, 0.0])),
+        )
+        .unwrap();
+        // First by vector; no shared word.
+        db.insert_memory(
+            &record("journal mode", None, &day(1)),
+            Some(&vectors([1.0, 0.0, 0.0])),
+        )
+        .unwrap();
+        let filter = Filter::default();
+        let top = SearchRequest {
+            limit: 1,
+            ..request("wal", Some(&[1.0, 0.0, 0.0]), &filter)
+        };
+        assert_eq!(
+            contents(&search(&db, &top).unwrap()),
+            ["wal among other words"]
+        );
     }
 
     #[test]

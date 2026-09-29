@@ -84,8 +84,12 @@ mod tests {
     }
 
     #[test]
-    fn equal_scores_prefer_the_newer_id() {
+    fn merging_no_candidates_yields_nothing() {
         assert!(rrf_merge(&[], &[]).is_empty());
+    }
+
+    #[test]
+    fn equal_scores_prefer_the_newer_id() {
         let merged = rrf_merge(&[5], &[]);
         let mut tied = merged.clone();
         tied.push((9, merged[0].1));

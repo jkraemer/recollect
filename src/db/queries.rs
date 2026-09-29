@@ -138,6 +138,24 @@ mod tests {
     }
 
     #[test]
+    fn list_puts_the_newer_id_first_when_timestamps_tie() {
+        let mut db = Database::open_in_memory().unwrap();
+        let first = db
+            .insert_memory(&record("first", None, &day(1)), None)
+            .unwrap();
+        let second = db
+            .insert_memory(&record("second", None, &day(1)), None)
+            .unwrap();
+        let ids: Vec<i64> = db
+            .list(&Filter::default(), 10)
+            .unwrap()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+        assert_eq!(ids, [second, first]);
+    }
+
+    #[test]
     fn list_skips_tombstones() {
         let mut db = seeded();
         db.delete(4, &day(5)).unwrap();

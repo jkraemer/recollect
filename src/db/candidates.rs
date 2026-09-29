@@ -133,6 +133,38 @@ mod tests {
     }
 
     #[test]
+    fn full_text_candidates_stop_at_the_limit() {
+        let mut db = Database::open_in_memory().unwrap();
+        let best = db
+            .insert_memory(&record("wal wal wal", None, T0), None)
+            .unwrap();
+        db.insert_memory(&record("wal once among other words", None, T0), None)
+            .unwrap();
+        let query = build_fts_query("wal").unwrap();
+        assert_eq!(
+            db.fts_candidates(&query, &Filter::default(), 1).unwrap(),
+            [best]
+        );
+    }
+
+    #[test]
+    fn query_operators_are_plain_words() {
+        let mut db = Database::open_in_memory().unwrap();
+        let id = db
+            .insert_memory(&record("login flow", None, T0), None)
+            .unwrap();
+        assert!(
+            fts(&db, "logi*", &Filter::default()).is_empty(),
+            "* is not a prefix operator"
+        );
+        assert_eq!(
+            fts(&db, "flow NOT login", &Filter::default()),
+            [id],
+            "NOT is not an operator"
+        );
+    }
+
+    #[test]
     fn full_text_matching_folds_case_and_diacritics() {
         let mut db = Database::open_in_memory().unwrap();
         let id = db
