@@ -1,5 +1,8 @@
 mod common;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use recollect::Error;
 use recollect::config::Config;
 use recollect::db::Database;
@@ -319,6 +322,28 @@ fn vectors_from_another_model_are_reported_without_loading_the_model() {
     assert!(
         warning.contains("stored vectors come from all-minilm-l6-v2"),
         "{warning}"
+    );
+}
+
+#[test]
+fn a_model_download_is_announced_to_the_notice_sink() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_without_model(&dir);
+    let expected = format!(
+        "downloading embedding model {MODEL_ID} to {}",
+        config.model_dir.display()
+    );
+    let notices = Rc::new(RefCell::new(Vec::new()));
+    let sink = Rc::clone(&notices);
+    let mut app = Recollect::open(config)
+        .unwrap()
+        .with_notices(move |notice| sink.borrow_mut().push(notice.to_string()));
+    app.store(note("x", ProjectRef::Global)).unwrap();
+    app.search("x", &Filter::default(), 10).unwrap();
+    assert_eq!(
+        *notices.borrow(),
+        [expected],
+        "announced once per load attempt"
     );
 }
 

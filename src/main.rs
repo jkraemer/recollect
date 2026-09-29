@@ -203,7 +203,7 @@ fn reader_went_away(err: &anyhow::Error) -> bool {
 }
 
 fn run(command: Command) -> anyhow::Result<()> {
-    let mut app = Recollect::open(Config::load()?)?;
+    let mut app = Recollect::open(Config::load()?)?.with_notices(output::print_diagnostic);
     match command {
         Command::Store(args) => {
             let content = match args.content {

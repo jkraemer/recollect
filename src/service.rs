@@ -12,7 +12,6 @@ use crate::filter::Filter;
 use crate::memory::{
     Memory, MemoryType, NewRecord, ProjectRef, ScoredMemory, normalize_content, normalize_tags,
 };
-use crate::output::print_diagnostic;
 use crate::search::fts_query::build_fts_query;
 use crate::search::{self, SearchRequest};
 use crate::time::now_timestamp;
@@ -121,6 +120,8 @@ pub struct Recollect {
     config: Config,
     db: Database,
     embedder: EmbedderSlot,
+    /// Receives progress notices, such as the start of a model download.
+    notify: Box<dyn Fn(&str)>,
 }
 
 impl Recollect {
@@ -131,17 +132,21 @@ impl Recollect {
             config,
             db,
             embedder: EmbedderSlot::NotLoaded,
+            notify: Box::new(|_| {}),
         })
     }
 
     /// Opens the database with an embedder that is already loaded.
     pub fn open_with_embedder(config: Config, embedder: Box<dyn Embedder>) -> Result<Self> {
-        let db = Database::open(&config.database_path())?;
-        Ok(Self {
-            config,
-            db,
-            embedder: EmbedderSlot::Ready(embedder),
-        })
+        let mut app = Self::open(config)?;
+        app.embedder = EmbedderSlot::Ready(embedder);
+        Ok(app)
+    }
+
+    /// Sends progress notices to `notify`; without it they are dropped.
+    pub fn with_notices(mut self, notify: impl Fn(&str) + 'static) -> Self {
+        self.notify = Box::new(notify);
+        self
     }
 
     /// Stores a memory. Embedding problems never block the write: the memory
@@ -346,7 +351,7 @@ impl Recollect {
     fn embedder(&mut self) -> std::result::Result<&mut dyn Embedder, String> {
         if matches!(self.embedder, EmbedderSlot::NotLoaded) {
             if !FastEmbedder::is_cached(&self.config.model_dir) {
-                print_diagnostic(&format!(
+                (self.notify)(&format!(
                     "downloading embedding model {MODEL_ID} to {}",
                     self.config.model_dir.display()
                 ));

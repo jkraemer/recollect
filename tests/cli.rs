@@ -457,6 +457,10 @@ fn an_unavailable_model_degrades_with_warnings_on_stderr() {
         .assert()
         .success()
         .stdout("stored #1\n")
+        .stderr(predicate::str::starts_with(format!(
+            "downloading embedding model bge-small-en-v1.5-q to {}\n",
+            blocker.display()
+        )))
         .stderr(predicate::str::contains(
             "warning: stored #1 without embedding:",
         ))
