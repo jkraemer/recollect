@@ -6,6 +6,7 @@ pub mod embed;
 pub mod error;
 pub mod filter;
 pub mod memory;
+pub mod search;
 pub mod time;
 
 pub use error::{Error, Result};

@@ -73,6 +73,7 @@ fn register_sqlite_vec() {
     });
 }
 
+mod candidates;
 mod chunks;
 mod memories;
 mod queries;
