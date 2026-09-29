@@ -1,4 +1,4 @@
-//! SQLite storage: one database file shared by the CLI and, later, the sync daemon.
+//! SQLite storage: one database file that several processes (the CLI, a sync daemon) open.
 
 use std::fs::OpenOptions;
 use std::path::Path;

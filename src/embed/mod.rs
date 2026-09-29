@@ -14,7 +14,8 @@ use crate::memory::Embedded;
 /// Tokens per chunk: the model's 512-token window minus `[CLS]` and `[SEP]`.
 pub const MAX_CHUNK_TOKENS: usize = 510;
 
-/// Produces embeddings. A daemon-backed implementation can plug in here later.
+/// The seam between callers and the model: implementations may run it
+/// in-process or delegate to another process.
 pub trait Embedder {
     /// Identifies the model; stored as `meta.embedding_model`.
     fn model_id(&self) -> &str;

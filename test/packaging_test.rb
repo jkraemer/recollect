@@ -45,8 +45,8 @@ class PackagingTest < Minitest::Test
     refute_includes gemspec.files, "bin/server", "bin/ wrappers are for the working copy only"
   end
 
-  # The Rust crate lives at the repository root beside the Ruby code until the
-  # rewrite replaces it; none of it may ship in the gem.
+  # The Rust crate lives at the repository root beside the Ruby code and ships
+  # separately; none of it may ship in the gem.
   def test_gemspec_omits_the_rust_crate
     %w[Cargo.toml Cargo.lock rust-toolchain.toml].each do |path|
       refute_includes gemspec.files, path, "#{path} belongs to the Rust crate, not the gem"
