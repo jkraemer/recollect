@@ -13,10 +13,6 @@ pub use schema::SCHEMA_VERSION;
 /// An open recollect database, migrated to the current schema.
 #[derive(Debug)]
 pub struct Database {
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "used by the storage submodules")
-    )]
     conn: Connection,
 }
 
@@ -50,10 +46,6 @@ impl Database {
 }
 
 /// Serializes a vector the way sqlite-vec reads it: little-endian `f32`s.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "used by the storage submodules")
-)]
 pub(crate) fn embedding_blob(vector: &[f32]) -> Vec<u8> {
     vector
         .iter()
@@ -81,7 +73,11 @@ fn register_sqlite_vec() {
     });
 }
 
+mod chunks;
+mod memories;
 mod schema;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod tests {
