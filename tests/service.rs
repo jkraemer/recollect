@@ -34,6 +34,27 @@ fn note(content: &str, project: ProjectRef) -> StoreInput {
     input(content, project, MemoryType::Note)
 }
 
+/// A config whose model directory is a regular file, so the model cannot load.
+fn config_without_model(dir: &TempDir) -> Config {
+    let blocker = dir.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    Config::load_from(dir.path().to_path_buf(), Some(blocker)).unwrap()
+}
+
+/// Stores a memory with vectors from another model, as an older binary would have.
+fn insert_with_other_model(config: &Config) {
+    Database::open(&config.database_path())
+        .unwrap()
+        .insert_memory(
+            &old_record("old", "written with the old model"),
+            Some(&Embedded {
+                model_id: "all-minilm-l6-v2".into(),
+                chunks: vec![vec![0.1; 384]],
+            }),
+        )
+        .unwrap();
+}
+
 fn old_record(global_id: &str, content: &str) -> NewRecord {
     NewRecord {
         global_id: global_id.to_string(),
@@ -232,16 +253,7 @@ fn projects_and_tags_are_counted() {
 fn vectors_from_another_model_degrade_to_full_text_until_reindexed() {
     let dir = tempfile::tempdir().unwrap();
     let config = config(&dir);
-    Database::open(&config.database_path())
-        .unwrap()
-        .insert_memory(
-            &old_record("old", "written with the old model"),
-            Some(&Embedded {
-                model_id: "all-minilm-l6-v2".into(),
-                chunks: vec![vec![0.1; 384]],
-            }),
-        )
-        .unwrap();
+    insert_with_other_model(&config);
     let mut app = Recollect::open_with_embedder(config, Box::new(common::shared_model())).unwrap();
 
     let stored = app
@@ -269,6 +281,13 @@ fn vectors_from_another_model_degrade_to_full_text_until_reindexed() {
     assert_eq!(search.results.len(), 2);
 
     let before = app.status().unwrap();
+    assert!(!before.vectors_usable);
+    assert_eq!(
+        before.vectors_reason.as_deref(),
+        Some(
+            "stored vectors come from all-minilm-l6-v2, but the model is bge-small-en-v1.5-q; run recollect reindex --all"
+        )
+    );
     assert!(matches!(
         app.reindex(false),
         Err(Error::ModelMismatch { .. })
@@ -287,12 +306,38 @@ fn vectors_from_another_model_degrade_to_full_text_until_reindexed() {
 }
 
 #[test]
+fn vectors_from_another_model_are_reported_without_loading_the_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_without_model(&dir);
+    insert_with_other_model(&config);
+    let mut app = Recollect::open(config).unwrap();
+    let warning = app
+        .store(note("new", ProjectRef::Global))
+        .unwrap()
+        .warning
+        .unwrap();
+    assert!(
+        warning.contains("stored vectors come from all-minilm-l6-v2"),
+        "{warning}"
+    );
+}
+
+#[test]
+fn status_reports_why_the_model_failed_to_load() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = Recollect::open(config_without_model(&dir)).unwrap();
+    app.store(note("x", ProjectRef::Global)).unwrap();
+    let reason = app.status().unwrap().vectors_reason.unwrap();
+    assert!(
+        reason.starts_with("the embedding model is unavailable ("),
+        "{reason}"
+    );
+}
+
+#[test]
 fn an_unavailable_model_keeps_store_and_search_working() {
     let dir = tempfile::tempdir().unwrap();
-    let blocker = dir.path().join("not-a-directory");
-    std::fs::write(&blocker, "").unwrap();
-    let config = Config::load_from(dir.path().to_path_buf(), Some(blocker)).unwrap();
-    let mut app = Recollect::open(config).unwrap();
+    let mut app = Recollect::open(config_without_model(&dir)).unwrap();
 
     let stored = app
         .store(note("kept without vectors", ProjectRef::Global))
@@ -338,10 +383,7 @@ fn reindex_all_without_a_model_keeps_the_stored_vectors() {
             ProjectRef::Global,
         ))
         .unwrap();
-    let blocker = dir.path().join("not-a-directory");
-    std::fs::write(&blocker, "").unwrap();
-    let config = Config::load_from(dir.path().to_path_buf(), Some(blocker)).unwrap();
-    let mut without_model = Recollect::open(config).unwrap();
+    let mut without_model = Recollect::open(config_without_model(&dir)).unwrap();
 
     assert!(matches!(
         without_model.reindex(true),

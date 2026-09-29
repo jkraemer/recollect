@@ -84,7 +84,8 @@ pub struct Status {
 /// Why vector search or embedding cannot run right now.
 enum VectorsUnusable {
     Unavailable(String),
-    ModelMismatch { stored: String, current: String },
+    /// Always an `Error::ModelMismatch`.
+    ModelMismatch(Error),
 }
 
 impl VectorsUnusable {
@@ -93,11 +94,7 @@ impl VectorsUnusable {
             VectorsUnusable::Unavailable(reason) => {
                 format!("the embedding model is unavailable ({reason})")
             }
-            VectorsUnusable::ModelMismatch { stored, current } => {
-                format!(
-                    "stored vectors come from {stored}, but the model is {current}; run recollect reindex --all"
-                )
-            }
+            VectorsUnusable::ModelMismatch(mismatch) => mismatch.to_string(),
         }
     }
 
@@ -107,7 +104,7 @@ impl VectorsUnusable {
                 "stored #{id} without embedding: {}; run recollect reindex once the model is available",
                 self.describe()
             ),
-            VectorsUnusable::ModelMismatch { .. } => {
+            VectorsUnusable::ModelMismatch(_) => {
                 format!("stored #{id} without embedding: {}", self.describe())
             }
         }
@@ -152,13 +149,7 @@ impl Recollect {
     pub fn store(&mut self, input: StoreInput) -> Result<StoreOutcome> {
         let content = normalize_content(&input.content)?;
         let tags = normalize_tags(&input.tags)?;
-        let (embedded, unusable) = match self.usable_embedder()? {
-            Ok(embedder) => match embed_memory(embedder, &content) {
-                Ok(embedded) => (Some(embedded), None),
-                Err(err) => (None, Some(VectorsUnusable::Unavailable(reason_of(err)))),
-            },
-            Err(unusable) => (None, Some(unusable)),
-        };
+        let embedded = self.with_vectors(|embedder| embed_memory(embedder, &content))?;
         let record = NewRecord {
             global_id: Uuid::now_v7().to_string(),
             project: input.project.column_value().map(String::from),
@@ -168,11 +159,11 @@ impl Recollect {
             origin_peer: None,
             created_at: now_timestamp(),
         };
-        let id = self.db.insert_memory(&record, embedded.as_ref())?;
+        let id = self.db.insert_memory(&record, embedded.as_ref().ok())?;
         Ok(StoreOutcome {
             id,
             global_id: record.global_id,
-            warning: unusable.map(|why| why.store_warning(id)),
+            warning: embedded.err().map(|why| why.store_warning(id)),
         })
     }
 
@@ -181,18 +172,12 @@ impl Recollect {
         if build_fts_query(query).is_none() {
             return Err(Error::EmptyQuery);
         }
-        let (query_vector, unusable) = match self.usable_embedder()? {
-            Ok(embedder) => match embedder.embed_query(query) {
-                Ok(vector) => (Some(vector), None),
-                Err(err) => (None, Some(VectorsUnusable::Unavailable(reason_of(err)))),
-            },
-            Err(unusable) => (None, Some(unusable)),
-        };
+        let query_vector = self.with_vectors(|embedder| embedder.embed_query(query))?;
         let results = search::search(
             &self.db,
             &SearchRequest {
                 query,
-                query_vector: query_vector.as_deref(),
+                query_vector: query_vector.as_deref().ok(),
                 filter,
                 limit,
                 max_vector_distance: self.config.max_vector_distance,
@@ -202,7 +187,9 @@ impl Recollect {
         )?;
         Ok(SearchOutcome {
             results,
-            warning: unusable.map(|why| format!("full-text search only: {}", why.describe())),
+            warning: query_vector
+                .err()
+                .map(|why| format!("full-text search only: {}", why.describe())),
         })
     }
 
@@ -269,20 +256,12 @@ impl Recollect {
     /// stored vector (needed after a model change). Returns how many memories
     /// were embedded. An unavailable model fails before anything changes.
     pub fn reindex(&mut self, all: bool) -> Result<usize> {
-        let current = self
-            .embedder()
-            .map_err(Error::EmbeddingUnavailable)?
-            .model_id()
-            .to_string();
+        self.embedder().map_err(Error::EmbeddingUnavailable)?;
         if all {
             self.db.clear_embeddings()?;
         }
-        if let Some(stored) = self
-            .db
-            .stored_embedding_model()?
-            .filter(|stored| *stored != current)
-        {
-            return Err(Error::ModelMismatch { stored, current });
+        if let Some(mismatch) = self.vectors_mismatch()? {
+            return Err(mismatch);
         }
         let mut embedded_count = 0;
         for (id, content) in self.db.pending_embeddings()? {
@@ -300,18 +279,12 @@ impl Recollect {
 
     /// Counts and vector health; never loads or downloads the model.
     pub fn status(&self) -> Result<Status> {
-        let stored = self.db.stored_embedding_model()?;
-        let model_present = matches!(self.embedder, EmbedderSlot::Ready(_))
-            || FastEmbedder::is_cached(&self.config.model_dir);
-        let vectors_reason = match &stored {
-            Some(stored) if stored != MODEL_ID => Some(
-                VectorsUnusable::ModelMismatch {
-                    stored: stored.clone(),
-                    current: MODEL_ID.to_string(),
-                }
-                .describe(),
-            ),
-            _ if !model_present => Some(
+        let vectors_reason = match (self.vectors_mismatch()?, &self.embedder) {
+            (Some(mismatch), _) => Some(mismatch.to_string()),
+            (None, EmbedderSlot::Failed(reason)) => {
+                Some(VectorsUnusable::Unavailable(reason.clone()).describe())
+            }
+            (None, EmbedderSlot::NotLoaded) if !FastEmbedder::is_cached(&self.config.model_dir) => Some(
                 "the embedding model is not downloaded yet; the next store, search or reindex downloads it"
                     .into(),
             ),
@@ -322,32 +295,51 @@ impl Recollect {
             database: self.config.database_path().display().to_string(),
             memories: self.db.live_count()?,
             projects: self.db.project_counts()?.len(),
-            embedding_model: MODEL_ID.to_string(),
-            stored_embedding_model: stored,
+            embedding_model: self.model_id().to_string(),
+            stored_embedding_model: self.db.stored_embedding_model()?,
             vectors_usable: vectors_reason.is_none(),
             vectors_reason,
             pending_embeddings: self.db.pending_embedding_count()?,
         })
     }
 
-    /// The embedder when it loads and matches the stored vectors, else why not.
-    fn usable_embedder(
+    /// Runs `work` with the embedder, or says why vectors are unusable: an
+    /// embedding problem is never an error, callers go on without vectors.
+    /// Stored vectors from another model are detected before loading the model.
+    fn with_vectors<T>(
         &mut self,
-    ) -> Result<std::result::Result<&mut dyn Embedder, VectorsUnusable>> {
-        let stored = self.db.stored_embedding_model()?;
-        let embedder = match self.embedder() {
-            Ok(embedder) => embedder,
-            Err(reason) => return Ok(Err(VectorsUnusable::Unavailable(reason))),
-        };
-        match stored {
-            Some(stored) if stored != embedder.model_id() => {
-                Ok(Err(VectorsUnusable::ModelMismatch {
-                    current: embedder.model_id().to_string(),
-                    stored,
-                }))
-            }
-            _ => Ok(Ok(embedder)),
+        work: impl FnOnce(&mut dyn Embedder) -> Result<T>,
+    ) -> Result<std::result::Result<T, VectorsUnusable>> {
+        if let Some(mismatch) = self.vectors_mismatch()? {
+            return Ok(Err(VectorsUnusable::ModelMismatch(mismatch)));
         }
+        Ok(match self.embedder() {
+            Ok(embedder) => {
+                work(embedder).map_err(|err| VectorsUnusable::Unavailable(reason_of(err)))
+            }
+            Err(reason) => Err(VectorsUnusable::Unavailable(reason)),
+        })
+    }
+
+    /// The model this instance embeds with, known without loading it.
+    fn model_id(&self) -> &str {
+        match &self.embedder {
+            EmbedderSlot::Ready(embedder) => embedder.model_id(),
+            EmbedderSlot::NotLoaded | EmbedderSlot::Failed(_) => MODEL_ID,
+        }
+    }
+
+    /// `Error::ModelMismatch` when the stored vectors come from another model.
+    fn vectors_mismatch(&self) -> Result<Option<Error>> {
+        let current = self.model_id();
+        Ok(self
+            .db
+            .stored_embedding_model()?
+            .filter(|stored| stored != current)
+            .map(|stored| Error::ModelMismatch {
+                stored,
+                current: current.to_string(),
+            }))
     }
 
     /// Loads the model on first use; later calls reuse it or repeat the load failure.
