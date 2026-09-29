@@ -113,6 +113,25 @@ class CIWorkflowTest < Minitest::Test
       "sqlite-vec belongs in requirements.txt, not inline in the workflow")
   end
 
+  def test_ci_checks_the_rust_crate
+    commands = rust_steps.filter_map { |step| step["run"] }
+
+    assert_includes commands, "cargo fmt --check"
+    assert_includes commands, "cargo clippy --all-targets -- -D warnings"
+    assert(commands.any? { |run| run.start_with?("cargo llvm-cov") && run.include?("--fail-under-lines 80") },
+      "the rust job must run the tests under the 80% line-coverage floor")
+  end
+
+  # Same reasoning as the nightly's cache: without restore-keys a bad entry
+  # would stick forever.
+  def test_rust_model_cache_can_recover_from_a_bad_entry
+    cache_step = rust_steps.find { |step| step.dig("with", "path").to_s.include?(".model-cache") }
+
+    refute_nil cache_step, "the rust job must cache the embedding model"
+    assert cache_step["with"].key?("restore-keys"),
+      "the model cache needs restore-keys so a fresh key can still restore prior entries"
+  end
+
   private
 
   def workflow(name)
@@ -124,6 +143,10 @@ class CIWorkflowTest < Minitest::Test
 
   def nightly_steps
     workflow("nightly.yml").fetch("jobs").fetch("full-suite").fetch("steps")
+  end
+
+  def rust_steps
+    workflow("ci.yml").fetch("jobs").fetch("rust").fetch("steps")
   end
 
   # Under Psych (YAML 1.1), a bare `on:` key parses as the boolean `true`,

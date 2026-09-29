@@ -40,6 +40,28 @@ bundle exec ruby -Itest test/packaging_test.rb
 ./bin/recollect projects
 ```
 
+### Rust rewrite (in progress)
+
+The Rust crate at the repository root (`Cargo.toml`, `src/`, `tests/`) is the
+local-first CLI replacing the Ruby server; see
+`docs/superpowers/specs/2026-09-29-rust-core-cli-design.md` (untracked
+working doc). It is excluded from the gem.
+
+```bash
+cargo test                                   # all tests; the first run downloads the model to .model-cache/
+cargo test --test cli                        # end-to-end tests of the binary
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
+cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
+cargo run -- store -p myproj -T decision <<'EOF'
+Memory content from stdin
+EOF
+cargo run -- search "query" --json
+```
+
+Data lives in `$RECOLLECT_DATA_DIR/memories.db` (default `~/.recollect`); the
+embedding model is cached in `$RECOLLECT_MODEL_DIR` (default
+`<data dir>/models`).
+
 ## Architecture
 
 ```
@@ -110,6 +132,12 @@ bundle exec rake coverage
 ```
 
 Degrading test coverage is strongly discouraged. If coverage drops, add tests for uncovered code before committing.
+
+For Rust changes, also run:
+
+```bash
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
 
 ## Testing
 

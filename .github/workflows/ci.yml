@@ -46,3 +46,25 @@ jobs:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
       - run: bundle exec rake test
+
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      # rust-toolchain.toml pins the toolchain; the runner's rustup installs it
+      # and its components on the first cargo call.
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      # A per-run key with a prefix restore-key: a bad entry is replaced on the
+      # next save instead of being restored verbatim forever.
+      - name: Cache the embedding model
+        uses: actions/cache@v6
+        with:
+          path: .model-cache
+          key: embedding-model-bge-small-en-v1.5-q-${{ github.run_id }}
+          restore-keys: |
+            embedding-model-bge-small-en-v1.5-q-
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo llvm-cov --fail-under-lines 80
