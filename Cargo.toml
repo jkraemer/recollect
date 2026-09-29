@@ -17,6 +17,7 @@ sqlite-vec = "0.1.9"
 thiserror = "2.0"
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 toml = "1.1"
+uuid = { version = "1.26", features = ["v7"] }
 
 [dev-dependencies]
 assert_cmd = "2.2"
