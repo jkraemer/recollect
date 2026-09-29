@@ -3,10 +3,11 @@
 /// Every word becomes a quoted term and double-quoted segments stay phrases;
 /// terms are OR-ed so BM25 ranks memories matching more of them higher.
 /// Pieces without letters or digits are dropped: the tokenizer would index
-/// nothing for them. Returns `None` when no term remains.
+/// nothing for them. NUL separates words, since SQLite reads the query as a
+/// C string. Returns `None` when no term remains.
 pub fn build_fts_query(text: &str) -> Option<String> {
     let mut terms = Vec::new();
-    for (index, segment) in text.split('"').enumerate() {
+    for (index, segment) in text.replace('\0', " ").split('"').enumerate() {
         if index % 2 == 1 {
             let phrase = segment.split_whitespace().collect::<Vec<_>>().join(" ");
             push_term(&mut terms, &phrase);
@@ -64,6 +65,15 @@ mod tests {
         assert_eq!(
             build_fts_query(r#"foo "bar baz"#).unwrap(),
             r#""foo" OR "bar baz""#
+        );
+    }
+
+    #[test]
+    fn nul_separates_words() {
+        assert_eq!(build_fts_query("auth\0bug").unwrap(), r#""auth" OR "bug""#);
+        assert_eq!(
+            build_fts_query("\"login\" \"a\0b\"").unwrap(),
+            r#""login" OR "a b""#
         );
     }
 

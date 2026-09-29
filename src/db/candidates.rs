@@ -125,6 +125,7 @@ mod tests {
             "auth AND OR NOT",
             "login*",
             "content:login auth",
+            "auth\0login",
         ] {
             let hits = fts(&db, text, &Filter::default());
             assert_eq!(hits, [id], "{text}");
