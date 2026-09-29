@@ -82,6 +82,29 @@ underlying design is unchanged.
 
 Architectural — deliberately left for a decision rather than patched.
 
+### 12. Embeddings only cover the first ~256 word pieces of a chunk
+
+`lib/recollect/markdown_chunker.rb` splits content at `DEFAULT_MAX_TOKENS =
+900`, estimated as words × 1.3. `bin/embed-server` embeds with
+`all-MiniLM-L6-v2`, whose `max_seq_length` is 256 word pieces (per the model
+card; sentence-transformers truncates longer input silently). So:
+
+- a memory up to ~900 estimated tokens is embedded whole
+  (`database_manager.rb`, single-chunk branch of `store_with_embedding`) and
+  only its opening ~190 words reach the vector;
+- each chunk of a longer memory is truncated the same way.
+
+The rest of the text is invisible to vector search; FTS still covers it. The
+word-based estimate also undercounts code and identifiers, which split into
+many word pieces. Not verified by a live round-trip — this machine has no
+model cache — only derived from the model's documented limit.
+
+Fixing it in Ruby means counting tokens with the model's tokenizer (e.g. an
+`embed-server` request that returns token counts) or chunking well under 256,
+then re-embedding existing memories. Left open because the Rust rewrite
+replaces this pipeline and chunks by real tokenizer counts; fix here only if
+the Ruby version stays in service longer than planned.
+
 ### The Ruby matrix is `["3.4"]` only
 
 3.5 was removed because `setup-ruby` resolves `"3.5"` to `3.5.0-preview1` and
