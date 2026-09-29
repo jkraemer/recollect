@@ -29,7 +29,7 @@ pub struct SearchRequest<'a> {
 /// for recency, and cut to `limit`.
 pub fn search(db: &Database, request: &SearchRequest<'_>) -> Result<Vec<ScoredMemory>> {
     let fts_query = fts_query::build_fts_query(request.query).ok_or(Error::EmptyQuery)?;
-    let candidates = request.limit * 3;
+    let candidates = request.limit.saturating_mul(3);
     let fts = db.fts_candidates(&fts_query, request.filter, candidates)?;
     let vector = match request.query_vector {
         Some(query) => db.vector_candidates(
@@ -168,6 +168,21 @@ mod tests {
             ..request("wal", None, &filter)
         };
         assert_eq!(search(&db, &limited).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn the_largest_limit_returns_every_match() {
+        let mut db = Database::open_in_memory().unwrap();
+        for n in 1..=3 {
+            db.insert_memory(&record(&format!("wal note {n}"), None, &day(n)), None)
+                .unwrap();
+        }
+        let filter = Filter::default();
+        let unbounded = SearchRequest {
+            limit: usize::MAX,
+            ..request("wal", None, &filter)
+        };
+        assert_eq!(search(&db, &unbounded).unwrap().len(), 3);
     }
 
     #[test]

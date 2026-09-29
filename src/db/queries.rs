@@ -3,10 +3,9 @@
 use std::collections::HashMap;
 
 use rusqlite::params_from_iter;
-use rusqlite::types::Value;
 
-use super::Database;
 use super::memories::{MEMORY_COLUMNS, memory_from_row};
+use super::{Database, sql_limit};
 use crate::error::Result;
 use crate::filter::Filter;
 use crate::memory::Memory;
@@ -15,7 +14,7 @@ impl Database {
     /// Live memories matching `filter`, newest first.
     pub fn list(&self, filter: &Filter, limit: usize) -> Result<Vec<Memory>> {
         let (conditions, mut params) = filter.to_sql();
-        params.push(Value::Integer(limit as i64));
+        params.push(sql_limit(limit));
         let sql = format!(
             "SELECT {MEMORY_COLUMNS} FROM memories m WHERE {conditions}
              ORDER BY m.created_at DESC, m.id DESC LIMIT ?"
@@ -27,15 +26,14 @@ impl Database {
 
     /// The live memories among `ids`, keyed by id.
     pub fn get_many(&self, ids: &[i64]) -> Result<HashMap<i64, Memory>> {
-        if ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-        let marks = vec!["?"; ids.len()].join(", ");
+        // One JSON array parameter: SQLite caps the number of bound parameters.
         let sql = format!(
-            "SELECT {MEMORY_COLUMNS} FROM memories m WHERE m.deleted_at IS NULL AND m.id IN ({marks})"
+            "SELECT {MEMORY_COLUMNS} FROM memories m
+             WHERE m.deleted_at IS NULL AND m.id IN (SELECT value FROM json_each(?1))"
         );
+        let ids = serde_json::to_string(ids).expect("a list of integers always serializes");
         let mut statement = self.conn.prepare(&sql)?;
-        let rows = statement.query_map(params_from_iter(ids), memory_from_row)?;
+        let rows = statement.query_map([ids], memory_from_row)?;
         rows.map(|row| Ok(row.map(|memory| (memory.id, memory))?))
             .collect()
     }
@@ -64,7 +62,7 @@ impl Database {
     /// Tag frequencies over live memories matching `filter`: most frequent first, ties by tag.
     pub fn tag_counts(&self, filter: &Filter, top: usize) -> Result<Vec<(String, usize)>> {
         let (conditions, mut params) = filter.to_sql();
-        params.push(Value::Integer(top as i64));
+        params.push(sql_limit(top));
         let sql = format!(
             "SELECT t.value, count(*) AS uses FROM memories m, json_each(m.tags) AS t
              WHERE {conditions} GROUP BY t.value ORDER BY uses DESC, t.value LIMIT ?"
@@ -191,6 +189,13 @@ mod tests {
         assert_eq!(ids, [1, 3]);
         assert_eq!(found[&3].content, "three");
         assert!(db.get_many(&[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn get_many_takes_more_ids_than_sqlite_binds_parameters() {
+        let db = seeded();
+        let ids: Vec<i64> = (1..=40_000).collect();
+        assert_eq!(db.get_many(&ids).unwrap().len(), 4);
     }
 
     #[test]

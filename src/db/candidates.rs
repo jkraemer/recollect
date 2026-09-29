@@ -3,7 +3,7 @@
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
 
-use super::{Database, embedding_blob};
+use super::{Database, embedding_blob, sql_limit};
 use crate::error::Result;
 use crate::filter::Filter;
 
@@ -23,8 +23,8 @@ impl Database {
         );
         let mut params = vec![Value::Text(fts_query.to_string())];
         params.extend(filter_params);
-        params.push(Value::Integer(limit as i64));
-        self.ids(&sql, params)
+        params.push(sql_limit(limit));
+        self.candidate_ids(&sql, params)
     }
 
     /// Live memories under `filter` whose closest chunk lies within
@@ -47,11 +47,11 @@ impl Database {
         let mut params = vec![Value::Blob(embedding_blob(query))];
         params.extend(filter_params);
         params.push(Value::Real(max_distance));
-        params.push(Value::Integer(limit as i64));
-        self.ids(&sql, params)
+        params.push(sql_limit(limit));
+        self.candidate_ids(&sql, params)
     }
 
-    fn ids(&self, sql: &str, params: Vec<Value>) -> Result<Vec<i64>> {
+    fn candidate_ids(&self, sql: &str, params: Vec<Value>) -> Result<Vec<i64>> {
         let mut statement = self.conn.prepare(sql)?;
         let rows = statement.query_map(params_from_iter(params), |row| row.get(0))?;
         Ok(rows.collect::<rusqlite::Result<Vec<i64>>>()?)

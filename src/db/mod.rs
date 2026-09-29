@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Once;
 use std::time::Duration;
 
+use rusqlite::types::Value;
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::error::Result;
@@ -73,6 +74,11 @@ fn enable_write_ahead_logging(conn: &Connection, path: &Path) -> Result<()> {
     lock.lock()?;
     conn.pragma_update(None, "journal_mode", "WAL")?;
     Ok(())
+}
+
+/// A `LIMIT` parameter; limits beyond SQLite's integer range mean no limit.
+fn sql_limit(limit: usize) -> Value {
+    Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX))
 }
 
 /// Serializes a vector the way sqlite-vec reads it: little-endian `f32`s.
