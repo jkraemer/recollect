@@ -39,6 +39,8 @@ pub enum Error {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("{}: {message}", path.display())]
+    RubyData { path: PathBuf, message: String },
 }
 
 impl Error {

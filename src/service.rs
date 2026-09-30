@@ -10,7 +10,8 @@ use crate::embed::{Embedder, FastEmbedder, MODEL_ID, embed_memory};
 use crate::error::{Error, Result};
 use crate::filter::Filter;
 use crate::memory::{
-    Memory, MemoryType, NewRecord, ProjectRef, ScoredMemory, normalize_content, normalize_tags,
+    Memory, MemoryType, NewRecord, ProjectRef, ScoredMemory, Tombstone, normalize_content,
+    normalize_tags,
 };
 use crate::search::fts_query::build_fts_query;
 use crate::search::{self, SearchRequest};
@@ -28,6 +29,20 @@ pub struct StoreOutcome {
     pub id: i64,
     pub global_id: String,
     /// Set when the memory was stored without embeddings.
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ImportOutcome {
+    /// Memories this import stored.
+    pub imported: usize,
+    /// Memories skipped because their `global_id` was already stored.
+    pub already_present: usize,
+    /// Live memories deleted because the other installation deleted them.
+    pub deleted: usize,
+    /// Memories that got vectors, including ones left pending before.
+    pub embedded: usize,
+    /// Set when memories were left without vectors.
     pub warning: Option<String>,
 }
 
@@ -97,14 +112,15 @@ impl VectorsUnusable {
         }
     }
 
-    fn store_warning(&self, id: i64) -> String {
+    /// Says that `what` was stored without vectors, and what to run about it.
+    fn stored_without_vectors(&self, what: &str) -> String {
         match self {
             VectorsUnusable::Unavailable(_) => format!(
-                "stored #{id} without embedding: {}; run recollect reindex once the model is available",
+                "stored {what} without embedding: {}; run recollect reindex once the model is available",
                 self.describe()
             ),
             VectorsUnusable::ModelMismatch(_) => {
-                format!("stored #{id} without embedding: {}", self.describe())
+                format!("stored {what} without embedding: {}", self.describe())
             }
         }
     }
@@ -168,7 +184,9 @@ impl Recollect {
         Ok(StoreOutcome {
             id,
             global_id: record.global_id,
-            warning: embedded.err().map(|why| why.store_warning(id)),
+            warning: embedded
+                .err()
+                .map(|why| why.stored_without_vectors(&format!("#{id}"))),
         })
     }
 
@@ -269,6 +287,43 @@ impl Recollect {
         if all {
             self.db.clear_embeddings()?;
         }
+        self.embed_pending()
+    }
+
+    /// Stores memories from another installation, skipping those whose
+    /// `global_id` is already stored, and deletes the live memories that
+    /// installation deleted (`tombstones`), then embeds every memory still
+    /// without vectors. Unusable vectors leave the memories pending with a warning.
+    pub fn import(
+        &mut self,
+        records: &[NewRecord],
+        tombstones: &[Tombstone],
+    ) -> Result<ImportOutcome> {
+        let counts = self.db.import(records, tombstones)?;
+        let mut outcome = ImportOutcome {
+            imported: counts.inserted,
+            already_present: records.len() - counts.inserted,
+            deleted: counts.deleted,
+            embedded: 0,
+            warning: None,
+        };
+        let pending = self.db.pending_embedding_count()?;
+        if pending == 0 {
+            return Ok(outcome);
+        }
+        // Checks the stored vectors and loads the model before announcing any work.
+        if let Err(why) = self.with_vectors(|_| Ok(()))? {
+            outcome.warning = Some(why.stored_without_vectors(&format!("{pending} memories")));
+            return Ok(outcome);
+        }
+        (self.notify)(&format!("embedding {pending} memories"));
+        outcome.embedded = self.embed_pending()?;
+        Ok(outcome)
+    }
+
+    /// Embeds the live memories that have no vectors, one at a time; returns
+    /// how many it embedded. Callers check the stored vectors against the model first.
+    fn embed_pending(&mut self) -> Result<usize> {
         let mut embedded_count = 0;
         for (id, content) in self.db.pending_embeddings()? {
             let embedder = self.embedder().map_err(Error::EmbeddingUnavailable)?;

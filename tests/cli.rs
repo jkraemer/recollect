@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::{Command as StdCommand, Stdio};
 
 use assert_cmd::Command;
+use common::ruby::{RubyRow, WITHOUT_SOURCE, insert, ruby_file};
 use predicates::prelude::*;
 use recollect::db::Database;
 use recollect::memory::{MemoryType, NewRecord};
@@ -611,4 +612,173 @@ fn an_output_write_failure_is_reported_as_an_error() {
         String::from_utf8_lossy(&output.stderr),
         "error: No space left on device (os error 28)\n"
     );
+}
+
+/// A Ruby data directory: a global note, and two spellings of one project,
+/// one of which also holds a chunk row.
+fn ruby_fixture(dir: &Path) {
+    insert(
+        &ruby_file(dir, "global.db", WITHOUT_SOURCE),
+        &RubyRow::note("g-1", "A global note about tooling."),
+    );
+    let dashed = ruby_file(dir, "projects/my-proj.db", WITHOUT_SOURCE);
+    insert(
+        &dashed,
+        &RubyRow::note("d-1", "Deploys go through staging."),
+    );
+    insert(
+        &dashed,
+        &RubyRow {
+            memory_type: "_chunk".into(),
+            ..RubyRow::note("d-2", "Deploys go")
+        },
+    );
+    insert(
+        &ruby_file(dir, "projects/my_proj.db", WITHOUT_SOURCE),
+        &RubyRow::note("u-1", "The staging server runs Debian."),
+    );
+}
+
+/// `recollect migrate-from-ruby` of `ruby_dir` into `data_dir`, merging the
+/// fixture's two spellings of the project.
+fn migrate(data_dir: &Path, ruby_dir: &Path) -> Command {
+    let mut command = recollect(data_dir);
+    command
+        .arg("migrate-from-ruby")
+        .arg(ruby_dir)
+        .args(["--rename", "my-proj=my_proj"]);
+    command
+}
+
+const FIRST_MIGRATION: &str = "imported 3 memories (0 already present, 1 chunk rows skipped)\ndeleted 0 memories (0 Ruby tombstones)\nembedded 3 memories\n";
+const REPEATED_MIGRATION: &str = "imported 0 memories (3 already present, 1 chunk rows skipped)\ndeleted 0 memories (0 Ruby tombstones)\nembedded 0 memories\n";
+
+#[test]
+fn migrate_from_ruby_imports_and_embeds_once() {
+    let ruby = tempfile::tempdir().unwrap();
+    ruby_fixture(ruby.path());
+    let data = tempfile::tempdir().unwrap();
+    migrate(data.path(), ruby.path())
+        .assert()
+        .success()
+        .stdout(FIRST_MIGRATION)
+        .stderr("embedding 3 memories\n");
+    assert_eq!(
+        json_of(recollect(data.path()).args(["projects", "--json"])),
+        json!([{"name": "global", "count": 1}, {"name": "my_proj", "count": 2}])
+    );
+    assert_eq!(
+        json_of(recollect(data.path()).args(["status", "--json"]))["pending_embeddings"],
+        0
+    );
+    migrate(data.path(), ruby.path())
+        .assert()
+        .success()
+        .stdout(REPEATED_MIGRATION)
+        .stderr("");
+}
+
+#[test]
+fn migrate_from_ruby_can_write_into_the_ruby_data_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    ruby_fixture(dir.path());
+    migrate(dir.path(), dir.path())
+        .assert()
+        .success()
+        .stdout(FIRST_MIGRATION)
+        .stderr("embedding 3 memories\n");
+    migrate(dir.path(), dir.path())
+        .assert()
+        .success()
+        .stdout(REPEATED_MIGRATION)
+        .stderr("");
+}
+
+#[test]
+fn migrate_from_ruby_deletes_what_ruby_deleted_since_the_last_run() {
+    let ruby = tempfile::tempdir().unwrap();
+    ruby_fixture(ruby.path());
+    let data = tempfile::tempdir().unwrap();
+    migrate(data.path(), ruby.path()).assert().success();
+    rusqlite::Connection::open(ruby.path().join("projects/my-proj.db"))
+        .unwrap()
+        .execute(
+            "UPDATE memories SET deleted_at = '2026-03-05T10:00:00.000Z' WHERE global_id = 'd-1'",
+            [],
+        )
+        .unwrap();
+    migrate(data.path(), ruby.path())
+        .assert()
+        .success()
+        .stdout("imported 0 memories (2 already present, 1 chunk rows skipped)\ndeleted 1 memories (1 Ruby tombstones)\nembedded 0 memories\n")
+        .stderr("");
+    assert_eq!(
+        json_of(recollect(data.path()).args(["projects", "--json"])),
+        json!([{"name": "global", "count": 1}, {"name": "my_proj", "count": 1}])
+    );
+    migrate(data.path(), ruby.path())
+        .assert()
+        .success()
+        .stdout("imported 0 memories (2 already present, 1 chunk rows skipped)\ndeleted 0 memories (1 Ruby tombstones)\nembedded 0 memories\n")
+        .stderr("");
+}
+
+#[test]
+fn migrate_from_ruby_without_a_model_warns_and_leaves_memories_pending() {
+    let ruby = tempfile::tempdir().unwrap();
+    ruby_fixture(ruby.path());
+    let data = tempfile::tempdir().unwrap();
+    let blocker = data.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    migrate(data.path(), ruby.path())
+        .env("RECOLLECT_MODEL_DIR", &blocker)
+        .assert()
+        .success()
+        .stdout("imported 3 memories (0 already present, 1 chunk rows skipped)\ndeleted 0 memories (0 Ruby tombstones)\nembedded 0 memories\n")
+        .stderr(predicate::str::contains(
+            "warning: stored 3 memories without embedding: the embedding model is unavailable (",
+        ))
+        .stderr(predicate::str::contains(
+            "run recollect reindex once the model is available",
+        ))
+        .stderr(predicate::str::contains("error:").not());
+    assert_eq!(
+        json_of(recollect(data.path()).args(["status", "--json"]))["pending_embeddings"],
+        3
+    );
+}
+
+#[test]
+fn migrate_from_ruby_refuses_bad_data_and_bad_usage_without_writing() {
+    let ruby = tempfile::tempdir().unwrap();
+    insert(
+        &ruby_file(ruby.path(), "projects/fera.db", WITHOUT_SOURCE),
+        &RubyRow {
+            memory_type: "x".into(),
+            ..RubyRow::note("f-1", "odd")
+        },
+    );
+    let parent = tempfile::tempdir().unwrap();
+    let data = parent.path().join("data");
+    recollect(&data)
+        .arg("migrate-from-ruby")
+        .arg(ruby.path())
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(format!(
+            "error: {}: memory 1: unknown memory type \"x\"\n",
+            ruby.path().join("projects/fera.db").display()
+        ));
+    recollect(&data)
+        .arg("migrate-from-ruby")
+        .arg(ruby.path())
+        .args(["--rename", "my-proj"])
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr(predicate::str::contains(
+            r#"expected FROM=TO, got "my-proj""#,
+        ));
+    assert!(!data.exists(), "nothing may be written");
 }

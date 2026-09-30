@@ -1,4 +1,5 @@
 use std::io::{IsTerminal, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::error::ErrorKind;
@@ -8,6 +9,7 @@ use serde::Serialize;
 use recollect::config::Config;
 use recollect::filter::Filter;
 use recollect::memory::{MemoryType, ProjectRef, normalize_tags};
+use recollect::migrate::{Rename, read_ruby_data};
 use recollect::output;
 use recollect::service::{Recollect, StoreInput};
 use recollect::time::{parse_since, parse_until};
@@ -60,6 +62,14 @@ enum Command {
     Status {
         #[command(flatten)]
         output: OutputArgs,
+    },
+    /// Copy the memories of a Ruby recollect installation into this database
+    MigrateFromRuby {
+        /// The Ruby server's data directory, holding global.db and projects/
+        ruby_data_dir: PathBuf,
+        /// Store the memories of Ruby project FROM under project TO; repeatable
+        #[arg(long, value_name = "FROM=TO")]
+        rename: Vec<Rename>,
     },
 }
 
@@ -203,7 +213,14 @@ fn reader_went_away(err: &anyhow::Error) -> bool {
 }
 
 fn run(command: Command) -> anyhow::Result<()> {
-    let mut app = Recollect::open(Config::load()?)?.with_notices(output::print_diagnostic);
+    if let Command::MigrateFromRuby {
+        ruby_data_dir,
+        rename,
+    } = &command
+    {
+        return migrate_from_ruby(ruby_data_dir, rename);
+    }
+    let mut app = open_app()?;
     match command {
         Command::Store(args) => {
             let content = match args.content {
@@ -303,7 +320,33 @@ fn run(command: Command) -> anyhow::Result<()> {
                 print_text(&output::status_text(&status))?;
             }
         }
+        Command::MigrateFromRuby { .. } => {
+            unreachable!("migrate-from-ruby returned before the database opened")
+        }
     }
+    Ok(())
+}
+
+fn open_app() -> anyhow::Result<Recollect> {
+    Ok(Recollect::open(Config::load()?)?.with_notices(output::print_diagnostic))
+}
+
+/// Reads and checks all Ruby data before the database opens, so bad source
+/// data leaves the data directory untouched.
+fn migrate_from_ruby(ruby_data_dir: &Path, renames: &[Rename]) -> anyhow::Result<()> {
+    let memories = read_ruby_data(ruby_data_dir, renames)?;
+    let outcome = open_app()?.import(&memories.records, &memories.tombstones)?;
+    print_text(&format!(
+        "imported {} memories ({} already present, {} chunk rows skipped)",
+        outcome.imported, outcome.already_present, memories.chunks_skipped
+    ))?;
+    print_text(&format!(
+        "deleted {} memories ({} Ruby tombstones)",
+        outcome.deleted,
+        memories.tombstones.len()
+    ))?;
+    warn(outcome.warning.as_deref());
+    print_text(&format!("embedded {} memories", outcome.embedded))?;
     Ok(())
 }
 

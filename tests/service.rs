@@ -8,8 +8,8 @@ use recollect::config::Config;
 use recollect::db::Database;
 use recollect::embed::MODEL_ID;
 use recollect::filter::Filter;
-use recollect::memory::{Embedded, MemoryType, NewRecord, ProjectRef};
-use recollect::service::{Context, ProjectCount, Recollect, StoreInput, TagCount};
+use recollect::memory::{Embedded, MemoryType, NewRecord, ProjectRef, Tombstone};
+use recollect::service::{Context, ImportOutcome, ProjectCount, Recollect, StoreInput, TagCount};
 use tempfile::TempDir;
 
 fn config(dir: &TempDir) -> Config {
@@ -70,6 +70,22 @@ fn old_record(global_id: &str, content: &str) -> NewRecord {
     }
 }
 
+/// `app` with every notice it sends collected into the returned list.
+fn collecting_notices(app: Recollect) -> (Recollect, Rc<RefCell<Vec<String>>>) {
+    let notices = Rc::new(RefCell::new(Vec::new()));
+    let sink = Rc::clone(&notices);
+    let app = app.with_notices(move |notice| sink.borrow_mut().push(notice.to_string()));
+    (app, notices)
+}
+
+/// The notice announcing a model download into `config`'s model directory.
+fn download_notice(config: &Config) -> String {
+    format!(
+        "downloading embedding model {MODEL_ID} to {}",
+        config.model_dir.display()
+    )
+}
+
 #[test]
 fn stored_memories_are_embedded_and_found_by_meaning() {
     let dir = tempfile::tempdir().unwrap();
@@ -89,7 +105,7 @@ fn stored_memories_are_embedded_and_found_by_meaning() {
 
     // No word of the query occurs in either memory: only the vector arm can rank them.
     let outcome = app
-        .search("database design decision", &Filter::default(), 5)
+        .search("how is data persisted on disk", &Filter::default(), 5)
         .unwrap();
     assert_eq!(outcome.warning, None);
     assert_eq!(outcome.results[0].memory.id, sqlite.id);
@@ -98,6 +114,23 @@ fn stored_memories_are_embedded_and_found_by_meaning() {
     assert_eq!(status.pending_embeddings, 0);
     assert_eq!(status.stored_embedding_model.as_deref(), Some(MODEL_ID));
     assert!(status.vectors_usable);
+}
+
+#[test]
+fn an_unrelated_query_finds_nothing_by_meaning() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(&dir);
+    app.store(note(
+        "We keep every memory in a single SQLite file with a project column.",
+        named("recollect"),
+    ))
+    .unwrap();
+    // No word of the query occurs in the memory: only the vector arm could return it.
+    let outcome = app
+        .search("banana bread recipe", &Filter::default(), 5)
+        .unwrap();
+    assert_eq!(outcome.warning, None);
+    assert!(outcome.results.is_empty(), "{:?}", outcome.results);
 }
 
 #[test]
@@ -341,15 +374,8 @@ fn reindex_reports_vectors_from_another_model_without_loading_the_model() {
 fn a_model_download_is_announced_to_the_notice_sink() {
     let dir = tempfile::tempdir().unwrap();
     let config = config_without_model(&dir);
-    let expected = format!(
-        "downloading embedding model {MODEL_ID} to {}",
-        config.model_dir.display()
-    );
-    let notices = Rc::new(RefCell::new(Vec::new()));
-    let sink = Rc::clone(&notices);
-    let mut app = Recollect::open(config)
-        .unwrap()
-        .with_notices(move |notice| sink.borrow_mut().push(notice.to_string()));
+    let expected = download_notice(&config);
+    let (mut app, notices) = collecting_notices(Recollect::open(config).unwrap());
     app.store(note("x", ProjectRef::Global)).unwrap();
     app.search("x", &Filter::default(), 10).unwrap();
     assert_eq!(
@@ -462,4 +488,200 @@ fn status_of_a_fresh_database() {
     assert_eq!(status.stored_embedding_model, None);
     assert!(status.vectors_usable);
     assert_eq!(status.vectors_reason, None);
+}
+
+#[test]
+fn import_stores_and_embeds_and_a_rerun_adds_only_new_memories() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut app, notices) = collecting_notices(app(&dir));
+    let first = [
+        old_record("ruby-1", "Deploys go through the staging server first."),
+        old_record("ruby-2", "Tags are stored as a JSON array."),
+    ];
+    assert_eq!(
+        app.import(&first, &[]).unwrap(),
+        ImportOutcome {
+            imported: 2,
+            already_present: 0,
+            deleted: 0,
+            embedded: 2,
+            warning: None
+        }
+    );
+    let rerun = [
+        first[0].clone(),
+        first[1].clone(),
+        old_record("ruby-3", "Written after the dry run."),
+    ];
+    assert_eq!(
+        app.import(&rerun, &[]).unwrap(),
+        ImportOutcome {
+            imported: 1,
+            already_present: 2,
+            deleted: 0,
+            embedded: 1,
+            warning: None
+        }
+    );
+    assert_eq!(
+        app.import(&rerun, &[]).unwrap(),
+        ImportOutcome {
+            imported: 0,
+            already_present: 3,
+            deleted: 0,
+            embedded: 0,
+            warning: None
+        }
+    );
+    assert_eq!(
+        *notices.borrow(),
+        ["embedding 2 memories", "embedding 1 memories"],
+        "nothing pending means nothing to announce"
+    );
+    let status = app.status().unwrap();
+    assert_eq!((status.memories, status.pending_embeddings), (3, 0));
+    assert_eq!(
+        app.show(1).unwrap().created_at,
+        "2026-01-01T00:00:00.000Z",
+        "imported memories keep their creation time"
+    );
+}
+
+#[test]
+fn import_deletes_memories_deleted_in_the_other_installation() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut app, notices) = collecting_notices(app(&dir));
+    let first = old_record("ruby-1", "Deleted in Ruby after the first import.");
+    let second = old_record("ruby-2", "Still live in Ruby.");
+    app.import(&[first, second.clone()], &[]).unwrap();
+    let still_live = std::slice::from_ref(&second);
+    let tombstones = [
+        Tombstone {
+            global_id: "ruby-1".into(),
+            deleted_at: "2026-02-01T00:00:00.000Z".into(),
+        },
+        Tombstone {
+            global_id: "ruby-never-imported".into(),
+            deleted_at: "2026-02-01T00:00:00.000Z".into(),
+        },
+    ];
+    assert_eq!(
+        app.import(still_live, &tombstones).unwrap(),
+        ImportOutcome {
+            imported: 0,
+            already_present: 1,
+            deleted: 1,
+            embedded: 0,
+            warning: None
+        }
+    );
+    assert!(matches!(app.show(1), Err(Error::NotFound(1))));
+    assert_eq!(app.status().unwrap().memories, 1);
+    assert_eq!(
+        app.import(still_live, &tombstones).unwrap().deleted,
+        0,
+        "a deleted memory is not deleted again"
+    );
+    assert_eq!(
+        *notices.borrow(),
+        ["embedding 2 memories"],
+        "nothing deleted is embedded or announced"
+    );
+}
+
+#[test]
+fn import_embeds_memories_left_pending_by_an_earlier_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let interrupted = old_record("ruby-1", "Imported before the run was interrupted.");
+    Database::open(&config(&dir).database_path())
+        .unwrap()
+        .insert_memory(&interrupted, None)
+        .unwrap();
+    let (mut app, notices) = collecting_notices(app(&dir));
+    let outcome = app
+        .import(
+            &[interrupted, old_record("ruby-2", "Not imported yet.")],
+            &[],
+        )
+        .unwrap();
+    assert_eq!(
+        outcome,
+        ImportOutcome {
+            imported: 1,
+            already_present: 1,
+            deleted: 0,
+            embedded: 2,
+            warning: None
+        }
+    );
+    assert_eq!(*notices.borrow(), ["embedding 2 memories"]);
+    assert_eq!(app.status().unwrap().pending_embeddings, 0);
+}
+
+#[test]
+fn import_does_not_embed_a_pending_memory_the_other_installation_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let interrupted = old_record("ruby-1", "Imported, then deleted in Ruby.");
+    Database::open(&config(&dir).database_path())
+        .unwrap()
+        .insert_memory(&interrupted, None)
+        .unwrap();
+    let (mut app, notices) = collecting_notices(app(&dir));
+    let tombstone = Tombstone {
+        global_id: "ruby-1".into(),
+        deleted_at: "2026-02-01T00:00:00.000Z".into(),
+    };
+    let outcome = app.import(&[], &[tombstone]).unwrap();
+    assert_eq!((outcome.deleted, outcome.embedded), (1, 0));
+    assert!(notices.borrow().is_empty(), "{:?}", notices.borrow());
+    assert_eq!(app.status().unwrap().pending_embeddings, 0);
+}
+
+#[test]
+fn import_without_a_model_stores_the_memories_pending_with_a_warning() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_without_model(&dir);
+    let download = download_notice(&config);
+    let (mut app, notices) = collecting_notices(Recollect::open(config).unwrap());
+    let outcome = app
+        .import(&[old_record("ruby-1", "Kept without vectors.")], &[])
+        .unwrap();
+    assert_eq!((outcome.imported, outcome.embedded), (1, 0));
+    let warning = outcome.warning.expect("an unavailable model must warn");
+    assert!(
+        warning.starts_with(
+            "stored 1 memories without embedding: the embedding model is unavailable ("
+        ),
+        "{warning}"
+    );
+    assert!(
+        warning.ends_with("; run recollect reindex once the model is available"),
+        "{warning}"
+    );
+    assert_eq!(
+        *notices.borrow(),
+        [download],
+        "no embedding is announced when the model is missing"
+    );
+    assert_eq!(app.status().unwrap().pending_embeddings, 1);
+}
+
+#[test]
+fn import_under_vectors_from_another_model_warns_without_loading_the_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_without_model(&dir);
+    insert_with_other_model(&config);
+    let (mut app, notices) = collecting_notices(Recollect::open(config).unwrap());
+    let outcome = app.import(&[old_record("ruby-1", "New.")], &[]).unwrap();
+    assert_eq!((outcome.imported, outcome.embedded), (1, 0));
+    assert_eq!(
+        outcome.warning.as_deref(),
+        Some(
+            "stored 1 memories without embedding: stored vectors come from all-minilm-l6-v2, but the model is bge-small-en-v1.5-q; run recollect reindex --all"
+        )
+    );
+    assert!(
+        notices.borrow().is_empty(),
+        "the model is neither downloaded nor loaded"
+    );
 }

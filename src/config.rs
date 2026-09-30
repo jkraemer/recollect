@@ -99,7 +99,10 @@ struct SearchSection {
 impl Default for SearchSection {
     fn default() -> Self {
         Self {
-            max_vector_distance: 1.0,
+            // bge-small-en-v1.5 rates even unrelated text as fairly similar; at
+            // this distance off-topic queries get no vector matches on real
+            // memories while on-topic queries still reach their relevant ones.
+            max_vector_distance: 0.375,
         }
     }
 }
@@ -139,7 +142,7 @@ mod tests {
         let config = Config::load_from(dir.path().to_path_buf(), None).unwrap();
         assert_eq!(config.model_dir, dir.path().join("models"));
         assert_eq!(config.database_path(), dir.path().join("memories.db"));
-        assert_eq!(config.max_vector_distance, 1.0);
+        assert_eq!(config.max_vector_distance, 0.375);
         assert_eq!(
             config.recency,
             RecencyConfig {
