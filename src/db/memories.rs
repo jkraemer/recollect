@@ -1,7 +1,7 @@
 //! Memory rows: insert, read, tombstone.
 
 use rusqlite::types::Type;
-use rusqlite::{OptionalExtension, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{Database, chunks};
 use crate::error::{Error, Result};
@@ -37,6 +37,25 @@ fn tags_json(tags: &[String]) -> String {
     serde_json::to_string(tags).expect("a list of strings always serializes")
 }
 
+/// Inserts one memory row; `insert_absent` appends a conflict clause.
+const INSERT_MEMORY: &str =
+    "INSERT INTO memories (global_id, project, memory_type, content, tags, origin_peer, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+
+/// Runs `sql`, `INSERT_MEMORY` with or without a conflict clause, for
+/// `record`; returns how many rows it inserted.
+fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Result<usize> {
+    Ok(conn.prepare_cached(sql)?.execute(params![
+        record.global_id,
+        record.project,
+        record.memory_type.as_str(),
+        record.content,
+        tags_json(&record.tags),
+        record.origin_peer,
+        record.created_at,
+    ])?)
+}
+
 impl Database {
     /// Inserts a live memory and, when given, its chunk embeddings in one transaction.
     pub fn insert_memory(
@@ -45,25 +64,27 @@ impl Database {
         embedded: Option<&Embedded>,
     ) -> Result<i64> {
         let tx = self.write_transaction()?;
-        tx.execute(
-            "INSERT INTO memories (global_id, project, memory_type, content, tags, origin_peer, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                record.global_id,
-                record.project,
-                record.memory_type.as_str(),
-                record.content,
-                tags_json(&record.tags),
-                record.origin_peer,
-                record.created_at,
-            ],
-        )?;
+        insert_row(&tx, INSERT_MEMORY, record)?;
         let id = tx.last_insert_rowid();
         if let Some(embedded) = embedded {
             chunks::insert_chunks(&tx, id, embedded)?;
         }
         tx.commit()?;
         Ok(id)
+    }
+
+    /// Inserts live memories without vectors in one transaction, skipping
+    /// every memory whose `global_id` is already stored, tombstones included;
+    /// returns how many it inserted. A failure inserts none of them.
+    pub fn insert_absent(&mut self, records: &[NewRecord]) -> Result<usize> {
+        let tx = self.write_transaction()?;
+        let sql = format!("{INSERT_MEMORY} ON CONFLICT(global_id) DO NOTHING");
+        let mut inserted = 0;
+        for record in records {
+            inserted += insert_row(&tx, &sql, record)?;
+        }
+        tx.commit()?;
+        Ok(inserted)
     }
 
     /// A live memory; unknown and tombstoned ids are `NotFound`.
@@ -123,6 +144,12 @@ mod tests {
             model_id: model_id.into(),
             chunks: vec![vec![1.0, 0.0, 0.0]; chunks],
         }
+    }
+
+    fn memory_count(db: &Database) -> i64 {
+        db.conn
+            .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap()
     }
 
     #[test]
@@ -345,5 +372,67 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("CHECK constraint failed"), "{err}");
+    }
+
+    #[test]
+    fn absent_memories_are_inserted_pending_and_indexed() {
+        let mut db = Database::open_in_memory().unwrap();
+        let records = [
+            record("imported alpha", Some("p"), T0),
+            record("imported beta", None, LATER),
+        ];
+        assert_eq!(db.insert_absent(&records).unwrap(), 2);
+        let beta = db.get(2).unwrap();
+        assert_eq!(
+            (
+                beta.content.as_str(),
+                beta.project,
+                beta.created_at.as_str()
+            ),
+            ("imported beta", None, LATER)
+        );
+        assert_eq!(fts_hits(&db, "alpha"), 1);
+        assert_eq!(fts_hits(&db, "beta"), 1);
+        assert_eq!(db.pending_embedding_count().unwrap(), 2);
+    }
+
+    #[test]
+    fn memories_whose_global_id_is_stored_are_skipped_and_not_counted() {
+        let mut db = Database::open_in_memory().unwrap();
+        let kept = db.insert_memory(&record("kept", None, T0), None).unwrap();
+        let gone = db.insert_memory(&record("gone", None, T0), None).unwrap();
+        db.delete(gone, LATER).unwrap();
+        let again = [
+            NewRecord {
+                content: "changed".into(),
+                ..record("kept", None, T0)
+            },
+            record("gone", None, T0),
+            record("new", None, T0),
+        ];
+        assert_eq!(db.insert_absent(&again).unwrap(), 1);
+        assert_eq!(db.get(kept).unwrap().content, "kept");
+        assert!(
+            matches!(db.get(gone), Err(Error::NotFound(_))),
+            "a tombstone stays deleted"
+        );
+        assert_eq!(memory_count(&db), 3);
+    }
+
+    #[test]
+    fn a_failed_insert_of_absent_memories_inserts_none() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.conn
+            .execute_batch(
+                "CREATE TEMP TRIGGER refuse_second BEFORE INSERT ON memories
+                 WHEN NEW.content = 'second' BEGIN SELECT RAISE(ABORT, 'refused'); END",
+            )
+            .unwrap();
+        let err = db
+            .insert_absent(&[record("first", None, T0), record("second", None, T0)])
+            .unwrap_err();
+        assert!(err.to_string().contains("refused"), "{err}");
+        assert_eq!(memory_count(&db), 0);
+        assert_eq!(fts_hits(&db, "first"), 0);
     }
 }
