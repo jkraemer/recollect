@@ -5,14 +5,18 @@ use std::path::PathBuf;
 use common::ruby::{PRE_SYNC, RubyRow, WITH_SOURCE, WITHOUT_SOURCE, insert, ruby_file};
 use recollect::Error;
 use recollect::memory::{MemoryType, NewRecord};
-use recollect::migrate::{RubyMemories, read_ruby_data};
+use recollect::migrate::{Rename, RubyMemories, read_ruby_data};
 use tempfile::TempDir;
 
 /// The creation time `RubyRow::note` gives every row.
 const CREATED: &str = "2026-03-01T10:00:00.000Z";
 
 fn read(dir: &TempDir) -> recollect::Result<RubyMemories> {
-    read_ruby_data(dir.path())
+    read_ruby_data(dir.path(), &[])
+}
+
+fn rename(raw: &str) -> Rename {
+    raw.parse().unwrap()
 }
 
 /// The message of a `RubyData` error, after checking that it is about `path`.
@@ -376,4 +380,99 @@ fn memories_are_read_while_the_ruby_server_holds_its_files_open() {
         &server,
         &RubyRow::note("g-2", "written after the migration read"),
     );
+}
+
+#[test]
+fn a_rename_splits_at_the_first_equals_sign() {
+    assert_eq!(
+        "a-b=a_b".parse::<Rename>(),
+        Ok(Rename {
+            from: "a-b".into(),
+            to: "a_b".into()
+        })
+    );
+    assert_eq!(
+        "a=b=c".parse::<Rename>(),
+        Ok(Rename {
+            from: "a".into(),
+            to: "b=c".into()
+        })
+    );
+    assert_eq!(
+        "a-b".parse::<Rename>(),
+        Err(r#"expected FROM=TO, got "a-b""#.to_string())
+    );
+}
+
+#[test]
+fn renames_move_memories_to_another_project_before_names_are_checked() {
+    let dir = tempfile::tempdir().unwrap();
+    for (file, global_id) in [
+        ("projects/guerrilla-redmine.db", "d-1"),
+        ("projects/guerrilla_redmine.db", "u-1"),
+        ("projects/Old Name.db", "o-1"),
+        ("projects/misc.db", "m-1"),
+    ] {
+        insert(
+            &ruby_file(dir.path(), file, WITHOUT_SOURCE),
+            &RubyRow::note(global_id, "x"),
+        );
+    }
+    let renames = [
+        rename("guerrilla-redmine=guerrilla_redmine"),
+        rename("Old Name=old-name"),
+        rename("misc=GLOBAL"),
+    ];
+    let projects: Vec<(String, Option<String>)> = read_ruby_data(dir.path(), &renames)
+        .unwrap()
+        .records
+        .into_iter()
+        .map(|record| (record.global_id, record.project))
+        .collect();
+    assert_eq!(
+        projects,
+        [
+            ("d-1".to_string(), Some("guerrilla_redmine".to_string())),
+            ("m-1".to_string(), None),
+            ("o-1".to_string(), Some("old-name".to_string())),
+            ("u-1".to_string(), Some("guerrilla_redmine".to_string())),
+        ]
+    );
+}
+
+#[test]
+fn a_rename_must_name_a_project_file_once() {
+    let dir = tempfile::tempdir().unwrap();
+    insert(
+        &ruby_file(dir.path(), "projects/misc.db", WITHOUT_SOURCE),
+        &RubyRow::note("m-1", "x"),
+    );
+    let projects = dir.path().join("projects");
+    assert_eq!(
+        message_about(
+            projects.clone(),
+            read_ruby_data(dir.path(), &[rename("mics=other")])
+        ),
+        r#"no project "mics" to rename"#
+    );
+    assert_eq!(
+        message_about(
+            projects,
+            read_ruby_data(dir.path(), &[rename("misc=a"), rename("misc=b")])
+        ),
+        r#"project "misc" is renamed twice"#
+    );
+}
+
+#[test]
+fn a_rename_to_an_invalid_project_name_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    insert(
+        &ruby_file(dir.path(), "projects/misc.db", WITHOUT_SOURCE),
+        &RubyRow::note("m-1", "x"),
+    );
+    assert!(matches!(
+        read_ruby_data(dir.path(), &[rename("misc=a b")]),
+        Err(Error::InvalidProject(name)) if name == "a b"
+    ));
 }

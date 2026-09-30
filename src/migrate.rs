@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use rusqlite::{Connection, OpenFlags};
 
@@ -17,6 +18,27 @@ const REQUIRED_COLUMNS: [&str; 5] = ["content", "memory_type", "tags", "created_
 /// The Ruby chunker's pieces of long memories; their parents hold the whole text.
 const CHUNK_TYPE: &str = "_chunk";
 
+/// `--rename FROM=TO`: the memories of Ruby project `from` go to project `to`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rename {
+    pub from: String,
+    pub to: String,
+}
+
+impl FromStr for Rename {
+    type Err = String;
+
+    fn from_str(raw: &str) -> std::result::Result<Self, String> {
+        let (from, to) = raw
+            .split_once('=')
+            .ok_or_else(|| format!("expected FROM=TO, got {raw:?}"))?;
+        Ok(Rename {
+            from: from.to_string(),
+            to: to.to_string(),
+        })
+    }
+}
+
 /// The live memories of a Ruby installation, ready to insert.
 #[derive(Debug, Default, PartialEq)]
 pub struct RubyMemories {
@@ -26,10 +48,11 @@ pub struct RubyMemories {
     pub tombstones_skipped: usize,
 }
 
-/// Reads and checks every memory under the Ruby data directory `dir`. Any
+/// Reads and checks every memory under the Ruby data directory `dir`, moving
+/// the memories of each `--rename` source to its target project. Any
 /// unexpected value fails the whole read, so nothing is dropped or mangled
 /// silently. Files are opened read-only: a running Ruby server is not disturbed.
-pub fn read_ruby_data(dir: &Path) -> Result<RubyMemories> {
+pub fn read_ruby_data(dir: &Path, renames: &[Rename]) -> Result<RubyMemories> {
     let files = ruby_files(dir)?;
     if files.is_empty() {
         return Err(Error::RubyData {
@@ -37,11 +60,12 @@ pub fn read_ruby_data(dir: &Path) -> Result<RubyMemories> {
             message: "no Ruby data: neither global.db nor projects/*.db".to_string(),
         });
     }
+    check_renames(dir, &files, renames)?;
     let mut memories = RubyMemories::default();
     // Where each global id was read, so a second occurrence can name the first.
     let mut origins: HashMap<String, (PathBuf, i64)> = HashMap::new();
     for file in &files {
-        let contents = file.read().map_err(|err| file.with_path(err))?;
+        let contents = file.read(renames).map_err(|err| file.with_path(err))?;
         memories.chunks_skipped += contents.chunks_skipped;
         memories.tombstones_skipped += contents.tombstones_skipped;
         for (ruby_id, record) in contents.records {
@@ -125,6 +149,33 @@ fn ruby_files(dir: &Path) -> Result<Vec<RubyFile>> {
     Ok(files)
 }
 
+/// Each `--rename` must name an existing project file, only once, and a valid target.
+fn check_renames(dir: &Path, files: &[RubyFile], renames: &[Rename]) -> Result<()> {
+    let invalid = |message: String| Error::RubyData {
+        path: dir.join("projects"),
+        message,
+    };
+    for (index, rename) in renames.iter().enumerate() {
+        if !files
+            .iter()
+            .any(|file| file.project_file.as_deref() == Some(rename.from.as_str()))
+        {
+            return Err(invalid(format!("no project {:?} to rename", rename.from)));
+        }
+        if renames[..index]
+            .iter()
+            .any(|earlier| earlier.from == rename.from)
+        {
+            return Err(invalid(format!(
+                "project {:?} is renamed twice",
+                rename.from
+            )));
+        }
+        ProjectRef::parse(&rename.to)?;
+    }
+    Ok(())
+}
+
 impl RubyFile {
     fn invalid(&self, message: impl Into<String>) -> Error {
         Error::RubyData {
@@ -141,18 +192,23 @@ impl RubyFile {
         }
     }
 
-    /// The `project` column value of this file's memories.
-    fn project(&self) -> Result<Option<String>> {
-        let Some(name) = &self.project_file else {
+    /// The `project` column value of this file's memories: the file name,
+    /// after `--rename`.
+    fn project(&self, renames: &[Rename]) -> Result<Option<String>> {
+        let Some(file_name) = &self.project_file else {
             return Ok(None);
         };
+        let name = renames
+            .iter()
+            .find(|rename| rename.from == *file_name)
+            .map_or(file_name.as_str(), |rename| rename.to.as_str());
         let project = ProjectRef::parse(name).map_err(|err| self.invalid(err.to_string()))?;
         Ok(project.column_value().map(String::from))
     }
 
     /// This file's memories. A file without rows, or without a `memories`
     /// table, is skipped before anything else about it is checked.
-    fn read(&self) -> Result<FileContents> {
+    fn read(&self, renames: &[Rename]) -> Result<FileContents> {
         let conn = Connection::open_with_flags(&self.path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         let columns = memory_columns(&conn)?;
         let mut contents = FileContents::default();
@@ -167,7 +223,7 @@ impl RubyFile {
         if let Some(missing) = REQUIRED_COLUMNS.into_iter().find(|&name| !has(name)) {
             return Err(self.invalid(format!("the memories table has no {missing} column")));
         }
-        let project = self.project()?;
+        let project = self.project(renames)?;
         let deleted = if has("deleted_at") {
             "deleted_at IS NOT NULL"
         } else {
