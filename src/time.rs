@@ -33,7 +33,7 @@ pub fn parse_until(raw: &str) -> Result<String> {
 fn parse_bound(raw: &str, moment_of: impl Fn(NaiveDate) -> NaiveDateTime) -> Result<String> {
     match NaiveDate::parse_from_str(raw, "%Y-%m-%d") {
         Ok(date) => Ok(format_timestamp(moment_of(date).and_utc())),
-        Err(_) => parse_rfc3339(raw),
+        Err(_) => parse_timestamp(raw),
     }
 }
 
@@ -45,7 +45,8 @@ pub fn age_days(created_at: &str, now: DateTime<Utc>) -> f64 {
     }
 }
 
-fn parse_rfc3339(raw: &str) -> Result<String> {
+/// An RFC 3339 timestamp in the stored format.
+pub fn parse_timestamp(raw: &str) -> Result<String> {
     DateTime::parse_from_rfc3339(raw)
         .map(|at| format_timestamp(at.with_timezone(&Utc)))
         .map_err(|_| Error::InvalidDate(raw.to_string()))
@@ -90,6 +91,22 @@ mod tests {
     #[test]
     fn unparseable_dates_are_rejected() {
         assert!(matches!(parse_since("yesterday"), Err(Error::InvalidDate(d)) if d == "yesterday"));
+    }
+
+    #[test]
+    fn timestamps_parse_into_the_stored_format() {
+        assert_eq!(
+            parse_timestamp("2026-03-01T10:00:00.5+01:00").unwrap(),
+            "2026-03-01T09:00:00.500Z"
+        );
+        assert_eq!(
+            parse_timestamp("2026-03-01T10:00:00.123Z").unwrap(),
+            "2026-03-01T10:00:00.123Z"
+        );
+        assert!(
+            matches!(parse_timestamp("2026-03-01"), Err(Error::InvalidDate(d)) if d == "2026-03-01"),
+            "a bare date is not a timestamp"
+        );
     }
 
     #[test]

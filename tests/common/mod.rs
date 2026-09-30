@@ -1,6 +1,8 @@
 //! Helpers shared by the integration tests.
 #![allow(dead_code)] // each test binary uses a different subset
 
+pub mod ruby;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
