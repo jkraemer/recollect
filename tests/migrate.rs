@@ -375,7 +375,7 @@ fn memories_are_read_while_the_ruby_server_holds_its_files_open() {
         "the row must still sit in the write-ahead log"
     );
     assert_eq!(read(&dir).unwrap().records.len(), 1);
-    // The reader holds no lock that would stop the server.
+    // The read leaves nothing behind that would stop the server from writing.
     insert(
         &server,
         &RubyRow::note("g-2", "written after the migration read"),

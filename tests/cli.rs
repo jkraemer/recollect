@@ -685,11 +685,38 @@ fn migrate_from_ruby_can_write_into_the_ruby_data_directory() {
     migrate(dir.path(), dir.path())
         .assert()
         .success()
-        .stdout(FIRST_MIGRATION);
+        .stdout(FIRST_MIGRATION)
+        .stderr("embedding 3 memories\n");
     migrate(dir.path(), dir.path())
         .assert()
         .success()
-        .stdout(REPEATED_MIGRATION);
+        .stdout(REPEATED_MIGRATION)
+        .stderr("");
+}
+
+#[test]
+fn migrate_from_ruby_without_a_model_warns_and_leaves_memories_pending() {
+    let ruby = tempfile::tempdir().unwrap();
+    ruby_fixture(ruby.path());
+    let data = tempfile::tempdir().unwrap();
+    let blocker = data.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    migrate(data.path(), ruby.path())
+        .env("RECOLLECT_MODEL_DIR", &blocker)
+        .assert()
+        .success()
+        .stdout("imported 3 memories (0 already present, 1 chunk rows skipped, 0 tombstones skipped)\nembedded 0 memories\n")
+        .stderr(predicate::str::contains(
+            "warning: stored 3 memories without embedding: the embedding model is unavailable (",
+        ))
+        .stderr(predicate::str::contains(
+            "run recollect reindex once the model is available",
+        ))
+        .stderr(predicate::str::contains("error:").not());
+    assert_eq!(
+        json_of(recollect(data.path()).args(["status", "--json"]))["pending_embeddings"],
+        3
+    );
 }
 
 #[test]
