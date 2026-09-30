@@ -105,7 +105,7 @@ fn stored_memories_are_embedded_and_found_by_meaning() {
 
     // No word of the query occurs in either memory: only the vector arm can rank them.
     let outcome = app
-        .search("database design decision", &Filter::default(), 5)
+        .search("how is data persisted on disk", &Filter::default(), 5)
         .unwrap();
     assert_eq!(outcome.warning, None);
     assert_eq!(outcome.results[0].memory.id, sqlite.id);
@@ -114,6 +114,23 @@ fn stored_memories_are_embedded_and_found_by_meaning() {
     assert_eq!(status.pending_embeddings, 0);
     assert_eq!(status.stored_embedding_model.as_deref(), Some(MODEL_ID));
     assert!(status.vectors_usable);
+}
+
+#[test]
+fn an_unrelated_query_finds_nothing_by_meaning() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(&dir);
+    app.store(note(
+        "We keep every memory in a single SQLite file with a project column.",
+        named("recollect"),
+    ))
+    .unwrap();
+    // No word of the query occurs in the memory: only the vector arm could return it.
+    let outcome = app
+        .search("banana bread recipe", &Filter::default(), 5)
+        .unwrap();
+    assert_eq!(outcome.warning, None);
+    assert!(outcome.results.is_empty(), "{:?}", outcome.results);
 }
 
 #[test]
