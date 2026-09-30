@@ -10,7 +10,8 @@ use crate::embed::{Embedder, FastEmbedder, MODEL_ID, embed_memory};
 use crate::error::{Error, Result};
 use crate::filter::Filter;
 use crate::memory::{
-    Memory, MemoryType, NewRecord, ProjectRef, ScoredMemory, normalize_content, normalize_tags,
+    Memory, MemoryType, NewRecord, ProjectRef, ScoredMemory, Tombstone, normalize_content,
+    normalize_tags,
 };
 use crate::search::fts_query::build_fts_query;
 use crate::search::{self, SearchRequest};
@@ -37,6 +38,8 @@ pub struct ImportOutcome {
     pub imported: usize,
     /// Memories skipped because their `global_id` was already stored.
     pub already_present: usize,
+    /// Live memories deleted because the other installation deleted them.
+    pub deleted: usize,
     /// Memories that got vectors, including ones left pending before.
     pub embedded: usize,
     /// Set when memories were left without vectors.
@@ -288,13 +291,19 @@ impl Recollect {
     }
 
     /// Stores memories from another installation, skipping those whose
-    /// `global_id` is already stored, then embeds every memory still without
-    /// vectors. Unusable vectors leave the memories pending with a warning.
-    pub fn import(&mut self, records: &[NewRecord]) -> Result<ImportOutcome> {
-        let imported = self.db.insert_absent(records)?;
+    /// `global_id` is already stored, and deletes the live memories that
+    /// installation deleted (`tombstones`), then embeds every memory still
+    /// without vectors. Unusable vectors leave the memories pending with a warning.
+    pub fn import(
+        &mut self,
+        records: &[NewRecord],
+        tombstones: &[Tombstone],
+    ) -> Result<ImportOutcome> {
+        let counts = self.db.import(records, tombstones)?;
         let mut outcome = ImportOutcome {
-            imported,
-            already_present: records.len() - imported,
+            imported: counts.inserted,
+            already_present: records.len() - counts.inserted,
+            deleted: counts.deleted,
             embedded: 0,
             warning: None,
         };

@@ -650,8 +650,8 @@ fn migrate(data_dir: &Path, ruby_dir: &Path) -> Command {
     command
 }
 
-const FIRST_MIGRATION: &str = "imported 3 memories (0 already present, 1 chunk rows skipped, 0 tombstones skipped)\nembedded 3 memories\n";
-const REPEATED_MIGRATION: &str = "imported 0 memories (3 already present, 1 chunk rows skipped, 0 tombstones skipped)\nembedded 0 memories\n";
+const FIRST_MIGRATION: &str = "imported 3 memories (0 already present, 1 chunk rows skipped)\ndeleted 0 memories (0 Ruby tombstones)\nembedded 3 memories\n";
+const REPEATED_MIGRATION: &str = "imported 0 memories (3 already present, 1 chunk rows skipped)\ndeleted 0 memories (0 Ruby tombstones)\nembedded 0 memories\n";
 
 #[test]
 fn migrate_from_ruby_imports_and_embeds_once() {
@@ -695,6 +695,35 @@ fn migrate_from_ruby_can_write_into_the_ruby_data_directory() {
 }
 
 #[test]
+fn migrate_from_ruby_deletes_what_ruby_deleted_since_the_last_run() {
+    let ruby = tempfile::tempdir().unwrap();
+    ruby_fixture(ruby.path());
+    let data = tempfile::tempdir().unwrap();
+    migrate(data.path(), ruby.path()).assert().success();
+    rusqlite::Connection::open(ruby.path().join("projects/my-proj.db"))
+        .unwrap()
+        .execute(
+            "UPDATE memories SET deleted_at = '2026-03-05T10:00:00.000Z' WHERE global_id = 'd-1'",
+            [],
+        )
+        .unwrap();
+    migrate(data.path(), ruby.path())
+        .assert()
+        .success()
+        .stdout("imported 0 memories (2 already present, 1 chunk rows skipped)\ndeleted 1 memories (1 Ruby tombstones)\nembedded 0 memories\n")
+        .stderr("");
+    assert_eq!(
+        json_of(recollect(data.path()).args(["projects", "--json"])),
+        json!([{"name": "global", "count": 1}, {"name": "my_proj", "count": 1}])
+    );
+    migrate(data.path(), ruby.path())
+        .assert()
+        .success()
+        .stdout("imported 0 memories (2 already present, 1 chunk rows skipped)\ndeleted 0 memories (1 Ruby tombstones)\nembedded 0 memories\n")
+        .stderr("");
+}
+
+#[test]
 fn migrate_from_ruby_without_a_model_warns_and_leaves_memories_pending() {
     let ruby = tempfile::tempdir().unwrap();
     ruby_fixture(ruby.path());
@@ -705,7 +734,7 @@ fn migrate_from_ruby_without_a_model_warns_and_leaves_memories_pending() {
         .env("RECOLLECT_MODEL_DIR", &blocker)
         .assert()
         .success()
-        .stdout("imported 3 memories (0 already present, 1 chunk rows skipped, 0 tombstones skipped)\nembedded 0 memories\n")
+        .stdout("imported 3 memories (0 already present, 1 chunk rows skipped)\ndeleted 0 memories (0 Ruby tombstones)\nembedded 0 memories\n")
         .stderr(predicate::str::contains(
             "warning: stored 3 memories without embedding: the embedding model is unavailable (",
         ))

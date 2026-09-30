@@ -9,7 +9,9 @@ use std::str::FromStr;
 use rusqlite::{Connection, OpenFlags};
 
 use crate::error::{Error, Result};
-use crate::memory::{MemoryType, NewRecord, ProjectRef, normalize_content, normalize_tags};
+use crate::memory::{
+    MemoryType, NewRecord, ProjectRef, Tombstone, normalize_content, normalize_tags,
+};
 use crate::time::parse_timestamp;
 
 /// The columns a Ruby `memories` table with rows must have.
@@ -39,17 +41,21 @@ impl FromStr for Rename {
     }
 }
 
-/// The live memories of a Ruby installation, ready to insert.
+/// The memories of a Ruby installation: the live ones, ready to insert, and
+/// the deleted ones.
 #[derive(Debug, Default, PartialEq)]
 pub struct RubyMemories {
     /// Oldest first, so the new ids follow the order the memories were written in.
     pub records: Vec<NewRecord>,
     pub chunks_skipped: usize,
-    pub tombstones_skipped: usize,
+    /// Memories deleted in Ruby; an import deletes them here too if an
+    /// earlier run imported them.
+    pub tombstones: Vec<Tombstone>,
 }
 
 /// Reads and checks every memory under the Ruby data directory `dir`, moving
-/// the memories of each `--rename` source to its target project. Any
+/// the memories of each `--rename` source to its target project. A
+/// `global_id` may appear only once across all files, live or deleted. Any
 /// unexpected value fails the whole read, so nothing is dropped or mangled
 /// silently. Files are opened read-only: a running Ruby server is not disturbed.
 pub fn read_ruby_data(dir: &Path, renames: &[Rename]) -> Result<RubyMemories> {
@@ -67,19 +73,35 @@ pub fn read_ruby_data(dir: &Path, renames: &[Rename]) -> Result<RubyMemories> {
     for file in &files {
         let contents = file.read(renames).map_err(|err| file.with_path(err))?;
         memories.chunks_skipped += contents.chunks_skipped;
-        memories.tombstones_skipped += contents.tombstones_skipped;
-        for (ruby_id, record) in contents.records {
+        let rows = contents
+            .records
+            .iter()
+            .map(|(ruby_id, record)| (*ruby_id, &record.global_id))
+            .chain(
+                contents
+                    .tombstones
+                    .iter()
+                    .map(|(ruby_id, tombstone)| (*ruby_id, &tombstone.global_id)),
+            );
+        for (ruby_id, global_id) in rows {
             if let Some((first_path, first_id)) =
-                origins.insert(record.global_id.clone(), (file.path.clone(), ruby_id))
+                origins.insert(global_id.clone(), (file.path.clone(), ruby_id))
             {
                 return Err(file.invalid(format!(
-                    "memory {ruby_id}: global_id {:?} is also memory {first_id} of {}",
-                    record.global_id,
+                    "memory {ruby_id}: global_id {global_id:?} is also memory {first_id} of {}",
                     first_path.display()
                 )));
             }
-            memories.records.push(record);
         }
+        memories
+            .records
+            .extend(contents.records.into_iter().map(|(_, record)| record));
+        memories.tombstones.extend(
+            contents
+                .tombstones
+                .into_iter()
+                .map(|(_, tombstone)| tombstone),
+        );
     }
     memories
         .records
@@ -94,12 +116,13 @@ struct RubyFile {
     project_file: Option<String>,
 }
 
-/// What one Ruby file holds: its live memories, each with its Ruby row id.
+/// What one Ruby file holds: its live and deleted memories, each with its
+/// Ruby row id.
 #[derive(Default)]
 struct FileContents {
     records: Vec<(i64, NewRecord)>,
     chunks_skipped: usize,
-    tombstones_skipped: usize,
+    tombstones: Vec<(i64, Tombstone)>,
 }
 
 /// A Ruby row that is neither a chunk nor a tombstone, as stored.
@@ -224,13 +247,13 @@ impl RubyFile {
             return Err(self.invalid(format!("the memories table has no {missing} column")));
         }
         let project = self.project(renames)?;
-        let deleted = if has("deleted_at") {
-            "deleted_at IS NOT NULL"
+        let deleted_at_column = if has("deleted_at") {
+            "deleted_at"
         } else {
-            "0"
+            "NULL"
         };
         let mut statement = conn.prepare(&format!(
-            "SELECT id, memory_type, {deleted}, content, tags, created_at, global_id
+            "SELECT id, memory_type, {deleted_at_column}, content, tags, created_at, global_id
              FROM memories ORDER BY id"
         ))?;
         let mut rows = statement.query([])?;
@@ -239,8 +262,10 @@ impl RubyFile {
             let memory_type: String = row.get(1)?;
             if memory_type == CHUNK_TYPE {
                 contents.chunks_skipped += 1;
-            } else if row.get::<_, bool>(2)? {
-                contents.tombstones_skipped += 1;
+            } else if let Some(deleted_at) = row.get::<_, Option<String>>(2)? {
+                let tombstone = read_tombstone(row.get(6)?, &deleted_at)
+                    .map_err(|message| self.invalid(format!("memory {ruby_id}: {message}")))?;
+                contents.tombstones.push((ruby_id, tombstone));
             } else {
                 let live = LiveRow {
                     memory_type,
@@ -264,6 +289,19 @@ fn memory_columns(conn: &Connection) -> Result<Vec<String>> {
     let mut statement = conn.prepare("SELECT name FROM pragma_table_info('memories')")?;
     let names = statement.query_map([], |row| row.get(0))?;
     Ok(names.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The tombstone of a Ruby row deleted at `deleted_at`; the error says what
+/// is wrong with the row.
+fn read_tombstone(
+    global_id: Option<String>,
+    deleted_at: &str,
+) -> std::result::Result<Tombstone, String> {
+    Ok(Tombstone {
+        global_id: global_id.ok_or("no global_id")?,
+        deleted_at: parse_timestamp(deleted_at)
+            .map_err(|_| format!("deleted_at {deleted_at:?} is not an RFC 3339 timestamp"))?,
+    })
 }
 
 impl LiveRow {

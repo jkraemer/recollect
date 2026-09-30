@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use common::ruby::{PRE_SYNC, RubyRow, WITH_SOURCE, WITHOUT_SOURCE, insert, ruby_file};
 use recollect::Error;
-use recollect::memory::{MemoryType, NewRecord};
+use recollect::memory::{MemoryType, NewRecord, Tombstone};
 use recollect::migrate::{Rename, RubyMemories, read_ruby_data};
 use tempfile::TempDir;
 
@@ -82,13 +82,13 @@ fn memories_become_records_of_the_project_their_file_names() {
                 record("g-1", None, MemoryType::Note, "a global note"),
             ],
             chunks_skipped: 0,
-            tombstones_skipped: 0,
+            tombstones: vec![],
         }
     );
 }
 
 #[test]
-fn chunk_rows_and_tombstones_are_skipped_and_counted() {
+fn chunk_rows_are_skipped_and_tombstones_returned() {
     let dir = tempfile::tempdir().unwrap();
     let fera = ruby_file(dir.path(), "projects/fera.db", WITHOUT_SOURCE);
     insert(&fera, &RubyRow::note("f-1", "a long memory"));
@@ -99,12 +99,21 @@ fn chunk_rows_and_tombstones_are_skipped_and_counted() {
             ..RubyRow::note("f-2", "a long")
         },
     );
-    // A tombstone is skipped before its (empty) content is checked.
+    // A tombstone is read before its (empty) content is checked.
     insert(
         &fera,
         &RubyRow {
             deleted_at: Some(CREATED.into()),
             ..RubyRow::note("f-3", "")
+        },
+    );
+    // A deleted chunk row is still a chunk row, not a tombstone.
+    insert(
+        &fera,
+        &RubyRow {
+            memory_type: "_chunk".into(),
+            deleted_at: Some(CREATED.into()),
+            ..RubyRow::note("f-4", "")
         },
     );
     let memories = read(&dir).unwrap();
@@ -118,8 +127,31 @@ fn chunk_rows_and_tombstones_are_skipped_and_counted() {
         )]
     );
     assert_eq!(
-        (memories.chunks_skipped, memories.tombstones_skipped),
-        (1, 1)
+        memories.tombstones,
+        [Tombstone {
+            global_id: "f-3".into(),
+            deleted_at: CREATED.into()
+        }]
+    );
+    assert_eq!(memories.chunks_skipped, 2);
+}
+
+#[test]
+fn tombstones_keep_their_normalized_deletion_time() {
+    let dir = tempfile::tempdir().unwrap();
+    insert(
+        &ruby_file(dir.path(), "global.db", WITHOUT_SOURCE),
+        &RubyRow {
+            deleted_at: Some("2026-03-02T11:00:00+01:00".into()),
+            ..RubyRow::note("g-1", "")
+        },
+    );
+    assert_eq!(
+        read(&dir).unwrap().tombstones,
+        [Tombstone {
+            global_id: "g-1".into(),
+            deleted_at: "2026-03-02T10:00:00.000Z".into()
+        }]
     );
 }
 
@@ -271,6 +303,21 @@ fn unexpected_values_fail_naming_the_file_and_the_row() {
             },
             "memory 2: no created_at",
         ),
+        (
+            RubyRow {
+                deleted_at: Some("yesterday".into()),
+                ..bad()
+            },
+            r#"memory 2: deleted_at "yesterday" is not an RFC 3339 timestamp"#,
+        ),
+        (
+            RubyRow {
+                global_id: None,
+                deleted_at: Some(CREATED.into()),
+                ..bad()
+            },
+            "memory 2: no global_id",
+        ),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let fera = ruby_file(dir.path(), "projects/fera.db", WITHOUT_SOURCE);
@@ -356,6 +403,29 @@ fn a_global_id_in_two_files_is_refused() {
         message_about(dir.path().join("projects/b.db"), read(&dir)),
         format!(
             r#"memory 2: global_id "same" is also memory 1 of {}"#,
+            dir.path().join("projects/a.db").display()
+        )
+    );
+}
+
+#[test]
+fn a_tombstone_sharing_a_global_id_with_another_file_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    insert(
+        &ruby_file(dir.path(), "projects/a.db", WITHOUT_SOURCE),
+        &RubyRow::note("same", "still live"),
+    );
+    insert(
+        &ruby_file(dir.path(), "projects/b.db", WITHOUT_SOURCE),
+        &RubyRow {
+            deleted_at: Some(CREATED.into()),
+            ..RubyRow::note("same", "")
+        },
+    );
+    assert_eq!(
+        message_about(dir.path().join("projects/b.db"), read(&dir)),
+        format!(
+            r#"memory 1: global_id "same" is also memory 1 of {}"#,
             dir.path().join("projects/a.db").display()
         )
     );

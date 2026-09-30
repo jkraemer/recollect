@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{Database, chunks};
 use crate::error::{Error, Result};
-use crate::memory::{Embedded, Memory, MemoryType, NewRecord};
+use crate::memory::{Embedded, Memory, MemoryType, NewRecord, Tombstone};
 
 /// The columns `memory_from_row` reads, from the `memories` table aliased `m`.
 pub(super) const MEMORY_COLUMNS: &str =
@@ -37,7 +37,7 @@ fn tags_json(tags: &[String]) -> String {
     serde_json::to_string(tags).expect("a list of strings always serializes")
 }
 
-/// Inserts one memory row; `insert_absent` appends a conflict clause.
+/// Inserts one memory row; `import` appends a conflict clause.
 const INSERT_MEMORY: &str =
     "INSERT INTO memories (global_id, project, memory_type, content, tags, origin_peer, created_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
@@ -54,6 +54,13 @@ fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Result<usize>
         record.origin_peer,
         record.created_at,
     ])?)
+}
+
+/// What `Database::import` changed.
+#[derive(Debug, PartialEq)]
+pub struct ImportCounts {
+    pub inserted: usize,
+    pub deleted: usize,
 }
 
 impl Database {
@@ -73,18 +80,41 @@ impl Database {
         Ok(id)
     }
 
-    /// Inserts live memories without vectors in one transaction, skipping
-    /// every memory whose `global_id` is already stored, tombstones included;
-    /// returns how many it inserted. A failure inserts none of them.
-    pub fn insert_absent(&mut self, records: &[NewRecord]) -> Result<usize> {
+    /// In one transaction, inserts live memories without vectors, skipping
+    /// every memory whose `global_id` is already stored, tombstones included,
+    /// then tombstones every live memory a tombstone names, as `delete` does
+    /// but with the tombstone's deletion time. Tombstones of unknown or
+    /// already deleted memories change nothing. A failure changes nothing.
+    pub fn import(
+        &mut self,
+        records: &[NewRecord],
+        tombstones: &[Tombstone],
+    ) -> Result<ImportCounts> {
         let tx = self.write_transaction()?;
         let sql = format!("{INSERT_MEMORY} ON CONFLICT(global_id) DO NOTHING");
-        let mut inserted = 0;
+        let mut counts = ImportCounts {
+            inserted: 0,
+            deleted: 0,
+        };
         for record in records {
-            inserted += insert_row(&tx, &sql, record)?;
+            counts.inserted += insert_row(&tx, &sql, record)?;
+        }
+        for tombstone in tombstones {
+            let id: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM memories WHERE global_id = ?1",
+                    [&tombstone.global_id],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(id) = id
+                && tombstone_memory(&tx, id, &tombstone.deleted_at)?
+            {
+                counts.deleted += 1;
+            }
         }
         tx.commit()?;
-        Ok(inserted)
+        Ok(counts)
     }
 
     /// A live memory; unknown and tombstoned ids are `NotFound`.
@@ -103,13 +133,7 @@ impl Database {
     /// stays so sync can propagate the delete.
     pub fn delete(&mut self, id: i64, deleted_at: &str) -> Result<()> {
         let tx = self.write_transaction()?;
-        tx.execute("DELETE FROM chunks WHERE memory_id = ?1", [id])?;
-        let changed = tx.execute(
-            "UPDATE memories SET deleted_at = ?2, deleted_by_peer = NULL, content = '', tags = '[]'
-             WHERE id = ?1 AND deleted_at IS NULL",
-            params![id, deleted_at],
-        )?;
-        if changed == 0 {
+        if !tombstone_memory(&tx, id, deleted_at)? {
             return Err(Error::NotFound(id));
         }
         tx.commit()?;
@@ -117,14 +141,26 @@ impl Database {
     }
 }
 
+/// Tombstones the memory `id` as of `deleted_at`: drops its chunks, blanks
+/// its text and leaves the row. Returns whether the memory was live.
+fn tombstone_memory(conn: &Connection, id: i64, deleted_at: &str) -> Result<bool> {
+    conn.execute("DELETE FROM chunks WHERE memory_id = ?1", [id])?;
+    let changed = conn.execute(
+        "UPDATE memories SET deleted_at = ?2, deleted_by_peer = NULL, content = '', tags = '[]'
+         WHERE id = ?1 AND deleted_at IS NULL",
+        params![id, deleted_at],
+    )?;
+    Ok(changed > 0)
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::params;
 
-    use crate::db::Database;
     use crate::db::test_support::{concurrently, record};
+    use crate::db::{Database, ImportCounts};
     use crate::error::Error;
-    use crate::memory::{Embedded, MemoryType, NewRecord};
+    use crate::memory::{Embedded, MemoryType, NewRecord, Tombstone};
 
     const T0: &str = "2026-09-01T10:00:00.000Z";
     const LATER: &str = "2026-09-02T10:00:00.000Z";
@@ -149,6 +185,35 @@ mod tests {
     fn memory_count(db: &Database) -> i64 {
         db.conn
             .query_row("SELECT count(*) FROM memories", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    /// The tombstone of the memory `record(content, ..)` inserts, deleted at `deleted_at`.
+    fn tombstone(content: &str, deleted_at: &str) -> Tombstone {
+        Tombstone {
+            global_id: format!("test-{content}"),
+            deleted_at: deleted_at.to_string(),
+        }
+    }
+
+    /// A memory row's `(content, tags, deleted_at)`, whether live or deleted.
+    fn stored_row(db: &Database, id: i64) -> (String, String, Option<String>) {
+        db.conn
+            .query_row(
+                "SELECT content, tags, deleted_at FROM memories WHERE id = ?1",
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap()
+    }
+
+    fn chunk_owners(db: &Database) -> Vec<i64> {
+        db.conn
+            .prepare("SELECT memory_id FROM chunks")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
             .unwrap()
     }
 
@@ -381,7 +446,13 @@ mod tests {
             record("imported alpha", Some("p"), T0),
             record("imported beta", None, LATER),
         ];
-        assert_eq!(db.insert_absent(&records).unwrap(), 2);
+        assert_eq!(
+            db.import(&records, &[]).unwrap(),
+            ImportCounts {
+                inserted: 2,
+                deleted: 0
+            }
+        );
         let beta = db.get(2).unwrap();
         assert_eq!(
             (
@@ -410,7 +481,13 @@ mod tests {
             record("gone", None, T0),
             record("new", None, T0),
         ];
-        assert_eq!(db.insert_absent(&again).unwrap(), 1);
+        assert_eq!(
+            db.import(&again, &[]).unwrap(),
+            ImportCounts {
+                inserted: 1,
+                deleted: 0
+            }
+        );
         assert_eq!(db.get(kept).unwrap().content, "kept");
         assert!(
             matches!(db.get(gone), Err(Error::NotFound(_))),
@@ -429,10 +506,100 @@ mod tests {
             )
             .unwrap();
         let err = db
-            .insert_absent(&[record("first", None, T0), record("second", None, T0)])
+            .import(
+                &[record("first", None, T0), record("second", None, T0)],
+                &[],
+            )
             .unwrap_err();
         assert!(err.to_string().contains("refused"), "{err}");
         assert_eq!(memory_count(&db), 0);
         assert_eq!(fts_hits(&db, "first"), 0);
+    }
+
+    #[test]
+    fn tombstones_delete_live_memories_keeping_their_deletion_time() {
+        let mut db = Database::open_in_memory().unwrap();
+        let doomed = NewRecord {
+            tags: vec!["secret".into()],
+            ..record("zanzibar plans", None, T0)
+        };
+        let id = db.insert_memory(&doomed, Some(&embedded("m", 2))).unwrap();
+        let kept = db
+            .insert_memory(&record("zanzibar trip", None, T0), Some(&embedded("m", 1)))
+            .unwrap();
+
+        let counts = db
+            .import(
+                &[],
+                &[
+                    tombstone("zanzibar plans", LATER),
+                    Tombstone {
+                        global_id: "unknown".into(),
+                        deleted_at: LATER.into(),
+                    },
+                ],
+            )
+            .unwrap();
+
+        assert_eq!(
+            counts,
+            ImportCounts {
+                inserted: 0,
+                deleted: 1
+            }
+        );
+        assert!(matches!(db.get(id), Err(Error::NotFound(_))));
+        assert_eq!(
+            stored_row(&db, id),
+            (String::new(), "[]".to_string(), Some(LATER.to_string()))
+        );
+        assert_eq!(fts_hits(&db, "plans"), 0, "the text must leave the index");
+        assert_eq!(fts_hits(&db, "secret"), 0, "the tags must leave the index");
+        assert_eq!(fts_hits(&db, "zanzibar"), 1, "other memories stay indexed");
+        assert_eq!(
+            chunk_owners(&db),
+            [kept],
+            "only the deleted memory's chunks go"
+        );
+        assert_eq!(db.get(kept).unwrap().content, "zanzibar trip");
+        assert_eq!(memory_count(&db), 2, "unknown tombstones are not stored");
+    }
+
+    #[test]
+    fn an_already_deleted_memory_is_not_deleted_again() {
+        let mut db = Database::open_in_memory().unwrap();
+        let id = db.insert_memory(&record("x", None, T0), None).unwrap();
+        db.delete(id, T0).unwrap();
+        assert_eq!(
+            db.import(&[], &[tombstone("x", LATER)]).unwrap(),
+            ImportCounts {
+                inserted: 0,
+                deleted: 0
+            }
+        );
+        assert_eq!(stored_row(&db, id).2.as_deref(), Some(T0));
+    }
+
+    #[test]
+    fn a_failed_import_undoes_deletions_too() {
+        let mut db = Database::open_in_memory().unwrap();
+        let first = db.insert_memory(&record("first", None, T0), None).unwrap();
+        db.insert_memory(&record("second", None, T0), None).unwrap();
+        db.conn
+            .execute_batch(
+                "CREATE TEMP TRIGGER refuse_second BEFORE UPDATE OF deleted_at ON memories
+                 WHEN OLD.content = 'second' BEGIN SELECT RAISE(ABORT, 'refused'); END",
+            )
+            .unwrap();
+        let err = db
+            .import(
+                &[record("new", None, T0)],
+                &[tombstone("first", LATER), tombstone("second", LATER)],
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("refused"), "{err}");
+        assert_eq!(db.get(first).unwrap().content, "first");
+        assert_eq!(memory_count(&db), 2, "the new memory was not inserted");
+        assert_eq!(fts_hits(&db, "new"), 0);
     }
 }

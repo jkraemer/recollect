@@ -8,7 +8,7 @@ use recollect::config::Config;
 use recollect::db::Database;
 use recollect::embed::MODEL_ID;
 use recollect::filter::Filter;
-use recollect::memory::{Embedded, MemoryType, NewRecord, ProjectRef};
+use recollect::memory::{Embedded, MemoryType, NewRecord, ProjectRef, Tombstone};
 use recollect::service::{Context, ImportOutcome, ProjectCount, Recollect, StoreInput, TagCount};
 use tempfile::TempDir;
 
@@ -499,10 +499,11 @@ fn import_stores_and_embeds_and_a_rerun_adds_only_new_memories() {
         old_record("ruby-2", "Tags are stored as a JSON array."),
     ];
     assert_eq!(
-        app.import(&first).unwrap(),
+        app.import(&first, &[]).unwrap(),
         ImportOutcome {
             imported: 2,
             already_present: 0,
+            deleted: 0,
             embedded: 2,
             warning: None
         }
@@ -513,19 +514,21 @@ fn import_stores_and_embeds_and_a_rerun_adds_only_new_memories() {
         old_record("ruby-3", "Written after the dry run."),
     ];
     assert_eq!(
-        app.import(&rerun).unwrap(),
+        app.import(&rerun, &[]).unwrap(),
         ImportOutcome {
             imported: 1,
             already_present: 2,
+            deleted: 0,
             embedded: 1,
             warning: None
         }
     );
     assert_eq!(
-        app.import(&rerun).unwrap(),
+        app.import(&rerun, &[]).unwrap(),
         ImportOutcome {
             imported: 0,
             already_present: 3,
+            deleted: 0,
             embedded: 0,
             warning: None
         }
@@ -545,6 +548,48 @@ fn import_stores_and_embeds_and_a_rerun_adds_only_new_memories() {
 }
 
 #[test]
+fn import_deletes_memories_deleted_in_the_other_installation() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut app, notices) = collecting_notices(app(&dir));
+    let first = old_record("ruby-1", "Deleted in Ruby after the first import.");
+    let second = old_record("ruby-2", "Still live in Ruby.");
+    app.import(&[first, second.clone()], &[]).unwrap();
+    let still_live = std::slice::from_ref(&second);
+    let tombstones = [
+        Tombstone {
+            global_id: "ruby-1".into(),
+            deleted_at: "2026-02-01T00:00:00.000Z".into(),
+        },
+        Tombstone {
+            global_id: "ruby-never-imported".into(),
+            deleted_at: "2026-02-01T00:00:00.000Z".into(),
+        },
+    ];
+    assert_eq!(
+        app.import(still_live, &tombstones).unwrap(),
+        ImportOutcome {
+            imported: 0,
+            already_present: 1,
+            deleted: 1,
+            embedded: 0,
+            warning: None
+        }
+    );
+    assert!(matches!(app.show(1), Err(Error::NotFound(1))));
+    assert_eq!(app.status().unwrap().memories, 1);
+    assert_eq!(
+        app.import(still_live, &tombstones).unwrap().deleted,
+        0,
+        "a deleted memory is not deleted again"
+    );
+    assert_eq!(
+        *notices.borrow(),
+        ["embedding 2 memories"],
+        "nothing deleted is embedded or announced"
+    );
+}
+
+#[test]
 fn import_embeds_memories_left_pending_by_an_earlier_run() {
     let dir = tempfile::tempdir().unwrap();
     let interrupted = old_record("ruby-1", "Imported before the run was interrupted.");
@@ -554,18 +599,41 @@ fn import_embeds_memories_left_pending_by_an_earlier_run() {
         .unwrap();
     let (mut app, notices) = collecting_notices(app(&dir));
     let outcome = app
-        .import(&[interrupted, old_record("ruby-2", "Not imported yet.")])
+        .import(
+            &[interrupted, old_record("ruby-2", "Not imported yet.")],
+            &[],
+        )
         .unwrap();
     assert_eq!(
         outcome,
         ImportOutcome {
             imported: 1,
             already_present: 1,
+            deleted: 0,
             embedded: 2,
             warning: None
         }
     );
     assert_eq!(*notices.borrow(), ["embedding 2 memories"]);
+    assert_eq!(app.status().unwrap().pending_embeddings, 0);
+}
+
+#[test]
+fn import_does_not_embed_a_pending_memory_the_other_installation_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    let interrupted = old_record("ruby-1", "Imported, then deleted in Ruby.");
+    Database::open(&config(&dir).database_path())
+        .unwrap()
+        .insert_memory(&interrupted, None)
+        .unwrap();
+    let (mut app, notices) = collecting_notices(app(&dir));
+    let tombstone = Tombstone {
+        global_id: "ruby-1".into(),
+        deleted_at: "2026-02-01T00:00:00.000Z".into(),
+    };
+    let outcome = app.import(&[], &[tombstone]).unwrap();
+    assert_eq!((outcome.deleted, outcome.embedded), (1, 0));
+    assert!(notices.borrow().is_empty(), "{:?}", notices.borrow());
     assert_eq!(app.status().unwrap().pending_embeddings, 0);
 }
 
@@ -576,7 +644,7 @@ fn import_without_a_model_stores_the_memories_pending_with_a_warning() {
     let download = download_notice(&config);
     let (mut app, notices) = collecting_notices(Recollect::open(config).unwrap());
     let outcome = app
-        .import(&[old_record("ruby-1", "Kept without vectors.")])
+        .import(&[old_record("ruby-1", "Kept without vectors.")], &[])
         .unwrap();
     assert_eq!((outcome.imported, outcome.embedded), (1, 0));
     let warning = outcome.warning.expect("an unavailable model must warn");
@@ -604,7 +672,7 @@ fn import_under_vectors_from_another_model_warns_without_loading_the_model() {
     let config = config_without_model(&dir);
     insert_with_other_model(&config);
     let (mut app, notices) = collecting_notices(Recollect::open(config).unwrap());
-    let outcome = app.import(&[old_record("ruby-1", "New.")]).unwrap();
+    let outcome = app.import(&[old_record("ruby-1", "New.")], &[]).unwrap();
     assert_eq!((outcome.imported, outcome.embedded), (1, 0));
     assert_eq!(
         outcome.warning.as_deref(),

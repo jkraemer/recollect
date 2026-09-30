@@ -107,6 +107,14 @@ pub struct NewRecord {
     pub created_at: String,
 }
 
+/// A memory deleted elsewhere: its `global_id` and when it was deleted, in
+/// the stored timestamp format.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tombstone {
+    pub global_id: String,
+    pub deleted_at: String,
+}
+
 /// Chunk embeddings of one memory, all produced by the model `model_id`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Embedded {

@@ -335,13 +335,15 @@ fn open_app() -> anyhow::Result<Recollect> {
 /// data leaves the data directory untouched.
 fn migrate_from_ruby(ruby_data_dir: &Path, renames: &[Rename]) -> anyhow::Result<()> {
     let memories = read_ruby_data(ruby_data_dir, renames)?;
-    let outcome = open_app()?.import(&memories.records)?;
+    let outcome = open_app()?.import(&memories.records, &memories.tombstones)?;
     print_text(&format!(
-        "imported {} memories ({} already present, {} chunk rows skipped, {} tombstones skipped)",
-        outcome.imported,
-        outcome.already_present,
-        memories.chunks_skipped,
-        memories.tombstones_skipped
+        "imported {} memories ({} already present, {} chunk rows skipped)",
+        outcome.imported, outcome.already_present, memories.chunks_skipped
+    ))?;
+    print_text(&format!(
+        "deleted {} memories ({} Ruby tombstones)",
+        outcome.deleted,
+        memories.tombstones.len()
     ))?;
     warn(outcome.warning.as_deref());
     print_text(&format!("embedded {} memories", outcome.embedded))?;
