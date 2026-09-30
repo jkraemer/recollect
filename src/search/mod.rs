@@ -115,6 +115,21 @@ mod tests {
     }
 
     #[test]
+    fn stopwords_alone_do_not_make_a_full_text_match() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("deploys go in stages", None, &day(1)), None)
+            .unwrap();
+        let filter = Filter::default();
+        assert!(
+            search(&db, &request("offside rule in football", None, &filter))
+                .unwrap()
+                .is_empty()
+        );
+        let results = search(&db, &request("stages in deploys", None, &filter)).unwrap();
+        assert_eq!(contents(&results), ["deploys go in stages"]);
+    }
+
+    #[test]
     fn the_vector_arm_finds_memories_without_shared_words() {
         let mut db = Database::open_in_memory().unwrap();
         db.insert_memory(
