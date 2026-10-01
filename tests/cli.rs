@@ -1,7 +1,7 @@
 mod common;
 
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
 
 use assert_cmd::Command;
@@ -781,4 +781,143 @@ fn migrate_from_ruby_refuses_bad_data_and_bad_usage_without_writing() {
             r#"expected FROM=TO, got "my-proj""#,
         ));
     assert!(!data.exists(), "nothing may be written");
+}
+
+/// A directory that project detection sees as a git repository root.
+fn fake_repository(parent: &Path, name: &str) -> PathBuf {
+    let root = parent.join(name);
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    root
+}
+
+/// `recollect hook <event>` with `input` as the hook's JSON on stdin.
+fn hook(data_dir: &Path, event: &str, input: &Value) -> Command {
+    let mut command = recollect(data_dir);
+    command.args(["hook", event]).write_stdin(input.to_string());
+    command
+}
+
+#[test]
+fn hook_session_start_prints_the_memory_of_the_session_directory_project() {
+    let data = tempfile::tempdir().unwrap();
+    let code = tempfile::tempdir().unwrap();
+    let repo = fake_repository(code.path(), "fera");
+    store(
+        data.path(),
+        &[
+            "Session: billing\nInvoices are split.",
+            "-p",
+            "fera",
+            "-t",
+            "session",
+        ],
+    );
+    store(
+        data.path(),
+        &[
+            "Invoices are immutable once sent.",
+            "-p",
+            "fera",
+            "-T",
+            "decision",
+        ],
+    );
+    store(data.path(), &["Unrelated note", "-p", "other"]);
+    let input = json!({
+        "session_id": "abc123",
+        "transcript_path": "/home/u/.claude/projects/fera/abc123.jsonl",
+        "cwd": repo.join("src"),
+        "hook_event_name": "SessionStart",
+        "source": "startup",
+        "model": "claude-opus-5-5",
+    });
+    let output = hook(data.path(), "session-start", &input).output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stderr}");
+    assert_eq!(stderr, "");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.starts_with(&format!(
+            "# Recollect memory: project fera\n\nProject from the repository directory {}.\n",
+            repo.display()
+        )),
+        "{stdout}"
+    );
+    assert!(stdout.contains("\n\n## Last session · #1 · "), "{stdout}");
+    assert!(
+        stdout.contains(
+            "\nSession: billing\nInvoices are split.\n\n## Recent notes and todos\n- #2 · note · "
+        ),
+        "{stdout}"
+    );
+    assert!(
+        stdout.ends_with(" · decision · Invoices are immutable once sent.\n"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("Unrelated note"), "{stdout}");
+}
+
+#[test]
+fn hook_session_start_outside_a_repository_shows_recent_memories_everywhere() {
+    let data = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    store(data.path(), &["A note in p", "-p", "p"]);
+    hook(data.path(), "session-start", &json!({"cwd": elsewhere.path()}))
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(format!(
+            "# Recollect memory: no project\n\n{} is not in a git repository and has no .recollect-project file.\n",
+            elsewhere.path().display()
+        )))
+        .stdout(predicate::str::contains(
+            "\n\n## Recent notes and todos\n- #1 · p · note · ",
+        ))
+        .stdout(predicate::str::ends_with(" · A note in p\n"))
+        .stderr("");
+}
+
+#[test]
+fn the_first_session_on_a_machine_creates_the_database_without_loading_the_model() {
+    let parent = tempfile::tempdir().unwrap();
+    let data = parent.path().join("fresh");
+    let blocker = parent.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    let repo = fake_repository(parent.path(), "fera");
+    // Loading the model from a file instead of a directory would print a download notice.
+    hook(&data, "session-start", &json!({"cwd": repo}))
+        .env("RECOLLECT_MODEL_DIR", &blocker)
+        .assert()
+        .success()
+        .stdout(predicate::str::ends_with(
+            "with the content on stdin.\n\nNo memories stored for this project yet.\n",
+        ))
+        .stderr("");
+    assert!(data.join("memories.db").is_file());
+}
+
+#[test]
+fn hook_input_without_cwd_uses_the_working_directory() {
+    let data = tempfile::tempdir().unwrap();
+    let code = tempfile::tempdir().unwrap();
+    let repo = fake_repository(code.path(), "fera");
+    hook(data.path(), "session-start", &json!({}))
+        .current_dir(&repo)
+        .assert()
+        .success()
+        .stdout(predicate::str::starts_with(
+            "# Recollect memory: project fera\n",
+        ))
+        .stderr("");
+}
+
+#[test]
+fn malformed_hook_input_fails_with_an_error_line() {
+    let data = tempfile::tempdir().unwrap();
+    recollect(data.path())
+        .args(["hook", "session-start"])
+        .write_stdin("not json")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::is_match(r"^error: invalid hook input: [^\n]+\n$").unwrap());
 }

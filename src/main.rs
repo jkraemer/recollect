@@ -7,7 +7,9 @@ use clap::{Args, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
 
 use recollect::config::Config;
+use recollect::detect::detect_project;
 use recollect::filter::Filter;
+use recollect::hook::{HookInput, session_start_text};
 use recollect::memory::{MemoryType, ProjectRef, normalize_tags};
 use recollect::migrate::{Rename, read_ruby_data};
 use recollect::output;
@@ -71,6 +73,16 @@ enum Command {
         #[arg(long, value_name = "FROM=TO")]
         rename: Vec<Rename>,
     },
+    /// Run a Claude Code hook on the hook's JSON input from stdin
+    #[command(subcommand)]
+    Hook(HookEvent),
+}
+
+/// The Claude Code hook events recollect handles.
+#[derive(Subcommand)]
+enum HookEvent {
+    /// Print the memory of the session directory's project
+    SessionStart,
 }
 
 #[derive(Args)]
@@ -320,6 +332,7 @@ fn run(command: Command) -> anyhow::Result<()> {
                 print_text(&output::status_text(&status))?;
             }
         }
+        Command::Hook(event) => run_hook(event, &mut app)?,
         Command::MigrateFromRuby { .. } => {
             unreachable!("migrate-from-ruby returned before the database opened")
         }
@@ -347,6 +360,24 @@ fn migrate_from_ruby(ruby_data_dir: &Path, renames: &[Rename]) -> anyhow::Result
     ))?;
     warn(outcome.warning.as_deref());
     print_text(&format!("embedded {} memories", outcome.embedded))?;
+    Ok(())
+}
+
+/// Runs the hook for `event` on the hook input piped to stdin. The session
+/// directory is the input's `cwd`, else the working directory.
+fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
+    let input = HookInput::parse(&std::io::read_to_string(std::io::stdin())?)?;
+    let dir = match input.cwd {
+        Some(dir) => dir,
+        None => std::env::current_dir()?,
+    };
+    match event {
+        HookEvent::SessionStart => {
+            let detection = detect_project(&dir)?;
+            let context = app.context(detection.project())?;
+            print_text(&session_start_text(&detection, &context))?;
+        }
+    }
     Ok(())
 }
 

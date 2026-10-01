@@ -1,6 +1,11 @@
-//! Claude Code hooks: the context a session starts with.
+//! Claude Code hooks: their JSON input and the context a session starts with.
+
+use std::path::PathBuf;
+
+use serde::Deserialize;
 
 use crate::detect::{Detection, ProjectSource};
+use crate::error::{Error, Result};
 use crate::memory::{GLOBAL, Memory};
 use crate::service::Context;
 
@@ -13,6 +18,22 @@ pub const SESSION_START_BUDGET: usize = 9_000;
 const INDEX_TEXT_CHARS: usize = 100;
 
 const BLOCK_SEPARATOR: &str = "\n\n";
+
+/// The fields of Claude Code's hook input that recollect uses; the others
+/// are ignored, so new fields in later Claude Code versions do no harm.
+#[derive(Debug, Deserialize)]
+pub struct HookInput {
+    /// The session's working directory.
+    pub cwd: Option<PathBuf>,
+    /// The summary Claude Code just wrote; only in `PostCompact` input.
+    pub compact_summary: Option<String>,
+}
+
+impl HookInput {
+    pub fn parse(json: &str) -> Result<Self> {
+        serde_json::from_str(json).map_err(|err| Error::HookInput(err.to_string()))
+    }
+}
 
 /// The markdown a session starts with: the project of the session directory
 /// and how it was found, the commands for it, and its context
@@ -184,12 +205,8 @@ fn chars(text: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
-    use crate::detect::{Detection, ProjectSource};
-    use crate::memory::{Memory, MemoryType, ProjectRef};
-    use crate::service::Context;
+    use crate::memory::{MemoryType, ProjectRef};
 
     fn memory(
         id: i64,
@@ -464,5 +481,31 @@ mod tests {
             ),
             "{text}"
         );
+    }
+
+    #[test]
+    fn hook_input_takes_cwd_and_ignores_fields_it_does_not_use() {
+        let start = HookInput::parse(
+            r#"{"session_id":"abc123","transcript_path":"/home/u/.claude/projects/fera/abc123.jsonl","cwd":"/work/fera","hook_event_name":"SessionStart","source":"startup","model":"claude-opus-5-5","permission_mode":"default"}"#,
+        )
+        .unwrap();
+        assert_eq!(start.cwd, Some(PathBuf::from("/work/fera")));
+        assert_eq!(start.compact_summary, None);
+        let compact = HookInput::parse(
+            r#"{"cwd":"/work/fera","hook_event_name":"PostCompact","trigger":"auto","compact_summary":"We did things."}"#,
+        )
+        .unwrap();
+        assert_eq!(compact.compact_summary.as_deref(), Some("We did things."));
+        assert_eq!(HookInput::parse(r#"{"cwd":null}"#).unwrap().cwd, None);
+        assert_eq!(HookInput::parse("{}").unwrap().cwd, None);
+    }
+
+    #[test]
+    fn malformed_hook_input_is_an_error() {
+        for text in ["", "not json", "[]", r#"{"cwd": 42}"#] {
+            let err = HookInput::parse(text).unwrap_err();
+            assert!(matches!(err, Error::HookInput(_)), "{text:?}: {err}");
+            assert!(err.to_string().starts_with("invalid hook input: "), "{err}");
+        }
     }
 }
