@@ -52,13 +52,22 @@ export RECOLLECT_ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 ## Installation
 
-Recollect ships through two channels: the gem carries the server and the CLI,
-the Claude Code plugin carries the agent-facing parts (skill, `/session-log`
-command, MCP wiring). Install both.
+Recollect ships through two channels: the gem carries the Ruby server and its
+CLI (MCP tools, REST API, web UI), the Claude Code plugin carries the
+agent-facing parts (skill, `/session-log` command, hooks). The plugin works
+through the Rust `recollect` binary, which is replacing the Ruby server and
+needs no server running.
 
 ```bash
 gem install recollect
 recollect-server
+```
+
+Until the Rust binary is packaged, build it from a checkout and put it on your
+PATH, ahead of the gem's `recollect` command, which it replaces:
+
+```bash
+cargo install --path . --locked
 ```
 
 Then, in Claude Code:
@@ -68,9 +77,14 @@ Then, in Claude Code:
 /plugin install recollect@recollect
 ```
 
-The plugin points Claude at `http://localhost:7326/mcp`. If you moved the server
-to another port, configure the MCP server by hand instead - see
-[Configure Claude Code](#configure-claude-code).
+When a session starts, and after `/clear`, the plugin's hook puts the current
+project's memory into context: its last session log and an index of its recent
+notes and todos. When Claude Code compacts the conversation, the other hook
+stores the compaction summary as a session memory. The project is the git
+repository's directory name (the main repository's, in a worktree); a
+`.recollect-project` file holding a name overrides it for its directory and
+everything below. To let the agent run the CLI without asking each time, add
+`Bash(recollect *)` to `permissions.allow` in your Claude Code settings.
 
 To run from a checkout instead, see [Development](#development).
 
@@ -127,8 +141,8 @@ reboots, see [Running as a systemd Service](#running-as-a-systemd-service).
 
 ### Configure Claude Code
 
-Installing the plugin wires this up for you. To do it by hand - or to point Claude
-at a server on a different host or port - add to your MCP configuration:
+The plugin does not use the server. To give Claude the Ruby server's MCP tools,
+add to your MCP configuration:
 
 ```json
 {
@@ -143,8 +157,11 @@ at a server on a different host or port - add to your MCP configuration:
 
 ### Project Naming
 
-Recollect stores memories per-project. To ensure consistent naming across sessions,
-add an instruction to your project's agent instructions (AGENTS.md, CLAUDE.md):
+Recollect stores memories per-project. With the Claude Code plugin, the
+session-start hook names the project (see [Installation](#installation)) and
+the agent passes that name on. For the MCP tools and other agents, ensure
+consistent naming across sessions by adding an instruction to your project's
+agent instructions (AGENTS.md, CLAUDE.md):
 
 > When storing or recalling memories, refer to this project as "myproject"
 
@@ -153,13 +170,16 @@ repo name, etc.) which fragments memories across separate databases.
 
 ### Claude Code Skill
 
-Memory tools only help if the agent reaches for them. The
-`using-long-term-memory` skill enforces two disciplines:
+Memory only helps if the agent reaches for it. The `using-long-term-memory`
+skill enforces three disciplines, through the `recollect` CLI:
 
 1. **Search before asking** - When encountering problems or unfamiliar situations,
    search memory before asking the user or investigating the codebase
 2. **Store before moving on** - When decisions are made, lessons learned, or bugs
    solved, store them immediately with appropriate tags
+3. **One place per fact** - How to work with the user and repository conventions
+   go to Claude Code's auto memory; decisions, learnings, solved bugs and session
+   logs go to recollect
 
 The plugin installs it. Agents other than Claude Code can pick it up from
 [skills/using-long-term-memory/SKILL.md](skills/using-long-term-memory/SKILL.md),

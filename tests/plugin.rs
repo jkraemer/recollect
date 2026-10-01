@@ -145,3 +145,23 @@ fn the_skill_and_the_command_have_their_frontmatter() {
             .is_some_and(|text| !text.is_empty())
     );
 }
+
+#[test]
+fn the_skill_and_the_command_work_through_the_cli() {
+    for file in [
+        "skills/using-long-term-memory/SKILL.md",
+        "commands/session-log.md",
+    ] {
+        let text = read(file);
+        assert!(text.contains("recollect store -p"), "{file}");
+        for mcp in ["MCP", "store_memory", "search_memory", "get_context"] {
+            assert!(!text.contains(mcp), "{file} mentions {mcp}");
+        }
+    }
+    assert_eq!(
+        frontmatter("commands/session-log.md")
+            .get("allowed-tools")
+            .map(String::as_str),
+        Some("Bash(recollect store *)")
+    );
+}
