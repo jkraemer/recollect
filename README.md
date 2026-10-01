@@ -83,7 +83,9 @@ notes and todos. When Claude Code compacts the conversation, the other hook
 stores the compaction summary as a session memory. The project is the git
 repository's directory name (the main repository's, in a worktree); a
 `.recollect-project` file holding a name overrides it for its directory and
-everything below. To let the agent run the CLI without asking each time, add
+everything below it in the same repository, and a worktree also uses the one
+at its main checkout's root. To let the agent run the CLI without asking each
+time, add
 `Bash(recollect *)` to `permissions.allow` in your Claude Code settings.
 
 To run from a checkout instead, see [Development](#development).
