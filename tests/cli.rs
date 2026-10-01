@@ -913,11 +913,117 @@ fn hook_input_without_cwd_uses_the_working_directory() {
 #[test]
 fn malformed_hook_input_fails_with_an_error_line() {
     let data = tempfile::tempdir().unwrap();
-    recollect(data.path())
-        .args(["hook", "session-start"])
-        .write_stdin("not json")
+    for event in ["session-start", "post-compact"] {
+        recollect(data.path())
+            .args(["hook", event])
+            .write_stdin("not json")
+            .assert()
+            .code(1)
+            .stdout("")
+            .stderr(predicate::str::is_match(r"^error: invalid hook input: [^\n]+\n$").unwrap());
+    }
+}
+
+#[test]
+fn hook_post_compact_stores_the_summary_as_a_session_of_the_project() {
+    let data = tempfile::tempdir().unwrap();
+    let code = tempfile::tempdir().unwrap();
+    let repo = fake_repository(code.path(), "fera");
+    let summary = "## Summary\nWe chose `sqlite` with \"quotes\", 'apostrophes' and $HOME.\n\n- next: wire the hook\n";
+    hook(
+        data.path(),
+        "post-compact",
+        &json!({
+            "session_id": "abc123",
+            "transcript_path": "/home/u/.claude/projects/fera/abc123.jsonl",
+            "cwd": repo,
+            "hook_event_name": "PostCompact",
+            "trigger": "auto",
+            "compact_summary": summary,
+        }),
+    )
+    .assert()
+    .success()
+    .stdout("")
+    .stderr("");
+    let stored = json_of(recollect(data.path()).args(["list", "-p", "fera", "--json"]));
+    assert_eq!(stored.as_array().unwrap().len(), 1);
+    assert_eq!(stored[0]["memory_type"], "session");
+    assert_eq!(stored[0]["tags"], json!(["compaction"]));
+    assert_eq!(stored[0]["content"], summary.trim());
+    assert_eq!(
+        json_of(recollect(data.path()).args(["status", "--json"]))["pending_embeddings"],
+        0
+    );
+    hook(data.path(), "session-start", &json!({"cwd": repo}))
         .assert()
-        .code(1)
-        .stdout("")
-        .stderr(predicate::str::is_match(r"^error: invalid hook input: [^\n]+\n$").unwrap());
+        .success()
+        .stdout(predicate::str::contains("\n\n## Last session · #1 · "))
+        .stdout(predicate::str::contains(
+            " · compaction\n## Summary\nWe chose `sqlite`",
+        ))
+        .stderr("");
+}
+
+#[test]
+fn hook_post_compact_outside_a_repository_stores_a_global_session() {
+    let data = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    hook(
+        data.path(),
+        "post-compact",
+        &json!({"cwd": elsewhere.path(), "trigger": "manual", "compact_summary": "Summary of a scratch session."}),
+    )
+    .assert()
+    .success()
+    .stdout("")
+    .stderr("");
+    let stored = json_of(recollect(data.path()).args(["list", "--json"]));
+    assert_eq!(stored[0]["project"], Value::Null);
+    assert_eq!(stored[0]["memory_type"], "session");
+    assert_eq!(stored[0]["content"], "Summary of a scratch session.");
+}
+
+#[test]
+fn hook_post_compact_without_a_summary_stores_nothing() {
+    let data = tempfile::tempdir().unwrap();
+    for input in [
+        json!({"cwd": data.path()}),
+        json!({"cwd": data.path(), "compact_summary": null}),
+        json!({"cwd": data.path(), "compact_summary": " \n "}),
+    ] {
+        hook(data.path(), "post-compact", &input)
+            .assert()
+            .success()
+            .stdout("")
+            .stderr("");
+    }
+    assert_eq!(
+        json_of(recollect(data.path()).args(["list", "--json"])),
+        json!([])
+    );
+}
+
+#[test]
+fn hook_post_compact_without_a_model_stores_the_summary_pending_with_a_warning() {
+    let data = tempfile::tempdir().unwrap();
+    let blocker = data.path().join("not-a-directory");
+    std::fs::write(&blocker, "").unwrap();
+    hook(
+        data.path(),
+        "post-compact",
+        &json!({"cwd": data.path(), "compact_summary": "Summary while the model is unavailable."}),
+    )
+    .env("RECOLLECT_MODEL_DIR", &blocker)
+    .assert()
+    .success()
+    .stdout("")
+    .stderr(predicate::str::contains(
+        "warning: stored #1 without embedding:",
+    ))
+    .stderr(predicate::str::contains("error:").not());
+    assert_eq!(
+        json_of(recollect(data.path()).args(["status", "--json"]))["pending_embeddings"],
+        1
+    );
 }

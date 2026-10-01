@@ -17,6 +17,9 @@ pub const SESSION_START_BUDGET: usize = 9_000;
 /// How many characters of a memory's first line an index line shows.
 const INDEX_TEXT_CHARS: usize = 100;
 
+/// The tag of the session memories made from Claude Code's compaction summaries.
+pub const COMPACTION_TAG: &str = "compaction";
+
 const BLOCK_SEPARATOR: &str = "\n\n";
 
 /// The fields of Claude Code's hook input that recollect uses; the others
