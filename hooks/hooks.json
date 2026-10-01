@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "recollect",
+            "args": ["hook", "session-start"],
+            "timeout": 10,
+            "statusMessage": "Loading memories"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "recollect",
+            "args": ["hook", "post-compact"],
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

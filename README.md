@@ -313,11 +313,12 @@ The repository is both a gem and a Claude Code plugin marketplace:
 | `recollect.gemspec`, `exe/`, `lib/`, `config/`, `public/` | gem | server and CLI |
 | `.claude-plugin/plugin.json` | plugin | plugin manifest |
 | `.claude-plugin/marketplace.json` | plugin | catalog, so this repo can be added as a marketplace |
-| `skills/`, `commands/`, `.mcp.json` | plugin | skill, slash command, MCP wiring |
+| `skills/`, `commands/`, `hooks/` | plugin | skill, slash command, hooks running the `recollect` binary |
 
-Both carry the same version number; `test/packaging_test.rb` fails if they drift
-apart. To try the plugin without publishing, add the checkout as a local
-marketplace:
+The plugin carries its own version: `tests/plugin.rs` checks its manifests,
+hooks, skill and command, `test/packaging_test.rb` checks the gem. To try the
+plugin without publishing, load the checkout for one session with
+`claude --plugin-dir /path/to/recollect`, or add it as a local marketplace:
 
 ```
 /plugin marketplace add /path/to/recollect

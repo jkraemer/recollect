@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "recollect": {
-      "type": "http",
-      "url": "http://localhost:7326/mcp"
-    }
-  }
-}
