@@ -85,6 +85,13 @@ pub struct Memory {
     pub created_at: String,
 }
 
+impl Memory {
+    /// The day the memory was created, `YYYY-MM-DD`.
+    pub fn date(&self) -> &str {
+        self.created_at.get(..10).unwrap_or(&self.created_at)
+    }
+}
+
 /// A search result: the memory plus its final ranking score.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScoredMemory {

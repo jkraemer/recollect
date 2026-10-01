@@ -6,6 +6,7 @@ pub mod detect;
 pub mod embed;
 pub mod error;
 pub mod filter;
+pub mod hook;
 pub mod memory;
 pub mod migrate;
 pub mod output;
