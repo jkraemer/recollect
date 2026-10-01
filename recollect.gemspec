@@ -25,7 +25,7 @@ Gem::Specification.new do |spec|
     .split("\x0")
     .reject do |path|
       path.start_with?("test/", "docs/", "skills/", "commands/", "hooks/", ".claude-plugin/") ||
-        path.start_with?(".git", ".rubocop", ".mcp.json") ||
+        path.start_with?(".git", ".rubocop") ||
         # The Rust crate is developed beside the Ruby code and ships separately.
         path.start_with?("src/", "tests/") ||
         %w[Cargo.toml Cargo.lock rust-toolchain.toml].include?(path) ||
