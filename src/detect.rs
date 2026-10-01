@@ -8,7 +8,8 @@ use crate::error::{Error, Result};
 use crate::memory::ProjectRef;
 
 /// The file whose first non-empty line names the project of its directory
-/// and everything below it, up to the repository root.
+/// and everything below it, up to the repository root; a worktree also takes
+/// the one at its main checkout's root.
 pub const PROJECT_FILE: &str = ".recollect-project";
 
 /// Where a detected project's name came from.
@@ -41,9 +42,11 @@ impl Detection {
 
 /// Detects the project of the absolute directory `dir`. Walking up from it,
 /// the first `.recollect-project` file wins; the walk ends at the repository
-/// root (the first directory holding `.git`), whose directory name is the
-/// project, or at the filesystem root. Fails only when a `.recollect-project`
-/// file exists but cannot be read.
+/// root (the first directory holding `.git`) or at the filesystem root. When
+/// the walk finds no file, a worktree takes the main checkout's
+/// `.recollect-project` if it has one, and otherwise the repository root's
+/// directory name (the main checkout's, for a worktree) is the project. Fails
+/// only when a `.recollect-project` file exists but cannot be read.
 pub fn detect_project(dir: &Path) -> Result<Detection> {
     for candidate in dir.ancestors() {
         let project_file = candidate.join(PROJECT_FILE);
@@ -51,7 +54,7 @@ pub fn detect_project(dir: &Path) -> Result<Detection> {
             return from_project_file(project_file);
         }
         if candidate.join(".git").exists() {
-            return Ok(from_repository(candidate));
+            return from_repository(candidate);
         }
     }
     Ok(Detection::NotFound {
@@ -83,13 +86,24 @@ fn from_project_file(file: PathBuf) -> Result<Detection> {
     })
 }
 
-fn from_repository(root: &Path) -> Detection {
-    let repository = main_repository(root).unwrap_or_else(|| root.to_path_buf());
+/// The project of the repository rooted at `root` when no `.recollect-project`
+/// file lies between it and the session directory. A worktree shares its
+/// project with the main checkout, so the main checkout's file applies and
+/// its directory name stands in for the worktree's own.
+fn from_repository(root: &Path) -> Result<Detection> {
+    let main = main_repository(root);
+    if let Some(main) = &main {
+        let file = main.join(PROJECT_FILE);
+        if file.exists() {
+            return from_project_file(file);
+        }
+    }
+    let repository = main.unwrap_or_else(|| root.to_path_buf());
     let name = repository
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default();
-    match ProjectRef::parse(&name) {
+    Ok(match ProjectRef::parse(&name) {
         Ok(project) => Detection::Found {
             project,
             source: ProjectSource::Repository(repository),
@@ -97,10 +111,10 @@ fn from_repository(root: &Path) -> Detection {
         Err(_) => Detection::NotFound {
             reason: format!(
                 "The repository directory name {name:?} is not a valid project name (allowed are a-z 0-9 . _ -); put a project name in {}.",
-                root.join(PROJECT_FILE).display()
+                repository.join(PROJECT_FILE).display()
             ),
         },
-    }
+    })
 }
 
 /// The main repository of the worktree at `root`: its `.git` file points
@@ -189,6 +203,33 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn a_worktree_uses_the_main_checkouts_project_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = repository(dir.path(), "main-checkout");
+        write(&main.join(PROJECT_FILE), "planio6\n");
+        let tree = worktree(&main, "feat", false);
+        let expected = found_in_file(
+            "planio6",
+            &fs::canonicalize(&main).unwrap().join(PROJECT_FILE),
+        );
+        assert_eq!(detect_project(&tree).unwrap(), expected);
+        assert_eq!(detect_project(&tree.join("sub")).unwrap(), expected);
+    }
+
+    #[test]
+    fn a_worktrees_own_project_file_wins_over_the_main_checkouts() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = repository(dir.path(), "main-checkout");
+        write(&main.join(PROJECT_FILE), "planio6\n");
+        let tree = worktree(&main, "feat", false);
+        let own = tree.join(PROJECT_FILE);
+        write(&own, "feature-proj\n");
+        let expected = found_in_file("feature-proj", &own);
+        assert_eq!(detect_project(&tree).unwrap(), expected);
+        assert_eq!(detect_project(&tree.join("sub")).unwrap(), expected);
     }
 
     #[test]
@@ -306,6 +347,25 @@ mod tests {
                 "{text:?}"
             );
         }
+    }
+
+    #[test]
+    fn an_invalid_main_checkout_name_points_at_the_main_checkouts_project_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = repository(dir.path(), "My Repo");
+        let tree = worktree(&main, "feat", false);
+        assert_eq!(
+            detect_project(&tree).unwrap(),
+            Detection::NotFound {
+                reason: format!(
+                    "The repository directory name \"My Repo\" is not a valid project name (allowed are a-z 0-9 . _ -); put a project name in {}.",
+                    fs::canonicalize(&main)
+                        .unwrap()
+                        .join(PROJECT_FILE)
+                        .display()
+                ),
+            }
+        );
     }
 
     #[test]
