@@ -32,6 +32,8 @@ pub enum Error {
     Config { path: String, message: String },
     #[error("HOME is not set; set RECOLLECT_DATA_DIR to choose the data directory")]
     NoDataDir,
+    #[error("invalid hook input: {0}")]
+    HookInput(String),
     #[error("database error: {0}")]
     Database(#[from] rusqlite::Error),
     #[error("{}: {source}", path.display())]

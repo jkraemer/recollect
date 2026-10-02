@@ -28,7 +28,7 @@ bundle exec rubocop
 ./bin/server
 # Or: bundle exec puma -C config/puma.rb
 
-# Build the gem / check the packaging manifests
+# Build the gem / check its packaging
 gem build recollect.gemspec
 bundle exec ruby -Itest test/packaging_test.rb
 
@@ -50,6 +50,7 @@ working doc). It is excluded from the gem.
 ```bash
 cargo test                                   # all tests; the first run downloads the model to .model-cache/
 cargo test --test cli                        # end-to-end tests of the binary
+cargo test --test plugin                     # the Claude Code plugin's manifests, hooks, skill and command
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
 cargo run -- store -p myproj -T decision <<'EOF'
@@ -62,6 +63,12 @@ Data lives in `$RECOLLECT_DATA_DIR/memories.db` (default `~/.recollect`); the
 embedding model is cached in `$RECOLLECT_MODEL_DIR` (default
 `<data dir>/models`). fastembed lets `HF_HOME` override the model directory, so
 keep `HF_HOME` unset: the tests expect it to be.
+
+The Claude Code plugin's hooks (`hooks/hooks.json`) run `recollect hook
+session-start` and `recollect hook post-compact` with Claude Code's hook
+input on stdin; that corner of the CLI is `src/hook.rs`, with project
+detection (a `.recollect-project` file, else the git repository's directory
+name) in `src/detect.rs`.
 
 The data directory also holds `memories.db.lock`. Every process that opens the
 database (the CLI, a sync daemon) must take a blocking `flock` on it around the
@@ -104,8 +111,9 @@ switch.
 - **Project isolation**: Separate database per project, plus global database
 - **Vector search**: Optional hybrid FTS5 + vector similarity search via sqlite-vec extension
 - **Two distribution channels**: the gem ships the server and CLI (`exe/`), the Claude Code
-  plugin ships the agent-facing parts (`skills/`, `commands/`, `.mcp.json`), catalogued by
-  `.claude-plugin/marketplace.json` so this repository is its own marketplace
+  plugin ships the agent-facing parts (`skills/`, `commands/`, `hooks/`, all working through
+  the Rust `recollect` binary), catalogued by `.claude-plugin/marketplace.json` so this
+  repository is its own marketplace
 
 ## Environment Variables
 

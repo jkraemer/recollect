@@ -1,11 +1,12 @@
 ---
 description: Summarize this session and store it in long-term memory for a future session to resume from
 argument-hint: [extra notes to include]
+allowed-tools: Bash(recollect store *)
 ---
 
 # Session Log
 
-Create a session summary and store it in long-term memory for future retrieval.
+Create a session summary and store it in long-term memory; the next session in this project starts with it.
 
 ## Instructions
 
@@ -42,11 +43,16 @@ Date: [Current UTC timestamp]
 ### Context for Continuation
 [Anything a future session needs to know to continue seamlessly]
 
-3. Store the summary using the store_memory tool:
-   - memory_type: "session"
-   - tags: [relevant topic tags]
-   - project: current project name (or omit for cross-project sessions)
+3. Store the summary with the recollect CLI, passing it on stdin through a quoted heredoc so quotes, backticks and `$` arrive unchanged:
 
-4. Confirm storage to the user with the memory ID.
+   ```bash
+   recollect store -p <project> -t session -T <topic1>,<topic2> <<'EOF'
+   <the summary>
+   EOF
+   ```
+
+   `<project>` is the project named in the "Recollect memory" block at the start of this session; use `-p global` for a session that belongs to no project. The tags name the session's topics.
+
+4. Confirm storage to the user with the memory ID from the output (`stored #<id>`).
 
 $ARGUMENTS

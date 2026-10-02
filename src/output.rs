@@ -13,12 +13,12 @@ pub fn print_diagnostic(line: &str) {
 
 /// `#42 · project · type · date · tags` on one line, then the full content.
 pub fn memory_block(memory: &Memory) -> String {
-    let date = memory.created_at.get(..10).unwrap_or(&memory.created_at);
     let mut header = format!(
-        "#{} · {} · {} · {date}",
+        "#{} · {} · {} · {}",
         memory.id,
         memory.project.as_deref().unwrap_or(GLOBAL),
-        memory.memory_type.as_str()
+        memory.memory_type.as_str(),
+        memory.date()
     );
     if !memory.tags.is_empty() {
         header.push_str(" · ");
