@@ -58,7 +58,7 @@ pub fn compaction_summary_body(raw: &str) -> &str {
 /// notes and todos. Without a project, the reason and an index of the recent
 /// sessions and notes and todos everywhere (`Context::AllProjects`). At most
 /// `SESSION_START_BUDGET` characters: the header and the index are sized
-/// first, and a last session longer than the rest is cut.
+/// first, and a last session longer than the rest keeps its first and last lines.
 pub fn session_start_text(detection: &Detection, context: &Context) -> String {
     let mut blocks = vec![header(detection)];
     match context {
@@ -137,8 +137,10 @@ fn commands(label: &str, project: &str) -> String {
     )
 }
 
-/// The last session under its heading; longer than `room` characters, cut at
-/// a line boundary and followed by a pointer to the full text.
+/// The last session under its heading. Longer than `room` characters, it
+/// keeps its first lines (a third of the room) and its last lines, where
+/// session logs and compaction summaries put the next steps, with a pointer
+/// to the full text between them.
 fn session_section(session: &Memory, room: usize) -> String {
     let mut heading = format!("## Last session · #{} · {}", session.id, session.date());
     if !session.tags.is_empty() {
@@ -150,17 +152,19 @@ fn session_section(session: &Memory, room: usize) -> String {
         return full;
     }
     let pointer = format!("[… cut; recollect show {} for the rest]", session.id);
-    // The two newlines: after the heading and before the pointer.
-    let content_room = room.saturating_sub(chars(&heading) + chars(&pointer) + 2);
+    // The three newlines: after the heading and around the pointer.
+    let content_room = room.saturating_sub(chars(&heading) + chars(&pointer) + 3);
+    let head_room = content_room / 3;
     format!(
-        "{heading}\n{}\n{pointer}",
-        cut_at_line(&session.content, content_room)
+        "{heading}\n{}\n{pointer}\n{}",
+        head_at_line(&session.content, head_room),
+        tail_at_line(&session.content, content_room - head_room)
     )
 }
 
 /// The longest start of `text` of at most `max` characters that ends at a
 /// line boundary; mid-line when not even the first line fits.
-fn cut_at_line(text: &str, max: usize) -> &str {
+fn head_at_line(text: &str, max: usize) -> &str {
     let end = text
         .char_indices()
         .nth(max)
@@ -171,6 +175,27 @@ fn cut_at_line(text: &str, max: usize) -> &str {
     }
     match kept.rfind('\n') {
         Some(newline) => &kept[..newline],
+        None => kept,
+    }
+}
+
+/// The longest end of `text` of at most `max` characters that starts at a
+/// line boundary; mid-line when not even the last line fits.
+fn tail_at_line(text: &str, max: usize) -> &str {
+    let total = chars(text);
+    if total <= max {
+        return text;
+    }
+    let start = text
+        .char_indices()
+        .nth(total - max)
+        .map_or(text.len(), |(index, _)| index);
+    let (dropped, kept) = text.split_at(start);
+    if dropped.ends_with('\n') {
+        return kept;
+    }
+    match kept.find('\n') {
+        Some(newline) => &kept[newline + 1..],
         None => kept,
     }
 }
@@ -360,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn a_long_last_session_is_cut_at_a_line_boundary_to_fit_the_budget() {
+    fn a_long_last_session_keeps_its_first_and_last_lines_within_the_budget() {
         let lines: Vec<String> = (1..=400)
             .map(|n| format!("line {n:03} {}", "y".repeat(40)))
             .collect();
@@ -374,15 +399,30 @@ mod tests {
         let text = session_start_text(&fera(), &fera_context(Some(session), ten_notes()));
         let length = text.chars().count();
         assert!(length <= SESSION_START_BUDGET, "{length} characters");
-        // A cut at a line boundary leaves at most one 49-character line and its newline unused.
-        assert!(length >= SESSION_START_BUDGET - 50, "{length} characters");
-        let (session, notes) = text
-            .split_once("\n[… cut; recollect show 77 for the rest]\n\n")
-            .expect("the cut session ends with the pointer");
-        let last_kept = session.lines().last().unwrap();
+        // Each of the two cuts at a line boundary leaves at most one 49-character line and its newline unused.
+        assert!(length >= SESSION_START_BUDGET - 100, "{length} characters");
+        let (before, after) = text
+            .split_once("\n[… cut; recollect show 77 for the rest]\n")
+            .expect("the pointer sits between the kept lines");
+        let (_, head) = before
+            .split_once("## Last session · #77 · 2026-05-02\n")
+            .unwrap();
+        let (tail, notes) = after.split_once("\n\n## Recent notes and todos\n").unwrap();
+        let head: Vec<&str> = head.lines().collect();
+        let tail: Vec<&str> = tail.lines().collect();
+        assert_eq!(head.first().copied(), Some(lines[0].as_str()));
+        assert_eq!(tail.last().copied(), Some(lines[399].as_str()));
         assert!(
-            lines.iter().any(|line| line == last_kept),
-            "cut at a line boundary, got {last_kept:?}"
+            head.iter()
+                .chain(&tail)
+                .all(|kept| lines.iter().any(|line| line.as_str() == *kept)),
+            "both cuts at line boundaries"
+        );
+        assert!(
+            tail.len() > head.len() * 3 / 2,
+            "a third for the head, the rest for the tail: {} and {} lines",
+            head.len(),
+            tail.len()
         );
         assert_eq!(
             notes.lines().filter(|line| line.starts_with("- #")).count(),
@@ -392,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn a_first_line_longer_than_the_budget_is_cut_mid_line() {
+    fn a_single_line_longer_than_the_budget_is_cut_mid_line() {
         let session = memory(
             5,
             Some("fera"),
@@ -402,14 +442,17 @@ mod tests {
         );
         let text = session_start_text(&fera(), &fera_context(Some(session), vec![]));
         assert_eq!(text.chars().count(), SESSION_START_BUDGET);
+        let (before, tail) = text
+            .split_once("\n[… cut; recollect show 5 for the rest]\n")
+            .expect("the pointer sits between the kept parts");
+        let head = before.lines().last().unwrap();
         assert!(
-            text.ends_with("\n[… cut; recollect show 5 for the rest]"),
-            "{text}"
+            !head.is_empty() && head.chars().all(|c| c == 'z'),
+            "{head:?}"
         );
-        let kept = text.lines().rev().nth(1).unwrap();
         assert!(
-            !kept.is_empty() && kept.chars().all(|c| c == 'z'),
-            "{kept:?}"
+            !tail.is_empty() && tail.chars().all(|c| c == 'z'),
+            "{tail:?}"
         );
     }
 
@@ -432,9 +475,12 @@ mod tests {
             "more bytes than characters, so the budget counts characters"
         );
         assert!(
-            text.contains(
-                "\n[… cut; recollect show 9 for the rest]\n\n## Recent notes and todos\n"
-            )
+            text.contains("\n[… cut; recollect show 9 for the rest]\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!("{}\n\n## Recent notes and todos\n", lines[599])),
+            "the last line is kept"
         );
     }
 
