@@ -1005,6 +1005,43 @@ fn hook_post_compact_without_a_summary_stores_nothing() {
 }
 
 #[test]
+fn hook_post_compact_stores_only_the_summary_part() {
+    let data = tempfile::tempdir().unwrap();
+    let summary = "<analysis>\nScratch notes about the session.\n</analysis>\n\n<summary>\n1. Primary Request and Intent:\n   Switch the plugin to the CLI.\n</summary>";
+    hook(
+        data.path(),
+        "post-compact",
+        &json!({"cwd": data.path(), "compact_summary": summary}),
+    )
+    .assert()
+    .success()
+    .stdout("")
+    .stderr("");
+    let stored = json_of(recollect(data.path()).args(["list", "--json"]));
+    assert_eq!(
+        stored[0]["content"],
+        "1. Primary Request and Intent:\n   Switch the plugin to the CLI."
+    );
+    hook(
+        data.path(),
+        "post-compact",
+        &json!({"cwd": data.path(), "compact_summary": "<analysis>only notes</analysis><summary></summary>"}),
+    )
+    .assert()
+    .success()
+    .stdout("")
+    .stderr("");
+    assert_eq!(
+        json_of(recollect(data.path()).args(["list", "--json"]))
+            .as_array()
+            .unwrap()
+            .len(),
+        1,
+        "an empty summary part stores nothing"
+    );
+}
+
+#[test]
 fn hook_post_compact_without_a_model_stores_the_summary_pending_with_a_warning() {
     let data = tempfile::tempdir().unwrap();
     let blocker = data.path().join("not-a-directory");

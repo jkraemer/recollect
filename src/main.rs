@@ -9,7 +9,7 @@ use serde::Serialize;
 use recollect::config::Config;
 use recollect::detect::detect_project;
 use recollect::filter::Filter;
-use recollect::hook::{COMPACTION_TAG, HookInput, session_start_text};
+use recollect::hook::{COMPACTION_TAG, HookInput, compaction_summary_body, session_start_text};
 use recollect::memory::{MemoryType, ProjectRef, normalize_tags};
 use recollect::migrate::{Rename, read_ruby_data};
 use recollect::output;
@@ -382,7 +382,9 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
         HookEvent::PostCompact => {
             let Some(summary) = input
                 .compact_summary
-                .filter(|summary| !summary.trim().is_empty())
+                .as_deref()
+                .map(compaction_summary_body)
+                .filter(|summary| !summary.is_empty())
             else {
                 return Ok(());
             };
@@ -391,7 +393,7 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
                 .cloned()
                 .unwrap_or(ProjectRef::Global);
             let outcome = app.store(StoreInput {
-                content: summary,
+                content: summary.to_string(),
                 project,
                 memory_type: MemoryType::Session,
                 tags: vec![COMPACTION_TAG.to_string()],

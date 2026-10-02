@@ -38,6 +38,20 @@ impl HookInput {
     }
 }
 
+/// The part of a compaction summary worth keeping: the text inside
+/// `<summary>…</summary>`, without the `<analysis>` notes Claude Code writes
+/// before it; the whole text when the tags are missing. Trimmed.
+pub fn compaction_summary_body(raw: &str) -> &str {
+    const OPEN: &str = "<summary>";
+    const CLOSE: &str = "</summary>";
+    match (raw.find(OPEN), raw.rfind(CLOSE)) {
+        (Some(start), Some(end)) if start + OPEN.len() <= end => {
+            raw[start + OPEN.len()..end].trim()
+        }
+        _ => raw.trim(),
+    }
+}
+
 /// The markdown a session starts with: the project of the session directory
 /// and how it was found, the commands for it, and its context
 /// (`Context::Project`): the last session in full and an index of the recent
@@ -501,6 +515,31 @@ mod tests {
         assert_eq!(compact.compact_summary.as_deref(), Some("We did things."));
         assert_eq!(HookInput::parse(r#"{"cwd":null}"#).unwrap().cwd, None);
         assert_eq!(HookInput::parse("{}").unwrap().cwd, None);
+    }
+
+    #[test]
+    fn a_compaction_summary_keeps_only_its_summary_part() {
+        let raw = "<analysis>\nScratch notes.\n</analysis>\n\n<summary>\n1. Primary Request:\n   Fix the hook.\n9. Optional Next Step:\n   Merge.\n</summary>\n";
+        assert_eq!(
+            compaction_summary_body(raw),
+            "1. Primary Request:\n   Fix the hook.\n9. Optional Next Step:\n   Merge."
+        );
+        assert_eq!(
+            compaction_summary_body("  A summary without tags.\n"),
+            "A summary without tags."
+        );
+        assert_eq!(
+            compaction_summary_body("<summary> unclosed"),
+            "<summary> unclosed"
+        );
+        assert_eq!(
+            compaction_summary_body("</summary> reversed <summary>"),
+            "</summary> reversed <summary>"
+        );
+        assert_eq!(
+            compaction_summary_body("<analysis>x</analysis><summary>\n \n</summary>"),
+            ""
+        );
     }
 
     #[test]
