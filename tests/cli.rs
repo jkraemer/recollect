@@ -858,6 +858,29 @@ fn hook_session_start_prints_the_memory_of_the_session_directory_project() {
 }
 
 #[test]
+fn hook_session_start_after_compaction_prints_only_the_header() {
+    let data = tempfile::tempdir().unwrap();
+    let code = tempfile::tempdir().unwrap();
+    let repo = fake_repository(code.path(), "fera");
+    store(
+        data.path(),
+        &["Session: billing", "-p", "fera", "-t", "session"],
+    );
+    hook(
+        data.path(),
+        "session-start",
+        &json!({"cwd": repo, "hook_event_name": "SessionStart", "source": "compact"}),
+    )
+    .assert()
+    .success()
+    .stdout(format!(
+        "# Recollect memory: project fera\n\nProject from the repository directory {}.\nCommands for this project: search `recollect search \"<words>\" -p fera --json`, full text `recollect show <id>`, store `recollect store -p fera -T <tags>` with the content on stdin.\n",
+        repo.display()
+    ))
+    .stderr("");
+}
+
+#[test]
 fn hook_session_start_outside_a_repository_shows_recent_memories_everywhere() {
     let data = tempfile::tempdir().unwrap();
     let elsewhere = tempfile::tempdir().unwrap();

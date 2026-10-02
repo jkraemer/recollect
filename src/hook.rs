@@ -28,6 +28,8 @@ const BLOCK_SEPARATOR: &str = "\n\n";
 pub struct HookInput {
     /// The session's working directory.
     pub cwd: Option<PathBuf>,
+    /// What started the session, in `SessionStart` input: `startup`, `clear`, `compact`, …
+    pub source: Option<String>,
     /// The summary Claude Code just wrote; only in `PostCompact` input.
     pub compact_summary: Option<String>,
 }
@@ -35,6 +37,11 @@ pub struct HookInput {
 impl HookInput {
     pub fn parse(json: &str) -> Result<Self> {
         serde_json::from_str(json).map_err(|err| Error::HookInput(err.to_string()))
+    }
+
+    /// Whether Claude Code just compacted the session.
+    pub fn after_compaction(&self) -> bool {
+        self.source.as_deref() == Some("compact")
     }
 }
 
@@ -101,6 +108,13 @@ pub fn session_start_text(detection: &Detection, context: &Context) -> String {
         }
     }
     blocks.join(BLOCK_SEPARATOR)
+}
+
+/// What a session gets after Claude Code compacted it: the project and the
+/// commands, without the last session and the index, which the compaction
+/// summary carries forward.
+pub fn session_header_text(detection: &Detection) -> String {
+    header(detection)
 }
 
 /// The title, how the project was found or why there is none, and the commands.
@@ -554,6 +568,15 @@ mod tests {
         .unwrap();
         assert_eq!(start.cwd, Some(PathBuf::from("/work/fera")));
         assert_eq!(start.compact_summary, None);
+        assert_eq!(start.source.as_deref(), Some("startup"));
+        assert!(!start.after_compaction());
+        assert!(
+            HookInput::parse(
+                r#"{"cwd":"/work/fera","hook_event_name":"SessionStart","source":"compact"}"#
+            )
+            .unwrap()
+            .after_compaction()
+        );
         let compact = HookInput::parse(
             r#"{"cwd":"/work/fera","hook_event_name":"PostCompact","trigger":"auto","compact_summary":"We did things."}"#,
         )
@@ -586,6 +609,11 @@ mod tests {
             compaction_summary_body("<analysis>x</analysis><summary>\n \n</summary>"),
             ""
         );
+    }
+
+    #[test]
+    fn after_a_compaction_the_text_is_the_header_alone() {
+        assert_eq!(session_header_text(&fera()), FERA_HEADER);
     }
 
     #[test]

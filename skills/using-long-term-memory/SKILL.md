@@ -9,7 +9,7 @@ description: Use when the recollect CLI is available or a Recollect memory block
 
 Recollect is a searchable, cross-project log of decisions, learnings, solved bugs and session summaries, used through the `recollect` command. You won't use it proactively without discipline. **Search before asking. Store before moving on.**
 
-When a session starts, a "Recollect memory" block in your context names the project, shows its last session log and lists its recent notes and todos. Pass that project name with `-p` in the commands below.
+When a session starts, a "Recollect memory" block in your context names the project, shows its last session log and lists its recent notes and todos; after a compaction the block comes back with the project name and the commands only. Pass that project name with `-p` in the commands below.
 
 ## Where Things Go
 

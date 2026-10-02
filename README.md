@@ -80,7 +80,8 @@ Then, in Claude Code:
 When a session starts, and after `/clear`, the plugin's hook puts the current
 project's memory into context: its last session log and an index of its recent
 notes and todos. When Claude Code compacts the conversation, the other hook
-stores the compaction summary as a session memory. The project is the git
+stores the compaction summary as a session memory, and the project name and
+the commands come back into context. The project is the git
 repository's directory name (the main repository's, in a worktree); a
 `.recollect-project` file holding a name overrides it for its directory and
 everything below it in the same repository, and a worktree also uses the one

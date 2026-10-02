@@ -9,7 +9,9 @@ use serde::Serialize;
 use recollect::config::Config;
 use recollect::detect::detect_project;
 use recollect::filter::Filter;
-use recollect::hook::{COMPACTION_TAG, HookInput, compaction_summary_body, session_start_text};
+use recollect::hook::{
+    COMPACTION_TAG, HookInput, compaction_summary_body, session_header_text, session_start_text,
+};
 use recollect::memory::{MemoryType, ProjectRef, normalize_tags};
 use recollect::migrate::{Rename, read_ruby_data};
 use recollect::output;
@@ -81,7 +83,7 @@ enum Command {
 /// The Claude Code hook events recollect handles.
 #[derive(Subcommand)]
 enum HookEvent {
-    /// Print the memory of the session directory's project
+    /// Print the memory of the session directory's project (after a compaction, only its header)
     SessionStart,
     /// Store Claude Code's compaction summary as a session memory of the project
     PostCompact,
@@ -369,6 +371,7 @@ fn migrate_from_ruby(ruby_data_dir: &Path, renames: &[Rename]) -> anyhow::Result
 /// directory is the input's `cwd`, else the working directory.
 fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
     let input = HookInput::parse(&std::io::read_to_string(std::io::stdin())?)?;
+    let after_compaction = input.after_compaction();
     let dir = match input.cwd {
         Some(dir) => dir,
         None => std::env::current_dir()?,
@@ -376,8 +379,12 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
     match event {
         HookEvent::SessionStart => {
             let detection = detect_project(&dir)?;
-            let context = app.context(detection.project())?;
-            print_text(&session_start_text(&detection, &context))?;
+            let text = if after_compaction {
+                session_header_text(&detection)
+            } else {
+                session_start_text(&detection, &app.context(detection.project())?)
+            };
+            print_text(&text)?;
         }
         HookEvent::PostCompact => {
             let Some(summary) = input

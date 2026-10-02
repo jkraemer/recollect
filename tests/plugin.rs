@@ -72,7 +72,7 @@ fn the_hooks_run_the_recollect_cli() {
         json!({
             "hooks": {
                 "SessionStart": [{
-                    "matcher": "startup|clear",
+                    "matcher": "startup|clear|compact",
                     "hooks": [{
                         "type": "command",
                         "command": "recollect",
