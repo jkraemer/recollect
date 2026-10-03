@@ -16,11 +16,7 @@ if [ ! -d "$repo/.model-cache" ]; then
 fi
 
 stage="$(mktemp -d "${TMPDIR:-/tmp}/recollect-evals.XXXXXX")"
-for part in .claude-plugin skills commands hooks evals; do
-  if [ -e "$repo/$part" ]; then
-    cp -r "$repo/$part" "$stage/"
-  fi
-done
+cp -r "$repo/.claude-plugin" "$repo/skills" "$repo/hooks" "$repo/evals" "$stage/"
 cp -rL "$repo/.model-cache" "$stage/.eval-model"
 
 echo "staged plugin: $stage"

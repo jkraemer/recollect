@@ -55,7 +55,7 @@ class PackagingTest < Minitest::Test
   end
 
   def test_gemspec_omits_the_claude_code_plugin
-    refute(gemspec.files.any? { |f| f.start_with?("hooks/", "skills/", "commands/", "evals/", ".claude-plugin/") },
+    refute(gemspec.files.any? { |f| f.start_with?("hooks/", "skills/", "evals/", ".claude-plugin/") },
       "the plugin ships through the repository, not the gem")
   end
 

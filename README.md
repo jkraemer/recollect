@@ -54,7 +54,7 @@ export RECOLLECT_ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 Recollect ships through two channels: the gem carries the Ruby server and its
 CLI (MCP tools, REST API, web UI), the Claude Code plugin carries the
-agent-facing parts (skill, `/session-log` command, hooks). The plugin works
+agent-facing parts (skills, including `/session-log`, and hooks). The plugin works
 through the Rust `recollect` binary, which is replacing the Ruby server and
 needs no server running.
 
@@ -336,10 +336,10 @@ The repository is both a gem and a Claude Code plugin marketplace:
 | `recollect.gemspec`, `exe/`, `lib/`, `config/`, `public/` | gem | server and CLI |
 | `.claude-plugin/plugin.json` | plugin | plugin manifest |
 | `.claude-plugin/marketplace.json` | plugin | catalog, so this repo can be added as a marketplace |
-| `skills/`, `commands/`, `hooks/` | plugin | skill, slash command, hooks running the `recollect` binary |
+| `skills/`, `hooks/` | plugin | skills (memory discipline, `/session-log`), hooks running the `recollect` binary |
 
 The plugin carries its own version: `tests/plugin.rs` checks its manifests,
-hooks, skill and command, `test/packaging_test.rb` checks the gem. To try the
+hooks and skills, `test/packaging_test.rb` checks the gem. To try the
 plugin without publishing, load the checkout for one session with
 `claude --plugin-dir /path/to/recollect`, or add it as a local marketplace:
 

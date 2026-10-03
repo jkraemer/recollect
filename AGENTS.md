@@ -50,7 +50,7 @@ working doc). It is excluded from the gem.
 ```bash
 cargo test                                   # all tests; the first run downloads the model to .model-cache/
 cargo test --test cli                        # end-to-end tests of the binary
-cargo test --test plugin                     # the Claude Code plugin's manifests, hooks, skill and command
+cargo test --test plugin                     # the Claude Code plugin's manifests, hooks and skills
 evals/run.sh --model haiku                   # the plugin's behaviour evals (claude plugin eval; paid model calls)
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
@@ -120,7 +120,7 @@ switch.
 - **Project isolation**: Separate database per project, plus global database
 - **Vector search**: Optional hybrid FTS5 + vector similarity search via sqlite-vec extension
 - **Two distribution channels**: the gem ships the server and CLI (`exe/`), the Claude Code
-  plugin ships the agent-facing parts (`skills/`, `commands/`, `hooks/`, all working through
+  plugin ships the agent-facing parts (`skills/`, `hooks/`, all working through
   the Rust `recollect` binary), catalogued by `.claude-plugin/marketplace.json` so this
   repository is its own marketplace
 

@@ -2,7 +2,7 @@
   "name": "recollect",
   "displayName": "Recollect",
   "version": "0.2.0",
-  "description": "Long-term memory across coding sessions through the recollect CLI: hooks that load the project's memory when a session starts and keep compaction summaries, the discipline skill that makes an agent search and store, and a session-log command.",
+  "description": "Long-term memory across coding sessions through the recollect CLI: hooks that load the project's memory when a session starts and keep compaction summaries, the discipline skill that makes an agent search and store, and /session-log for a handover summary.",
   "author": {
     "name": "Jens Kraemer",
     "url": "https://github.com/jkraemer"
