@@ -3,7 +3,14 @@
 # in the run's home, and offers `seed` to store memories before the run.
 set -euo pipefail
 
-stage="$(cd "$(dirname "$0")/../.." && pwd)"
+# The harness gives each run a fresh home; an existing database means this
+# script runs outside it, where seeding would write into real memories.
+if [ -e "$HOME/.recollect/memories.db" ]; then
+  echo "refusing to seed: $HOME/.recollect already holds a database" >&2
+  exit 1
+fi
+
+stage="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$HOME/.recollect"
 cp -r "$stage/.eval-model" "$HOME/.recollect/models"
 echo "fera" > .recollect-project
