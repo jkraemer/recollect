@@ -51,6 +51,7 @@ working doc). It is excluded from the gem.
 cargo test                                   # all tests; the first run downloads the model to .model-cache/
 cargo test --test cli                        # end-to-end tests of the binary
 cargo test --test plugin                     # the Claude Code plugin's manifests, hooks, skill and command
+evals/run.sh --model haiku                   # the plugin's behaviour evals (claude plugin eval; paid model calls)
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
 cargo run -- store -p myproj -T decision <<'EOF'
@@ -69,6 +70,14 @@ session-start` and `recollect hook post-compact` with Claude Code's hook
 input on stdin; that corner of the CLI is `src/hook.rs`, with project
 detection (a `.recollect-project` file, else the git repository's directory
 name) in `src/detect.rs`.
+
+`evals/` holds `claude plugin eval` cases for the skill: whether an agent
+searches recollect before answering and stores decisions in the right
+project. `evals/run.sh` stages the plugin (cargo's hard links in `target/`
+make `claude plugin eval .` refuse the repository) and runs them against the
+`recollect` on PATH, so install the build under test first (`cargo install
+--path . --locked --root ~/.local`). Bash in eval runs needs `bubblewrap`
+and `socat`.
 
 The data directory also holds `memories.db.lock`. Every process that opens the
 database (the CLI, a sync daemon) must take a blocking `flock` on it around the

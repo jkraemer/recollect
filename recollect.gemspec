@@ -19,12 +19,12 @@ Gem::Specification.new do |spec|
   spec.metadata["bug_tracker_uri"] = "#{spec.homepage}/issues"
   spec.metadata["rubygems_mfa_required"] = "true"
 
-  # The Claude Code plugin (skills, commands, hooks, marketplace manifests) is
+  # The Claude Code plugin (skills, commands, hooks, evals, marketplace manifests) is
   # distributed through the git repository, not the gem - see README.
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) { |ls| ls.read }
     .split("\x0")
     .reject do |path|
-      path.start_with?("test/", "docs/", "skills/", "commands/", "hooks/", ".claude-plugin/") ||
+      path.start_with?("test/", "docs/", "skills/", "commands/", "hooks/", "evals/", ".claude-plugin/") ||
         path.start_with?(".git", ".rubocop") ||
         # The Rust crate is developed beside the Ruby code and ships separately.
         path.start_with?("src/", "tests/") ||
