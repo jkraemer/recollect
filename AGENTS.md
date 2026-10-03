@@ -51,7 +51,7 @@ working doc). It is excluded from the gem.
 cargo test                                   # all tests; the first run downloads the model to .model-cache/
 cargo test --test cli                        # end-to-end tests of the binary
 cargo test --test plugin                     # the Claude Code plugin's manifests, hooks and skills
-evals/run.sh --model haiku                   # the plugin's behaviour evals (claude plugin eval; paid model calls)
+evals/run.sh --model opus                    # the plugin's behaviour evals (claude plugin eval; paid model calls)
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
 cargo run -- store -p myproj -T decision <<'EOF'
