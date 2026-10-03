@@ -72,8 +72,8 @@ detection (a `.recollect-project` file, else the git repository's directory
 name) in `src/detect.rs`.
 
 `evals/` holds `claude plugin eval` cases for the skill: whether an agent
-searches recollect before answering and stores decisions in the right
-project. `evals/run.sh` stages the plugin (cargo's hard links in `target/`
+searches recollect before answering, stores decisions in the right project,
+and keeps working preferences in auto memory instead. `evals/run.sh` stages the plugin (cargo's hard links in `target/`
 make `claude plugin eval .` refuse the repository) and runs them against the
 `recollect` on PATH, so install the build under test first (`cargo install
 --path . --locked --root ~/.local`). Bash in eval runs needs `bubblewrap`

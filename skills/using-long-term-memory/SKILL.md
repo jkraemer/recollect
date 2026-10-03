@@ -1,13 +1,13 @@
 ---
 name: using-long-term-memory
-description: Searches and stores the long-term memory shared across sessions and projects with the recollect CLI. Use when an error, bug or question may have come up in an earlier session (search before answering or investigating), and right after a decision is made, something is learned or a bug is fixed (store it). Holds decisions with their reasons, learnings, solved bugs and session logs; these belong here rather than in auto memory.
+description: Searches and stores the long-term memory shared across sessions and projects with the recollect CLI. Use when an error, bug or question may have come up in an earlier session (search before answering or investigating), and right after a decision is made, something is learned or a bug is fixed (store it). Holds decisions with their reasons, learnings, solved bugs and session logs; these belong here rather than in auto memory, while working preferences and repository conventions go to auto memory.
 ---
 
 # Using long-term memory
 
 Recollect keeps decisions, learnings, solved bugs and session logs across sessions and projects, and finds them again by words and meaning. Search it before answering questions about earlier work, and store to it as soon as something worth keeping happens.
 
-The "Recollect memory" block at the start of the session names the project and shows its last session log and recent notes. Pass that project name with `-p`. The commands below run in the shell with the Bash tool; loading this skill does not search or store anything by itself.
+The "Recollect memory" block at the start of the session names the project and shows its last session log and recent notes and todos; after a compaction it names the project and the commands only. Pass that project name with `-p`. The commands below run in the shell with the Bash tool; loading this skill does not search or store anything by itself. If `recollect` is not on PATH, tell the user instead of working around it.
 
 ## What goes where
 

@@ -1,7 +1,7 @@
 ---
 name: session-log
 description: Summarizes the current session and stores the summary in recollect as a session log, which the next session in the project starts with.
-argument-hint: [extra notes to include]
+argument-hint: "[extra notes to include]"
 disable-model-invocation: true
 allowed-tools: Bash(recollect store *)
 ---
@@ -16,7 +16,6 @@ Summarize this session and store the summary in recollect; the next session in t
 
    ```
    Session: [Descriptive Title]
-   Date: [Current UTC timestamp]
 
    ### Overview
    [2-3 sentences on what was accomplished]
@@ -50,4 +49,4 @@ Summarize this session and store the summary in recollect; the next session in t
 
 4. Tell the user the memory ID from the output (`stored #<id>`).
 
-$ARGUMENTS
+Notes from the user to include: $ARGUMENTS
