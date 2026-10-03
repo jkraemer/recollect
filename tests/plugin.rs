@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use assert_cmd::Command;
 use serde_json::{Value, json};
 
-const PLUGIN_VERSION: &str = "0.2.0";
+const PLUGIN_VERSION: &str = "0.2.1";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
