@@ -65,12 +65,18 @@ impl Fixture {
     /// Publishes a release at `releases/<location>` (`latest/download` or
     /// `download/<tag>`) whose `recollect` is a shell stub running `body`.
     fn publish(&self, location: &str, body: &str) {
+        self.publish_per_target(location, |_| body.to_string());
+    }
+
+    /// Like `publish`, with the stub in each target's archive running
+    /// `body_for(target)`.
+    fn publish_per_target(&self, location: &str, body_for: impl Fn(&str) -> String) {
         let dir = self.releases().join(location);
         fs::create_dir_all(&dir).unwrap();
         let staging = self.subdir("staging");
-        write_script(&staging.join("recollect"), body);
         let mut sums = String::new();
         for target in TARGETS {
+            write_script(&staging.join("recollect"), &body_for(target));
             let archive = format!("recollect-{target}.tar.gz");
             let status = Command::new("tar")
                 .arg("-czf")
@@ -96,6 +102,32 @@ impl Fixture {
     fn install_old_version(&self) {
         fs::create_dir_all(self.install_dir()).unwrap();
         write_script(&self.installed(), "echo \"recollect 0.0.1\"");
+    }
+
+    /// Rewrites the latest release's SHA256SUMS: `rewrite(archive, hash)`
+    /// returns the line's new hash, or None to drop the line.
+    fn rewrite_sums(&self, rewrite: impl Fn(&str, &str) -> Option<String>) {
+        let sums = self.releases().join("latest/download/SHA256SUMS");
+        let rewritten: String = fs::read_to_string(&sums)
+            .unwrap()
+            .lines()
+            .filter_map(|line| {
+                let (hash, archive) = line.split_once("  ").unwrap();
+                rewrite(archive, hash).map(|hash| format!("{hash}  {archive}\n"))
+            })
+            .collect();
+        fs::write(&sums, rewritten).unwrap();
+    }
+
+    /// PATH with the default install directory behind a `uname` stub that
+    /// reports `os` and `arch`.
+    fn path_on_platform(&self, os: &str, arch: &str) -> String {
+        let stubs = self.subdir("stubs");
+        write_script(
+            &stubs.join("uname"),
+            &format!("case \"$1\" in -s) echo {os} ;; -m) echo {arch} ;; esac"),
+        );
+        format!("{}:{}", stubs.display(), self.path_with_install_dir())
     }
 
     /// `/bin/sh` with only the variables a fresh shell would have, the fake
@@ -148,6 +180,14 @@ fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// The names in `dir`.
+fn entries(dir: &Path) -> Vec<OsString> {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect()
+}
+
 fn version_of(binary: &Path) -> String {
     text(&Command::new(binary).output().unwrap().stdout)
 }
@@ -182,12 +222,8 @@ fn an_upgrade_replaces_the_installed_binary_in_one_step() {
     let output = fixture.run(&fixture.path_with_install_dir(), &[]);
     assert!(output.status.success(), "{}", text(&output.stderr));
     assert_eq!(version_of(&fixture.installed()), "recollect 9.9.9\n");
-    let entries: Vec<OsString> = fs::read_dir(fixture.install_dir())
-        .unwrap()
-        .map(|entry| entry.unwrap().file_name())
-        .collect();
     assert_eq!(
-        entries,
+        entries(&fixture.install_dir()),
         [OsString::from("recollect")],
         "no temporary file left"
     );
@@ -198,16 +234,7 @@ fn a_checksum_mismatch_stops_before_anything_is_replaced() {
     let fixture = Fixture::new();
     fixture.install_old_version();
     fixture.publish_version("latest/download", "9.9.9");
-    let sums = fixture.releases().join("latest/download/SHA256SUMS");
-    let tampered: String = fs::read_to_string(&sums)
-        .unwrap()
-        .lines()
-        .map(|line| {
-            let archive = line.split_whitespace().nth(1).unwrap();
-            format!("{}  {archive}\n", "0".repeat(64))
-        })
-        .collect();
-    fs::write(&sums, tampered).unwrap();
+    fixture.rewrite_sums(|_, _| Some("0".repeat(64)));
     let output = fixture.run(&fixture.path_with_install_dir(), &[]);
     assert_eq!(output.status.code(), Some(1));
     let stderr = text(&output.stderr);
@@ -246,6 +273,76 @@ fn the_install_directory_can_be_chosen() {
         "recollect 9.9.9\n"
     );
     assert!(!fixture.installed().exists());
+}
+
+#[test]
+fn each_platform_gets_the_archive_built_for_it() {
+    for (os, arch, target) in [
+        ("Linux", "x86_64", "x86_64-unknown-linux-gnu"),
+        ("Linux", "aarch64", "aarch64-unknown-linux-gnu"),
+        ("Linux", "arm64", "aarch64-unknown-linux-gnu"),
+        ("Darwin", "arm64", "aarch64-apple-darwin"),
+    ] {
+        let fixture = Fixture::new();
+        fixture.publish_per_target("latest/download", |built_for| {
+            format!("echo \"recollect for {built_for}\"")
+        });
+        let output = fixture.run(&fixture.path_on_platform(os, arch), &[]);
+        assert!(
+            output.status.success(),
+            "{os} {arch}: {}",
+            text(&output.stderr)
+        );
+        assert_eq!(
+            version_of(&fixture.installed()),
+            format!("recollect for {target}\n"),
+            "{os} {arch}"
+        );
+    }
+}
+
+#[test]
+fn a_release_without_a_checksum_for_this_platform_keeps_the_old_binary() {
+    let fixture = Fixture::new();
+    fixture.install_old_version();
+    fixture.publish_version("latest/download", "9.9.9");
+    fixture.rewrite_sums(|archive, hash| {
+        (archive != "recollect-x86_64-unknown-linux-gnu.tar.gz").then(|| hash.to_string())
+    });
+    let output = fixture.run(&fixture.path_on_platform("Linux", "x86_64"), &[]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        text(&output.stderr),
+        "error: SHA256SUMS lists no recollect-x86_64-unknown-linux-gnu.tar.gz\n"
+    );
+    assert_eq!(version_of(&fixture.installed()), "recollect 0.0.1\n");
+}
+
+#[test]
+fn the_temporary_download_directory_is_removed_after_an_install() {
+    let fixture = Fixture::new();
+    fixture.publish_version("latest/download", "9.9.9");
+    let tmp = fixture.subdir("tmp");
+    let output = fixture.run(
+        &fixture.path_with_install_dir(),
+        &[("TMPDIR", tmp.to_str().unwrap())],
+    );
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(entries(&tmp), Vec::<OsString>::new());
+}
+
+#[test]
+fn the_temporary_download_directory_is_removed_after_a_failed_install() {
+    let fixture = Fixture::new();
+    fixture.publish_version("latest/download", "9.9.9");
+    fixture.rewrite_sums(|_, _| Some("0".repeat(64)));
+    let tmp = fixture.subdir("tmp");
+    let output = fixture.run(
+        &fixture.path_with_install_dir(),
+        &[("TMPDIR", tmp.to_str().unwrap())],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(entries(&tmp), Vec::<OsString>::new());
 }
 
 #[test]
@@ -314,15 +411,7 @@ fn a_binary_that_cannot_run_here_keeps_the_old_one() {
 fn an_unsupported_platform_is_refused() {
     let fixture = Fixture::new();
     fixture.publish_version("latest/download", "9.9.9");
-    let stubs = fixture.subdir("stubs");
-    write_script(
-        &stubs.join("uname"),
-        "case \"$1\" in -s) echo Darwin ;; -m) echo x86_64 ;; esac",
-    );
-    let output = fixture.run(
-        &format!("{}:{}", stubs.display(), fixture.path_with_install_dir()),
-        &[],
-    );
+    let output = fixture.run(&fixture.path_on_platform("Darwin", "x86_64"), &[]);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         text(&output.stderr),
