@@ -52,11 +52,11 @@ export RECOLLECT_ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 ## Installation
 
-Recollect ships through two channels: the gem carries the Ruby server and its
+Recollect ships through three channels: the gem carries the Ruby server and its
 CLI (MCP tools, REST API, web UI), the Claude Code plugin carries the
-agent-facing parts (skills, including `/recollect:session-log`, and hooks). The plugin works
-through the Rust `recollect` binary, which is replacing the Ruby server and
-needs no server running.
+agent-facing parts (skills, including `/recollect:session-log`, and hooks), and
+GitHub Releases carry the Rust `recollect` binary. The plugin works through
+that binary, which is replacing the Ruby server and needs no server running.
 
 ```bash
 gem install recollect
@@ -64,7 +64,7 @@ recollect-server
 ```
 
 Install the Rust binary with the install script. It picks the build for the
-machine (Linux x86_64 or aarch64 with glibc 2.35 or newer, or macOS on Apple
+machine (Linux x86_64 or aarch64 with glibc 2.39 or newer, or macOS on Apple
 Silicon), verifies its checksum and puts it in `~/.local/bin`, where it should
 come before the gem's `recollect` command on PATH, which it replaces. Run it
 again to upgrade:
@@ -74,8 +74,8 @@ curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.s
 ```
 
 `RECOLLECT_VERSION=v0.1.0` pins a release and `RECOLLECT_INSTALL_DIR` picks
-another directory. On other platforms, such as Intel Macs, build it from
-source with `cargo install --git https://github.com/jkraemer/recollect --locked`.
+another directory. Other platforms are not supported for now: building
+recollect from source there needs an ONNX Runtime built for the platform.
 
 Then, in Claude Code:
 

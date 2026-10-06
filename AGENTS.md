@@ -127,10 +127,11 @@ switch.
 - **MCP via handle_json**: MCP protocol exposed at `/mcp` endpoint
 - **Project isolation**: Separate database per project, plus global database
 - **Vector search**: Optional hybrid FTS5 + vector similarity search via sqlite-vec extension
-- **Two distribution channels**: the gem ships the server and CLI (`exe/`), the Claude Code
+- **Three distribution channels**: the gem ships the server and CLI (`exe/`), the Claude Code
   plugin ships the agent-facing parts (`skills/`, `hooks/`, all working through
   the Rust `recollect` binary), catalogued by `.claude-plugin/marketplace.json` so this
-  repository is its own marketplace
+  repository is its own marketplace, and GitHub Releases ship the Rust `recollect`
+  binary (`install.sh`)
 
 ## Environment Variables
 
