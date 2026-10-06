@@ -10,6 +10,8 @@ set -eu
 
 base="${RECOLLECT_DOWNLOAD_BASE:-https://github.com/jkraemer/recollect/releases}"
 install_dir="${RECOLLECT_INSTALL_DIR:-$HOME/.local/bin}"
+# A trailing slash would make the PATH checks below compare "dir/" with "dir".
+install_dir="${install_dir%/}"
 
 fail() {
   echo "error: $*" >&2
@@ -22,7 +24,7 @@ case "$os $arch" in
   "Linux x86_64") target=x86_64-unknown-linux-gnu ;;
   "Linux aarch64" | "Linux arm64") target=aarch64-unknown-linux-gnu ;;
   "Darwin arm64") target=aarch64-apple-darwin ;;
-  *) fail "no prebuilt recollect for $os $arch; build it from source: cargo install --git https://github.com/jkraemer/recollect --locked" ;;
+  *) fail "no prebuilt recollect for $os $arch" ;;
 esac
 
 command -v curl > /dev/null 2>&1 || fail "curl is required to download recollect"

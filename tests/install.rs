@@ -249,6 +249,33 @@ fn the_install_directory_can_be_chosen() {
 }
 
 #[test]
+fn a_trailing_slash_on_the_install_directory_changes_nothing() {
+    let fixture = Fixture::new();
+    fixture.publish_version("latest/download", "9.9.9");
+    let elsewhere = fixture.dir.path().join("elsewhere");
+    let output = fixture.run(
+        &format!("{}:{SYSTEM_PATH}", elsewhere.display()),
+        &[(
+            "RECOLLECT_INSTALL_DIR",
+            &format!("{}/", elsewhere.display()),
+        )],
+    );
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        text(&output.stdout),
+        format!(
+            "installed recollect 9.9.9 to {}/recollect\n{MODEL_NOTE}\n",
+            elsewhere.display()
+        )
+    );
+    assert_eq!(
+        version_of(&elsewhere.join("recollect")),
+        "recollect 9.9.9\n"
+    );
+}
+
+#[test]
 fn a_missing_release_is_reported_and_installs_nothing() {
     let fixture = Fixture::new();
     fixture.publish_version("latest/download", "9.9.9");
@@ -284,7 +311,7 @@ fn a_binary_that_cannot_run_here_keeps_the_old_one() {
 }
 
 #[test]
-fn an_unsupported_platform_gets_the_build_from_source_route() {
+fn an_unsupported_platform_is_refused() {
     let fixture = Fixture::new();
     fixture.publish_version("latest/download", "9.9.9");
     let stubs = fixture.subdir("stubs");
@@ -299,7 +326,7 @@ fn an_unsupported_platform_gets_the_build_from_source_route() {
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(
         text(&output.stderr),
-        "error: no prebuilt recollect for Darwin x86_64; build it from source: cargo install --git https://github.com/jkraemer/recollect --locked\n"
+        "error: no prebuilt recollect for Darwin x86_64\n"
     );
     assert!(!fixture.installed().exists());
 }
