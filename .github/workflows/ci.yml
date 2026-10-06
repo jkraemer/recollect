@@ -66,6 +66,6 @@ jobs:
           restore-keys: |
             embedding-model-bge-small-en-v1.5-q-
       - run: cargo fmt --check
-      - run: shellcheck install.sh
+      - run: shellcheck install.sh .github/scripts/release-smoke-test.sh
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo llvm-cov --fail-under-lines 80
