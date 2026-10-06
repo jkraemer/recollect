@@ -6,3 +6,4 @@
 /bin/start-service
 /target
 /.model-cache
+/evals/results

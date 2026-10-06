@@ -1,4 +1,4 @@
-//! The Claude Code plugin's files: manifests, hooks, skill and command.
+//! The Claude Code plugin's files: manifests, hooks and skills.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use assert_cmd::Command;
 use serde_json::{Value, json};
 
-const PLUGIN_VERSION: &str = "0.2.0";
+const PLUGIN_VERSION: &str = "0.2.1";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -127,30 +127,51 @@ fn every_hook_command_runs() {
 }
 
 #[test]
-fn the_skill_and_the_command_have_their_frontmatter() {
-    let skill = frontmatter("skills/using-long-term-memory/SKILL.md");
+fn the_skills_have_their_frontmatter() {
+    let memory = frontmatter("skills/using-long-term-memory/SKILL.md");
     assert_eq!(
-        skill.get("name").map(String::as_str),
+        memory.get("name").map(String::as_str),
         Some("using-long-term-memory")
     );
     assert!(
-        skill
+        memory
             .get("description")
             .is_some_and(|text| !text.is_empty())
     );
-    let command = frontmatter("commands/session-log.md");
+    let session_log = frontmatter("skills/session-log/SKILL.md");
+    assert_eq!(
+        session_log.get("name").map(String::as_str),
+        Some("session-log")
+    );
     assert!(
-        command
+        session_log
             .get("description")
             .is_some_and(|text| !text.is_empty())
+    );
+    assert_eq!(
+        session_log
+            .get("disable-model-invocation")
+            .map(String::as_str),
+        Some("true"),
+        "/session-log runs only when the user types it"
+    );
+    assert_eq!(
+        session_log.get("allowed-tools").map(String::as_str),
+        Some("Bash(recollect store *)")
     );
 }
 
+/// Commands are the older plugin format; skills supersede them.
 #[test]
-fn the_skill_and_the_command_work_through_the_cli() {
+fn the_plugin_ships_skills_and_no_commands() {
+    assert!(!root().join("commands").exists());
+}
+
+#[test]
+fn the_skills_work_through_the_cli() {
     for file in [
         "skills/using-long-term-memory/SKILL.md",
-        "commands/session-log.md",
+        "skills/session-log/SKILL.md",
     ] {
         let text = read(file);
         assert!(text.contains("recollect store -p"), "{file}");
@@ -158,10 +179,4 @@ fn the_skill_and_the_command_work_through_the_cli() {
             assert!(!text.contains(mcp), "{file} mentions {mcp}");
         }
     }
-    assert_eq!(
-        frontmatter("commands/session-log.md")
-            .get("allowed-tools")
-            .map(String::as_str),
-        Some("Bash(recollect store *)")
-    );
 }
