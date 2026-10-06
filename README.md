@@ -64,7 +64,7 @@ recollect-server
 ```
 
 Install the Rust binary with the install script. It picks the build for the
-machine (Linux x86_64 or aarch64 with glibc 2.39 or newer, or macOS on Apple
+machine (Linux x86_64 or aarch64 with glibc 2.38 or newer, or macOS on Apple
 Silicon), verifies its checksum and puts it in `~/.local/bin`, where it should
 come before the gem's `recollect` command on PATH, which it replaces. Run it
 again to upgrade:
