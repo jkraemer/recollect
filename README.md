@@ -52,23 +52,30 @@ export RECOLLECT_ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 ## Installation
 
-Recollect ships through two channels: the gem carries the Ruby server and its
+Recollect ships through three channels: the gem carries the Ruby server and its
 CLI (MCP tools, REST API, web UI), the Claude Code plugin carries the
-agent-facing parts (skills, including `/recollect:session-log`, and hooks). The plugin works
-through the Rust `recollect` binary, which is replacing the Ruby server and
-needs no server running.
+agent-facing parts (skills, including `/recollect:session-log`, and hooks), and
+GitHub Releases carry the Rust `recollect` binary. The plugin works through
+that binary, which is replacing the Ruby server and needs no server running.
 
 ```bash
 gem install recollect
 recollect-server
 ```
 
-Until the Rust binary is packaged, build it from a checkout and put it on your
-PATH, ahead of the gem's `recollect` command, which it replaces:
+Install the Rust binary with the install script. It picks the build for the
+machine (Linux x86_64 or aarch64 with glibc 2.39 or newer, or macOS on Apple
+Silicon), verifies its checksum and puts it in `~/.local/bin`, where it should
+come before the gem's `recollect` command on PATH, which it replaces. Run it
+again to upgrade:
 
 ```bash
-cargo install --path . --locked
+curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.sh | sh
 ```
+
+`RECOLLECT_VERSION=v0.1.0` pins a release and `RECOLLECT_INSTALL_DIR` picks
+another directory. Other platforms are not supported for now: building
+recollect from source there needs an ONNX Runtime built for the platform.
 
 Then, in Claude Code:
 
@@ -329,7 +336,7 @@ gem installs as `recollect-server` and `recollect`.
 
 ### Packaging layout
 
-The repository is both a gem and a Claude Code plugin marketplace:
+The repository is a gem, a Claude Code plugin marketplace and the source of the recollect binary:
 
 | Path | Channel | Contents |
 |------|---------|----------|
@@ -337,6 +344,7 @@ The repository is both a gem and a Claude Code plugin marketplace:
 | `.claude-plugin/plugin.json` | plugin | plugin manifest |
 | `.claude-plugin/marketplace.json` | plugin | catalog, so this repo can be added as a marketplace |
 | `skills/`, `hooks/` | plugin | skills (memory discipline, `/recollect:session-log`), hooks running the `recollect` binary |
+| `Cargo.toml`, `src/`, `install.sh` | binary (GitHub Releases) | the Rust `recollect` CLI and its installer |
 
 The plugin carries its own version: `tests/plugin.rs` checks its manifests,
 hooks and skills, `test/packaging_test.rb` checks the gem. To try the

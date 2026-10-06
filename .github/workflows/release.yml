@@ -1,0 +1,103 @@
+# Builds recollect for each supported platform when a version tag is pushed,
+# checks every binary on the runner that built it, publishes a GitHub Release
+# with the archives and SHA256SUMS, then installs that release with
+# install.sh on each platform. Run by hand (workflow_dispatch), it only builds
+# and checks, and keeps the archives as workflow artifacts.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      # A failing target must not cancel the others: a dry run reports every
+      # platform. publish still needs every leg.
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      ARCHIVE: recollect-${{ matrix.target }}.tar.gz
+    steps:
+      - uses: actions/checkout@v5
+      # rust-toolchain.toml pins the toolchain; the runner's rustup installs it
+      # on the first cargo call.
+      - name: Read the crate version and check it against the tag
+        # bash runs with -eo pipefail, so a failing cargo metadata stops here.
+        shell: bash
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the Cargo.toml version $version"
+            exit 1
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked
+      - name: Smoke test
+        run: sh .github/scripts/release-smoke-test.sh target/release/recollect "$VERSION"
+      - name: Package
+        # COPYFILE_DISABLE keeps macOS tar from adding AppleDouble files.
+        env:
+          COPYFILE_DISABLE: "1"
+        run: |
+          cp LICENSE target/release/LICENSE
+          tar -czf "$ARCHIVE" -C target/release recollect LICENSE
+          shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: recollect-${{ matrix.target }}
+          path: |
+            ${{ env.ARCHIVE }}
+            ${{ env.ARCHIVE }}.sha256
+          if-no-files-found: error
+
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create the GitHub Release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat ./*.sha256 > SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "recollect $GITHUB_REF_NAME" --generate-notes \
+            ./*.tar.gz SHA256SUMS
+
+  install-check:
+    needs: publish
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install the published release with install.sh
+        run: |
+          dir="$(mktemp -d)"
+          RECOLLECT_VERSION="$GITHUB_REF_NAME" RECOLLECT_INSTALL_DIR="$dir" sh install.sh
+          test "$("$dir/recollect" --version)" = "recollect ${GITHUB_REF_NAME#v}"

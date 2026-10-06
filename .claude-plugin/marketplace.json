@@ -12,7 +12,7 @@
     {
       "name": "recollect",
       "source": "./",
-      "description": "Long-term memory across coding sessions. Requires the recollect binary on PATH."
+      "description": "Long-term memory across coding sessions. Requires the recollect binary on PATH; install it with: curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.sh | sh"
     }
   ]
 }

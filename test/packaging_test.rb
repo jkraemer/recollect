@@ -47,7 +47,7 @@ class PackagingTest < Minitest::Test
   # The Rust crate lives at the repository root beside the Ruby code and ships
   # separately; none of it may ship in the gem.
   def test_gemspec_omits_the_rust_crate
-    %w[Cargo.toml Cargo.lock rust-toolchain.toml].each do |path|
+    %w[Cargo.toml Cargo.lock rust-toolchain.toml install.sh].each do |path|
       refute_includes gemspec.files, path, "#{path} belongs to the Rust crate, not the gem"
     end
     refute(gemspec.files.any? { |f| f.start_with?("src/", "tests/") },
