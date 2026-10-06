@@ -79,6 +79,14 @@ make `claude plugin eval .` refuse the repository) and runs them against the
 --path . --locked --root ~/.local`). Bash in eval runs needs `bubblewrap`
 and `socat`.
 
+Releases: set `version` in `Cargo.toml`, run `cargo build` so `Cargo.lock`
+follows, commit, tag `vX.Y.Z` and push master and the tag to `gh` (master to
+`origin` as well). `.github/workflows/release.yml` checks the tag against the
+version, builds and smoke-tests the Linux x86_64/aarch64 and Apple Silicon
+binaries, publishes the GitHub Release and installs it with `install.sh` on
+each platform; started by hand it only builds and checks. `install.sh` is
+tested by `tests/install.rs` against a fake release.
+
 The data directory also holds `memories.db.lock`. Every process that opens the
 database (the CLI, a sync daemon) must take a blocking `flock` on it around the
 switch to WAL mode, because SQLite does not invoke the busy handler for that
