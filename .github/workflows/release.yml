@@ -16,14 +16,17 @@ permissions:
 jobs:
   build:
     strategy:
+      # A failing target must not cancel the others: a dry run reports every
+      # platform. publish still needs every leg.
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-22.04-arm
+            runner: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-26
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
@@ -33,6 +36,8 @@ jobs:
       # rust-toolchain.toml pins the toolchain; the runner's rustup installs it
       # on the first cargo call.
       - name: Read the crate version and check it against the tag
+        # bash runs with -eo pipefail, so a failing cargo metadata stops here.
+        shell: bash
         run: |
           version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
           echo "VERSION=$version" >> "$GITHUB_ENV"
@@ -87,7 +92,7 @@ jobs:
     needs: publish
     strategy:
       matrix:
-        runner: [ubuntu-22.04, ubuntu-22.04-arm, macos-14]
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
