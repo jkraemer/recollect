@@ -30,6 +30,10 @@ pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 /// closed at once.
 pub const MAX_CONNECTIONS: usize = 4;
 
+/// How long a restart waits for the connections being answered: one default
+/// sync interval, enough for a round and for embedding what it brought.
+const RESTART_PATIENCE: Duration = Duration::from_secs(300);
+
 /// Runs the sync daemon: answers the machine's peers, and syncs with every
 /// peer now and then every `interval_seconds`. When an update has replaced
 /// its executable it restarts as the new version. Returns only if it cannot
@@ -182,6 +186,8 @@ struct Restart {
     answering: Arc<AtomicUsize>,
     /// Set while the daemon waits to restart: no new connection is answered.
     pending: AtomicBool,
+    /// How long a restart waits for the connections being answered.
+    patience: Duration,
 }
 
 impl Restart {
@@ -190,6 +196,7 @@ impl Restart {
             executable,
             answering: Arc::new(AtomicUsize::new(0)),
             pending: AtomicBool::new(false),
+            patience: RESTART_PATIENCE,
         }
     }
 
@@ -205,11 +212,27 @@ impl Restart {
 
     /// Replaces this process with the executable now at its path, started
     /// with the same arguments, once the connections being answered are
-    /// done. Called between the timer's passes. Returns only if the new
-    /// executable cannot be started; the daemon then carries on as it is.
+    /// done or have taken longer than `patience`. Called between the timer's
+    /// passes. Returns only if the new executable cannot be started; the
+    /// daemon then carries on as it is.
     fn run(&self, log: &Log) {
         self.pending.store(true, Ordering::SeqCst);
-        while self.answering.load(Ordering::SeqCst) > 0 {
+        let waiting_since = Instant::now();
+        loop {
+            let answering = self.answering.load(Ordering::SeqCst);
+            if answering == 0 {
+                break;
+            }
+            // A connection that does not end must not keep the daemon from
+            // restarting: meanwhile it answers nobody and runs no pass. The
+            // exec cuts the connection off, as a crash would; its peer makes
+            // up for that with its next round.
+            if waiting_since.elapsed() >= self.patience {
+                log(&format!(
+                    "still answering {answering} of its connections; restarting without waiting any longer"
+                ));
+                break;
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
         log("recollect was replaced; restarting as the new version");
@@ -834,5 +857,44 @@ mod tests {
         drop(slot);
         running.join().unwrap();
         assert_eq!(lines.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_restart_does_not_wait_for_a_connection_longer_than_its_patience() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = stand_in_executable(&dir);
+        let restart = Restart {
+            patience: Duration::from_millis(200),
+            ..Restart::of(Executable::at(path.clone()).unwrap())
+        };
+        replace(&path, "not a program");
+        // A connection that takes far longer than the restart is willing to wait.
+        let slot = Slot::take(&restart.answering).expect("a free slot");
+        let answered = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(slot);
+        });
+        let (log, lines) = collecting_log();
+
+        let started = Instant::now();
+        restart.run(&log);
+        let waited = started.elapsed();
+        answered.join().unwrap();
+
+        assert!(
+            waited < Duration::from_millis(1000),
+            "waited {waited:?} for the connection"
+        );
+        let lines = lines.lock().unwrap().clone();
+        assert_eq!(
+            lines.first().map(String::as_str),
+            Some("still answering 1 of its connections; restarting without waiting any longer"),
+            "{lines:?}"
+        );
+        assert_eq!(
+            lines.get(1).map(String::as_str),
+            Some("recollect was replaced; restarting as the new version"),
+            "{lines:?}"
+        );
     }
 }
