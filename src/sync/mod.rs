@@ -32,13 +32,15 @@ pub fn is_valid_peer_name(name: &str) -> bool {
 }
 
 /// Whether `address` is a `host:port` another machine can dial: a host
-/// without whitespace or commas (an invite separates its parts with commas)
-/// and a port from 1 to 65535.
+/// without whitespace, commas (an invite separates its parts with commas) or
+/// control characters (a peer chooses the address it is stored under, and it
+/// is printed in peer lists, errors and the daemon's log), and a port from 1
+/// to 65535.
 pub fn is_valid_address(address: &str) -> bool {
     match address.rsplit_once(':') {
         Some((host, port)) => {
             !host.is_empty()
-                && !host.contains(|c: char| c.is_whitespace() || c == ',')
+                && !host.contains(|c: char| c.is_whitespace() || c.is_control() || c == ',')
                 && port.parse::<u16>().is_ok_and(|port| port != 0)
         }
         None => false,
@@ -247,6 +249,7 @@ mod tests {
             "foehn:0",
             "foehn:70000",
             "fo ehn:7327",
+            "fo\u{1b}ehn:7327",
             "a,b:7327",
         ] {
             assert!(!is_valid_address(address), "{address}");
