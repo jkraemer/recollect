@@ -456,6 +456,50 @@ fn an_unreachable_peer_is_logged_once_and_shown_by_peer_list() {
 }
 
 #[test]
+fn a_corrected_address_is_dialled_and_the_daemon_says_it_syncs_again() {
+    let (alpha, beta) = (Machine::new("alpha", 1), Machine::new("beta", 3600));
+    // beta answers alpha's rounds and starts none: it learns of alpha after
+    // the one pass it makes in this test.
+    let beta_daemon = beta.serve();
+    beta.knows(&alpha, &closed_address());
+    let nowhere = closed_address();
+    alpha.knows(&beta, &nowhere);
+    let alpha_daemon = alpha.serve();
+    eventually("the failed dial is recorded", || {
+        alpha.peer("beta")["last_error"].is_string()
+    });
+
+    alpha
+        .recollect()
+        .args(["peer", "address", "beta", &beta_daemon.address])
+        .assert()
+        .success()
+        .stdout(format!("beta is now dialled at {}\n", beta_daemon.address))
+        .stderr("");
+
+    eventually("a round at the corrected address succeeded", || {
+        let peer = alpha.peer("beta");
+        peer["last_error"].is_null() && peer["last_sync_at"].is_string()
+    });
+    eventually("the daemon logged that it syncs again", || {
+        alpha_daemon
+            .log()
+            .contains(&"beta: syncing again".to_string())
+    });
+    let about_beta: Vec<String> = alpha_daemon
+        .log()
+        .into_iter()
+        .filter(|line| line.starts_with("beta: "))
+        .collect();
+    assert_eq!(about_beta.len(), 2, "{about_beta:?}");
+    assert!(
+        about_beta[0].starts_with(&format!("beta: error: {nowhere}: cannot connect (")),
+        "{about_beta:?}"
+    );
+    assert_eq!(about_beta[1], "beta: syncing again");
+}
+
+#[test]
 fn one_join_gives_both_machines_the_same_knowledge_of_each_other() {
     let (alpha, beta) = (Machine::new("alpha", 3600), Machine::new("beta", 3600));
     let (alpha_daemon, beta_daemon) = (alpha.serve(), beta.serve());
