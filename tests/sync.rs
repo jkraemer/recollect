@@ -1109,3 +1109,23 @@ fn a_daemon_keeps_answering_when_the_new_binary_cannot_start() {
     beta.recollect().arg("sync").assert().success().stderr("");
     assert_eq!(beta.contents(), ["stored by the old version"]);
 }
+
+#[test]
+fn a_restarted_daemon_listens_on_its_configured_port_again() {
+    let alpha = Installed::new("alpha", 1);
+    // A port that was free a moment ago, as a configured port would be.
+    let address = {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().to_string()
+    };
+    alpha.machine.configure(&address, 1);
+    let alpha_daemon = alpha.serve();
+    assert_eq!(alpha_daemon.address, address);
+
+    alpha.install_new_version();
+
+    eventually("alpha's daemon listens again as the new binary", || {
+        !addresses_after_restart(&alpha_daemon).is_empty()
+    });
+    assert_eq!(addresses_after_restart(&alpha_daemon), [address]);
+}
