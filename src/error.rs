@@ -68,6 +68,11 @@ pub enum Error {
     /// A sync failure that needs no variant of its own; the text is the whole message.
     #[error("{0}")]
     Sync(String),
+    /// A sync round that failed after this machine had stored what the peer
+    /// sent: `received` live memories, which still need embedding. Reads as
+    /// the failure itself.
+    #[error("{source}")]
+    RoundFailedAfterApply { received: usize, source: Box<Error> },
 }
 
 impl Error {

@@ -17,6 +17,16 @@ pub struct RoundOutcome {
     pub sent: SyncApplied,
 }
 
+/// The live memories this machine stored in a round and now has to embed,
+/// also when the round failed after storing them.
+pub fn received_memories(result: &Result<RoundOutcome>) -> usize {
+    match result {
+        Ok(outcome) => outcome.received.memories,
+        Err(Error::RoundFailedAfterApply { received, .. }) => *received,
+        Err(_) => 0,
+    }
+}
+
 /// What this machine holds, read once when the round starts.
 struct Holdings {
     entries: Vec<ManifestEntry>,
@@ -61,8 +71,10 @@ pub fn initiate<S: Read + Write>(
     let theirs = read_manifest(receive(channel, peer)?, peer)?;
     send_changes(channel, db, &mine.entries, &theirs)?;
     let received = receive_and_apply(channel, db, peer)?;
-    channel.send(&applied_message(received))?;
-    let sent = read_applied(receive(channel, peer)?, peer)?;
+    let sent = after_apply(received, || {
+        channel.send(&applied_message(received))?;
+        read_applied(receive(channel, peer)?, peer)
+    })?;
     Ok(RoundOutcome { received, sent })
 }
 
@@ -84,10 +96,22 @@ pub fn respond<S: Read + Write>(
     let theirs = read_manifest(receive(channel, peer)?, peer)?;
     channel.send(&mine.manifest())?;
     let received = receive_and_apply(channel, db, peer)?;
-    send_changes(channel, db, &mine.entries, &theirs)?;
-    let sent = read_applied(receive(channel, peer)?, peer)?;
-    channel.send(&applied_message(received))?;
+    let sent = after_apply(received, || {
+        send_changes(channel, db, &mine.entries, &theirs)?;
+        let sent = read_applied(receive(channel, peer)?, peer)?;
+        channel.send(&applied_message(received))?;
+        Ok(sent)
+    })?;
     Ok(RoundOutcome { received, sent })
+}
+
+/// Runs the steps of a round that follow this machine's apply. A failure in
+/// them still says what was stored, so that the caller can embed it.
+fn after_apply<T>(received: SyncApplied, steps: impl FnOnce() -> Result<T>) -> Result<T> {
+    steps().map_err(|source| Error::RoundFailedAfterApply {
+        received: received.memories,
+        source: Box::new(source),
+    })
 }
 
 /// The next message from `peer`; an `error` message from it ends the round.
@@ -199,6 +223,7 @@ fn receive_and_apply<S: Read + Write>(
 #[cfg(test)]
 mod tests {
     use std::net::{TcpListener, TcpStream};
+    use std::time::Duration;
 
     use super::*;
     use crate::db::test_support::{note, record};
@@ -243,6 +268,28 @@ mod tests {
         contents
     }
 
+    /// A memory as a peer sends it: the manifest that lists it and its record.
+    fn memory_to_send(content: &str) -> (Vec<ManifestEntry>, Vec<SyncRecord>) {
+        let mut scratch = database();
+        store(&mut scratch, content);
+        let rows = scratch.sync_manifest().unwrap();
+        let ids: Vec<String> = rows.iter().map(|(id, _)| id.clone()).collect();
+        (manifest(rows), scratch.sync_records(&ids).unwrap())
+    }
+
+    /// A scripted peer's channel: it fails the test rather than hang it.
+    fn scripted(socket: TcpStream) -> Channel<TcpStream> {
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        Channel::new(socket)
+    }
+
+    /// Reads what the peer sends up to and including its `end`.
+    fn receive_until_end(channel: &mut Channel<TcpStream>) {
+        while !matches!(channel.receive(MESSAGE_LIMIT).unwrap(), Message::End {}) {}
+    }
+
     fn applied(memories: usize, deletions: usize) -> SyncApplied {
         SyncApplied {
             memories,
@@ -259,6 +306,8 @@ mod tests {
 
         let (initiated, responded) = round(&mut a, &mut b);
 
+        assert_eq!(received_memories(&initiated), 2);
+        assert_eq!(received_memories(&responded), 1);
         assert_eq!(
             initiated.unwrap(),
             RoundOutcome {
@@ -370,6 +419,8 @@ mod tests {
 
         let (initiated, responded) = round(&mut a, &mut b);
 
+        assert_eq!(received_memories(&initiated), 0);
+        assert_eq!(received_memories(&responded), 0);
         assert_eq!(
             responded.unwrap_err().to_string(),
             "a sent an invalid record \"test-odd\": its global id is not a UUID"
@@ -422,9 +473,10 @@ mod tests {
                     })
                     .unwrap();
             });
-            let err = initiate(&mut Channel::new(connecting), &mut a, "b").unwrap_err();
+            let result = initiate(&mut Channel::new(connecting), &mut a, "b");
+            assert_eq!(received_memories(&result), 0);
             assert_eq!(
-                err.to_string(),
+                result.unwrap_err().to_string(),
                 "peer b speaks sync protocol 2, this recollect speaks 1; upgrade the older one"
             );
         });
@@ -438,8 +490,10 @@ mod tests {
             let responder = scope.spawn(|| respond(&mut Channel::new(answering), &mut b, "a"));
             let mut confused = Channel::new(connecting);
             confused.send(&Message::End {}).unwrap();
+            let result = responder.join().unwrap();
+            assert_eq!(received_memories(&result), 0);
             assert_eq!(
-                responder.join().unwrap().unwrap_err().to_string(),
+                result.unwrap_err().to_string(),
                 "a sent end where hello was expected"
             );
         });
@@ -473,5 +527,86 @@ mod tests {
             );
         });
         assert_eq!(contents(&b), ["from b"]);
+    }
+
+    #[test]
+    fn a_responder_that_loses_the_peer_after_storing_reports_what_it_stored() {
+        let mut b = database();
+        let (entries, memories) = memory_to_send("from the initiator");
+        let (connecting, answering) = socket_pair();
+        answering
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let result = std::thread::scope(|scope| {
+            let responder = scope.spawn(|| respond(&mut Channel::new(answering), &mut b, "a"));
+            let mut vanishing = scripted(connecting);
+            vanishing
+                .send(&Message::Hello {
+                    protocol: PROTOCOL_VERSION,
+                    manifest_hash: "something else".into(),
+                })
+                .unwrap();
+            vanishing.receive(MESSAGE_LIMIT).unwrap();
+            vanishing.send(&Message::Manifest { entries }).unwrap();
+            vanishing.receive(MESSAGE_LIMIT).unwrap();
+            vanishing.send(&Message::Records { memories }).unwrap();
+            vanishing
+                .send(&Message::Tombstones {
+                    entries: Vec::new(),
+                })
+                .unwrap();
+            vanishing.send(&Message::End {}).unwrap();
+            receive_until_end(&mut vanishing);
+            drop(vanishing);
+            responder.join().unwrap()
+        });
+
+        assert_eq!(received_memories(&result), 1);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "the peer closed the connection"
+        );
+        assert_eq!(contents(&b), ["from the initiator"]);
+    }
+
+    #[test]
+    fn an_initiator_that_loses_the_peer_after_storing_reports_what_it_stored() {
+        let mut a = database();
+        let (entries, memories) = memory_to_send("from the responder");
+        let (connecting, answering) = socket_pair();
+        connecting
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let result = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let mut vanishing = scripted(answering);
+                vanishing.receive(MESSAGE_LIMIT).unwrap();
+                vanishing
+                    .send(&Message::Hello {
+                        protocol: PROTOCOL_VERSION,
+                        manifest_hash: "something else".into(),
+                    })
+                    .unwrap();
+                vanishing.receive(MESSAGE_LIMIT).unwrap();
+                vanishing.send(&Message::Manifest { entries }).unwrap();
+                receive_until_end(&mut vanishing);
+                vanishing.send(&Message::Records { memories }).unwrap();
+                vanishing
+                    .send(&Message::Tombstones {
+                        entries: Vec::new(),
+                    })
+                    .unwrap();
+                vanishing.send(&Message::End {}).unwrap();
+                vanishing.receive(MESSAGE_LIMIT).unwrap();
+            });
+            initiate(&mut Channel::new(connecting), &mut a, "b")
+        });
+
+        assert_eq!(received_memories(&result), 1);
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "the peer closed the connection"
+        );
+        assert_eq!(contents(&a), ["from the responder"]);
     }
 }
