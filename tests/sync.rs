@@ -478,8 +478,7 @@ fn a_corrected_address_is_dialled_and_the_daemon_says_it_syncs_again() {
     // the one pass it makes in this test.
     let beta_daemon = beta.serve();
     beta.knows(&alpha, &closed_address());
-    let nowhere = closed_address();
-    alpha.knows(&beta, &nowhere);
+    alpha.knows(&beta, &closed_address());
     let alpha_daemon = alpha.serve();
     eventually("the failed dial is recorded", || {
         alpha.peer("beta")["last_error"].is_string()
@@ -507,11 +506,10 @@ fn a_corrected_address_is_dialled_and_the_daemon_says_it_syncs_again() {
         .into_iter()
         .filter(|line| line.starts_with("beta: "))
         .collect();
+    // Why the first dial failed is not checked: the port the test closed
+    // may have gone to another test's listener in the meantime.
     assert_eq!(about_beta.len(), 2, "{about_beta:?}");
-    assert!(
-        about_beta[0].starts_with(&format!("beta: error: {nowhere}: cannot connect (")),
-        "{about_beta:?}"
-    );
+    assert!(about_beta[0].starts_with("beta: error: "), "{about_beta:?}");
     assert_eq!(about_beta[1], "beta: syncing again");
 }
 
