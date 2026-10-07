@@ -172,6 +172,29 @@ mod tests {
         Config::load_from(dir.to_path_buf(), None).unwrap()
     }
 
+    /// A key that belongs to no machine, made for the test below with
+    /// `openssl genpkey -algorithm ed25519`.
+    const KNOWN_KEY: &str = "-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIH1ndmtz+ViJT7EDA120UWEmCfxhrtEbxoPxgwMNESjb
+-----END PRIVATE KEY-----
+";
+
+    /// The fingerprint of `KNOWN_KEY`, computed without recollect: the output
+    /// of `openssl pkey -in key.pem -pubout -outform DER | openssl dgst
+    /// -sha256 -binary | basenc --base64url` without its padding, with
+    /// `SHA256:` in front.
+    const KNOWN_KEY_FINGERPRINT: &str = "SHA256:fYzmV92Y_YkgAcdm_pB_uZ7e74SK-hs0Eg-GO4XOZZU";
+
+    /// Peers store fingerprints and invites carry them: a change to how one
+    /// is computed would break every pairing made by an earlier release.
+    #[test]
+    fn the_fingerprint_of_a_known_key_is_the_one_openssl_computes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(IDENTITY_FILE), KNOWN_KEY).unwrap();
+        let identity = Identity::load_or_create(dir.path()).unwrap();
+        assert_eq!(identity.fingerprint(), KNOWN_KEY_FINGERPRINT);
+    }
+
     #[test]
     fn the_first_use_creates_a_key_only_the_owner_can_read() {
         let dir = tempfile::tempdir().unwrap();
@@ -183,6 +206,8 @@ mod tests {
         let key = data_dir.join(IDENTITY_FILE);
         let mode = std::fs::metadata(&key).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+        let stored = rcgen::KeyPair::from_pem(&std::fs::read_to_string(&key).unwrap()).unwrap();
+        assert!(stored.is_compatible(&rcgen::PKCS_ED25519), "an Ed25519 key");
         let entries: Vec<_> = std::fs::read_dir(&data_dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
