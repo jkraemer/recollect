@@ -61,6 +61,9 @@ version="$("$tmp/recollect" --version 2>&1)" ||
   fail "the downloaded recollect does not run on this machine: $version"
 
 mkdir -p "$install_dir"
+# An upgrade has its embedding model already.
+first_install=true
+[ -e "$install_dir/recollect" ] && first_install=false
 cp "$tmp/recollect" "$install_dir/.recollect.new"
 chmod 755 "$install_dir/.recollect.new"
 mv -f "$install_dir/.recollect.new" "$install_dir/recollect"
@@ -74,4 +77,6 @@ found="$(command -v recollect 2> /dev/null || true)"
 if [ -n "$found" ] && [ "$found" != "$install_dir/recollect" ]; then
   echo "warning: $found comes first on PATH and shadows $install_dir/recollect" >&2
 fi
-echo "The embedding model (about 30 MB) downloads on first use."
+if "$first_install"; then
+  echo "The embedding model (about 65 MB) downloads on first use."
+fi

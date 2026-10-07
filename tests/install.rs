@@ -21,7 +21,7 @@ const TARGETS: [&str; 3] = [
 /// script uses live on Linux and macOS.
 const SYSTEM_PATH: &str = "/usr/bin:/bin";
 
-const MODEL_NOTE: &str = "The embedding model (about 30 MB) downloads on first use.";
+const MODEL_NOTE: &str = "The embedding model (about 65 MB) downloads on first use.";
 
 struct Fixture {
     dir: TempDir,
@@ -226,6 +226,23 @@ fn an_upgrade_replaces_the_installed_binary_in_one_step() {
         entries(&fixture.install_dir()),
         [OsString::from("recollect")],
         "no temporary file left"
+    );
+}
+
+#[test]
+fn an_upgrade_does_not_mention_the_model_download() {
+    let fixture = Fixture::new();
+    fixture.install_old_version();
+    fixture.publish_version("latest/download", "9.9.9");
+    let output = fixture.run(&fixture.path_with_install_dir(), &[]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        text(&output.stdout),
+        format!(
+            "installed recollect 9.9.9 to {}\n",
+            fixture.installed().display()
+        )
     );
 }
 
