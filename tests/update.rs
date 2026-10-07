@@ -475,7 +475,7 @@ fn update_refuses_a_directory_it_cannot_write_to() {
 }
 
 #[test]
-fn a_failed_install_keeps_the_running_binary_and_passes_the_status_on() {
+fn a_failed_install_keeps_the_running_binary() {
     let installation = Installation::new();
     let (root, site) = site_with_release_99();
     let sums = root.path().join("download/v99.0.0/SHA256SUMS");
@@ -493,5 +493,26 @@ fn a_failed_install_keeps_the_running_binary_and_passes_the_status_on() {
         .stderr(
             predicate::str::is_match("^error: checksum mismatch for recollect-[^\n]+\n$").unwrap(),
         );
+    assert_eq!(installation.version(), format!("recollect {INSTALLED}\n"));
+}
+
+#[test]
+fn update_exits_with_the_status_of_the_installer() {
+    let installation = Installation::new();
+    let (_root, site) = site_with_release_99();
+    let stubs = tempfile::tempdir().unwrap();
+    release::write_script(&stubs.path().join("tar"), "exit 7");
+    installation
+        .update(&site.base)
+        .env(
+            "PATH",
+            format!(
+                "{}:{}:{SYSTEM_PATH}",
+                stubs.path().display(),
+                installation.bin().display()
+            ),
+        )
+        .assert()
+        .code(7);
     assert_eq!(installation.version(), format!("recollect {INSTALLED}\n"));
 }
