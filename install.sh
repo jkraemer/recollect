@@ -6,12 +6,14 @@
 # RECOLLECT_VERSION        a release tag such as v0.1.0; default: the latest release
 # RECOLLECT_INSTALL_DIR    where recollect goes; default: $HOME/.local/bin
 # RECOLLECT_DOWNLOAD_BASE  where releases live; default: the project's GitHub releases
+# RECOLLECT_CPUINFO        the file listing the CPU's features; default: /proc/cpuinfo
 set -eu
 
 base="${RECOLLECT_DOWNLOAD_BASE:-https://github.com/jkraemer/recollect/releases}"
 install_dir="${RECOLLECT_INSTALL_DIR:-$HOME/.local/bin}"
 # A trailing slash would make the PATH checks below compare "dir/" with "dir".
 install_dir="${install_dir%/}"
+cpuinfo="${RECOLLECT_CPUINFO:-/proc/cpuinfo}"
 
 fail() {
   echo "error: $*" >&2
@@ -28,6 +30,16 @@ case "$os $arch" in
 esac
 
 command -v curl > /dev/null 2>&1 || fail "curl is required to download recollect"
+
+# The x86_64 build needs AVX2: the ONNX Runtime linked into it is compiled
+# for it, and without it the binary dies with "Illegal instruction" before it
+# can say why. Virtual machines often hide AVX2 from the guest. A machine that
+# does not list its CPU's features is not refused.
+if [ "$target" = x86_64-unknown-linux-gnu ] && [ -r "$cpuinfo" ] &&
+  awk '/^flags/ { listed = 1; for (i = 1; i <= NF; i++) if ($i == "avx2") found = 1 }
+       END { exit (listed && !found) ? 0 : 1 }' "$cpuinfo"; then
+  fail "this CPU has no AVX2, which the prebuilt recollect needs (in a virtual machine, choose a CPU type that passes it through, such as \"host\")"
+fi
 
 if [ -n "${RECOLLECT_VERSION:-}" ]; then
   url="$base/download/$RECOLLECT_VERSION"
@@ -58,7 +70,7 @@ awk -v archive="$archive" '$2 == archive' "$tmp/SHA256SUMS" > "$tmp/expected"
 
 tar -xzf "$tmp/$archive" -C "$tmp"
 version="$("$tmp/recollect" --version 2>&1)" ||
-  fail "the downloaded recollect does not run on this machine: $version"
+  fail "the downloaded recollect does not run on this machine${version:+: $version}"
 
 mkdir -p "$install_dir"
 cp "$tmp/recollect" "$install_dir/.recollect.new"
