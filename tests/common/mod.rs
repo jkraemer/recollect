@@ -1,13 +1,15 @@
 //! Helpers shared by the integration tests.
 #![allow(dead_code)] // each test binary uses a different subset
 
+pub mod release;
 pub mod ruby;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use recollect::Result;
 use recollect::embed::{Embedder, FastEmbedder, MODEL_ID};
+use tempfile::TempDir;
 
 /// One model cache for every test, so the model downloads once per checkout.
 pub fn model_dir() -> PathBuf {
@@ -54,5 +56,20 @@ impl Embedder for SharedEmbedder {
 
     fn embed_query(&mut self, query: &str) -> Result<Vec<f32>> {
         self.model().embed_query(query)
+    }
+}
+
+/// A temporary directory under cargo's target directory, on the file system
+/// of the built binary, so that `install_binary` can link instead of copy.
+pub fn target_tempdir() -> TempDir {
+    tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap()
+}
+
+/// Puts the `recollect` under test at `path`, as an installer would have:
+/// a hard link where the file system allows one, else a copy.
+pub fn install_binary(path: &Path) {
+    let built = assert_cmd::cargo::cargo_bin("recollect");
+    if std::fs::hard_link(&built, path).is_err() {
+        std::fs::copy(&built, path).unwrap();
     }
 }

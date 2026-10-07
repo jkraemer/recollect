@@ -67,7 +67,7 @@ Install the Rust binary with the install script. It picks the build for the
 machine (Linux x86_64 or aarch64 with glibc 2.38 or newer, or macOS on Apple
 Silicon), verifies its checksum and puts it in `~/.local/bin`, where it should
 come before the gem's `recollect` command on PATH, which it replaces. Run it
-again to upgrade:
+again to upgrade, or use recollect update (below):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.sh | sh
@@ -83,6 +83,24 @@ Pentium and Celeron models do not. A virtual machine has to pass AVX2 through
 to the guest: choose the CPU type `host` in QEMU or Proxmox, or the mode
 `host-passthrough` in libvirt. Generic types such as `qemu64`, `kvm64` or
 `x86-64-v2-AES` hide it, and recollect stops with `Illegal instruction` there.
+
+Once installed, recollect upgrades itself:
+
+```bash
+recollect update           # install the latest release over the running binary
+recollect update --check   # only say whether there is a newer one
+```
+
+When a session starts, recollect looks up the latest release (at most once a
+day, giving up after two seconds) and, if there is a newer one, tells the
+agent to mention it. The agent is told not to run the update: that stays
+your decision. To switch the lookup and the notice off, put this into
+`~/.recollect/config.toml`:
+
+```toml
+[update]
+check = false
+```
 
 Then, in Claude Code:
 
@@ -164,6 +182,12 @@ systemctl --user enable --now recollect-serve
 
 To keep the daemon running while you are logged out, enable lingering once:
 `loginctl enable-linger`.
+
+The daemon needs no restart after an upgrade: when it finds another file
+where its binary was, it finishes the rounds in progress and starts again as
+the new version. A daemon started by recollect 0.2.0 or older cannot do that
+yet: restart it once after upgrading from such a version
+(`systemctl --user restart recollect-serve`).
 
 It listens on port 7327. If a firewall blocks incoming connections (Fedora's
 does by default), open the port on at least one of the two machines, for

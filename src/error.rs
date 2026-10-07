@@ -36,6 +36,12 @@ pub enum Error {
         "this is a development build; set RECOLLECT_DATA_DIR to a scratch directory (it does not open the default data directory, whose database it would migrate)"
     )]
     DevelopmentBuildWithoutDataDir,
+    #[error(
+        "this is a development build; set RECOLLECT_DOWNLOAD_BASE to the releases it may look up and install"
+    )]
+    DevelopmentBuildWithoutDownloadBase,
+    #[error("could not look up the latest release at {url}: {reason}")]
+    ReleaseLookup { url: String, reason: String },
     #[error("invalid hook input: {0}")]
     HookInput(String),
     #[error("database error: {0}")]
@@ -73,6 +79,10 @@ pub enum Error {
         theirs: u32,
         ours: u32,
     },
+    /// A failure of `recollect update` that needs no variant of its own; the
+    /// text is the whole message.
+    #[error("{0}")]
+    Update(String),
     /// A sync failure that needs no variant of its own; the text is the whole message.
     #[error("{0}")]
     Sync(String),

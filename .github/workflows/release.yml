@@ -3,6 +3,9 @@
 # with the archives and SHA256SUMS, then installs that release with
 # install.sh on each platform. Run by hand (workflow_dispatch), it only builds
 # and checks, and keeps the archives as workflow artifacts.
+# Installed binaries update themselves with the install.sh they were built
+# with (recollect update), so the archive names, SHA256SUMS and the
+# download/<tag>/ layout must stay as they are.
 name: Release
 
 on:

@@ -5,6 +5,7 @@ mod common;
 
 use std::io::{BufRead, BufReader, ErrorKind};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::Path;
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -138,8 +139,13 @@ impl Machine {
 
     /// Starts `recollect serve` on this machine and waits until it listens.
     fn serve(&self) -> Daemon {
+        self.serve_from(&assert_cmd::cargo::cargo_bin("recollect"))
+    }
+
+    /// Like `serve`, with the daemon started from the `recollect` at `binary`.
+    fn serve_from(&self, binary: &Path) -> Daemon {
         let _ = common::shared_model();
-        let mut child = StdCommand::new(assert_cmd::cargo::cargo_bin("recollect"))
+        let mut child = StdCommand::new(binary)
             .arg("serve")
             .env("RECOLLECT_DATA_DIR", self.dir.path())
             .env("RECOLLECT_MODEL_DIR", common::model_dir())
@@ -960,4 +966,166 @@ fn sync_names_an_unknown_peer_and_says_when_there_is_none() {
         .failure()
         .stdout("")
         .stderr("error: no peer named \"nobody\"\n");
+}
+
+const RESTARTING: &str = "recollect was replaced; restarting as the new version";
+
+/// A machine whose daemon runs from a `recollect` installed in a directory
+/// of its own, where a test can replace it.
+struct Installed {
+    machine: Machine,
+    bin: TempDir,
+}
+
+impl Installed {
+    fn new(name: &str, interval_seconds: u64) -> Self {
+        let bin = common::target_tempdir();
+        common::install_binary(&bin.path().join("recollect"));
+        Self {
+            machine: Machine::new(name, interval_seconds),
+            bin,
+        }
+    }
+
+    fn serve(&self) -> Daemon {
+        self.machine.serve_from(&self.bin.path().join("recollect"))
+    }
+
+    /// Puts another file where the binary is, as install.sh does: written
+    /// beside it, then renamed into place. `make` writes the new file.
+    fn replace_binary(&self, make: impl FnOnce(&Path)) {
+        let new = self.bin.path().join(".recollect.new");
+        make(&new);
+        std::fs::rename(&new, self.bin.path().join("recollect")).unwrap();
+    }
+
+    /// Replaces the binary with a copy of the `recollect` under test: the
+    /// same program in another file.
+    fn install_new_version(&self) {
+        self.replace_binary(|new| {
+            std::fs::copy(assert_cmd::cargo::cargo_bin("recollect"), new).unwrap();
+        });
+    }
+}
+
+/// The addresses a daemon has announced since it first listened: one for
+/// every restart.
+fn addresses_after_restart(daemon: &Daemon) -> Vec<String> {
+    daemon
+        .log()
+        .iter()
+        .filter_map(|line| line.strip_prefix("listening on "))
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn a_daemon_whose_binary_was_replaced_restarts_as_the_new_one() {
+    // alpha's timer runs every second and notices the new binary.
+    let alpha = Installed::new("alpha", 1);
+    let beta = Machine::new("beta", 3600);
+    let (alpha_daemon, beta_daemon) = (alpha.serve(), beta.serve());
+    alpha.machine.knows(&beta, &beta_daemon.address);
+    beta.knows(&alpha.machine, &alpha_daemon.address);
+
+    alpha.install_new_version();
+
+    eventually("alpha's daemon listens again as the new binary", || {
+        addresses_after_restart(&alpha_daemon).len() == 1
+    });
+    let log = alpha_daemon.log();
+    assert_eq!(
+        log.iter().filter(|line| *line == RESTARTING).count(),
+        1,
+        "{log:?}"
+    );
+    assert!(
+        !log.iter()
+            .any(|line| line.starts_with("error: cannot restart")),
+        "{log:?}"
+    );
+
+    // The restarted daemon answers a round: beta dials its new address.
+    let address = addresses_after_restart(&alpha_daemon).remove(0);
+    beta.recollect()
+        .args(["peer", "address", "alpha", &address])
+        .assert()
+        .success();
+    alpha.machine.store("stored after the restart");
+    beta.recollect().arg("sync").assert().success().stderr("");
+    assert_eq!(beta.contents(), ["stored after the restart"]);
+}
+
+#[test]
+fn a_peer_connecting_makes_a_daemon_notice_its_new_binary() {
+    // alpha's timer does not run again during the test: only beta's
+    // connection can make it look at its binary.
+    let alpha = Installed::new("alpha", 3600);
+    let beta = Machine::new("beta", 3600);
+    let (alpha_daemon, beta_daemon) = (alpha.serve(), beta.serve());
+    alpha.machine.knows(&beta, &beta_daemon.address);
+    beta.knows(&alpha.machine, &alpha_daemon.address);
+    // A round answered by alpha: its daemon is up and its timer is waiting.
+    beta.recollect().arg("sync").assert().success();
+
+    alpha.install_new_version();
+    // Answered by the old daemon or refused while it restarts: either is fine.
+    let _ = beta.recollect().arg("sync").output().unwrap();
+
+    eventually("alpha's daemon listens again as the new binary", || {
+        addresses_after_restart(&alpha_daemon).len() == 1
+    });
+    assert!(alpha_daemon.log().iter().any(|line| line == RESTARTING));
+}
+
+#[test]
+fn a_daemon_keeps_answering_when_the_new_binary_cannot_start() {
+    let alpha = Installed::new("alpha", 1);
+    let beta = Machine::new("beta", 3600);
+    let (alpha_daemon, beta_daemon) = (alpha.serve(), beta.serve());
+    alpha.machine.knows(&beta, &beta_daemon.address);
+    beta.knows(&alpha.machine, &alpha_daemon.address);
+
+    // A file without execute permission.
+    alpha.replace_binary(|new| std::fs::write(new, "not a program").unwrap());
+
+    let failures = || {
+        alpha_daemon
+            .log()
+            .iter()
+            .filter(|line| line.starts_with("error: cannot restart as the new version: "))
+            .count()
+    };
+    eventually("alpha's daemon has given up on the new binary", || {
+        failures() == 1
+    });
+    // Three more passes of its timer: the same file is not tried again.
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(failures(), 1, "{:?}", alpha_daemon.log());
+    assert_eq!(addresses_after_restart(&alpha_daemon), Vec::<String>::new());
+
+    // Still the old daemon at the old address, and it answers.
+    alpha.machine.store("stored by the old version");
+    beta.recollect().arg("sync").assert().success().stderr("");
+    assert_eq!(beta.contents(), ["stored by the old version"]);
+}
+
+#[test]
+fn a_restarted_daemon_listens_on_its_configured_port_again() {
+    let alpha = Installed::new("alpha", 1);
+    // A port that was free a moment ago, as a configured port would be.
+    let address = {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.local_addr().unwrap().to_string()
+    };
+    alpha.machine.configure(&address, 1);
+    let alpha_daemon = alpha.serve();
+    assert_eq!(alpha_daemon.address, address);
+
+    alpha.install_new_version();
+
+    eventually("alpha's daemon listens again as the new binary", || {
+        !addresses_after_restart(&alpha_daemon).is_empty()
+    });
+    assert_eq!(addresses_after_restart(&alpha_daemon), [address]);
 }

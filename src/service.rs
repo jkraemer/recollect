@@ -365,7 +365,7 @@ impl Recollect {
         &mut self.db
     }
 
-    pub(crate) fn config(&self) -> &Config {
+    pub fn config(&self) -> &Config {
         &self.config
     }
 

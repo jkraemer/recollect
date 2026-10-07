@@ -2,6 +2,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use chrono::Utc;
 use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -20,6 +21,7 @@ use recollect::sync;
 use recollect::sync::SyncReport;
 use recollect::sync::pairing::INVITE_VALID_MINUTES;
 use recollect::time::{parse_since, parse_until};
+use recollect::update::{self, Check, Releases, Version};
 
 /// Persistent, searchable memory for coding agents.
 #[derive(Parser)]
@@ -69,6 +71,12 @@ enum Command {
     Status {
         #[command(flatten)]
         output: OutputArgs,
+    },
+    /// Install the latest release over this recollect
+    Update {
+        /// Only say whether there is a newer release
+        #[arg(long)]
+        check: bool,
     },
     /// Copy the memories of a Ruby recollect installation into this database
     MigrateFromRuby {
@@ -293,6 +301,7 @@ fn run(command: Command) -> anyhow::Result<()> {
         } => return migrate_from_ruby(ruby_data_dir, rename),
         Command::Serve => return serve(),
         Command::Id { output } => return print_machine(output),
+        Command::Update { check } => return update_recollect(*check),
         _ => {}
     }
     let mut app = open_app()?;
@@ -433,7 +442,10 @@ fn run(command: Command) -> anyhow::Result<()> {
             app.remove_peer(&name)?;
             print_text(&format!("removed {name}"))?;
         }
-        Command::MigrateFromRuby { .. } | Command::Serve | Command::Id { .. } => {
+        Command::MigrateFromRuby { .. }
+        | Command::Serve
+        | Command::Id { .. }
+        | Command::Update { .. } => {
             unreachable!("handled before the database opened")
         }
     }
@@ -479,6 +491,33 @@ fn print_machine(output: &OutputArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Looks up the latest release and installs it over the running recollect,
+/// or only says whether there is one. Works without the database, so that
+/// it also helps when the database is what is broken.
+fn update_recollect(check_only: bool) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let installed = Version::installed();
+    let latest = Releases::from_env()?.latest()?;
+    Check::read(&config.data_dir).record(&config.data_dir, Utc::now(), Some(latest));
+    if latest <= installed {
+        print_text(&format!("recollect {installed} is the latest release"))?;
+        return Ok(());
+    }
+    if check_only {
+        print_text(&update::available(latest, installed))?;
+        return Ok(());
+    }
+    let install_dir = update::install_dir()?;
+    let status = update::install(latest, &install_dir)?;
+    if !status.success() {
+        // The installer has said why; its status is this command's.
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    print_text("A running `recollect serve` switches to the new version by itself.")?;
+    print_text("If sync with another machine stops, update recollect there too.")?;
+    Ok(())
+}
+
 /// Prints one line per round, embeds what the rounds brought, also when a
 /// round failed after storing it, and fails if a round failed.
 fn finish_sync(app: &mut Recollect, reports: &[SyncReport]) -> anyhow::Result<()> {
@@ -514,7 +553,13 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
             let text = if after_compaction {
                 session_header_text(&detection)
             } else {
-                session_start_text(&detection, &app.context(detection.project())?)
+                let text = session_start_text(&detection, &app.context(detection.project())?);
+                // One short line on top of SESSION_START_BUDGET, which leaves
+                // room for it below Claude Code's limit.
+                match update_notice(app.config()) {
+                    Some(notice) => format!("{text}\n\n{notice}"),
+                    None => text,
+                }
             };
             print_text(&text)?;
         }
@@ -541,6 +586,20 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// What a starting session is told about a newer release: nothing when the
+/// check is switched off, when this build may not look releases up, or when
+/// there is none. The lookup happens at most once a day and gives up after
+/// two seconds; whatever goes wrong with it, the session starts without it.
+fn update_notice(config: &Config) -> Option<String> {
+    if !config.update.check {
+        return None;
+    }
+    let releases = Releases::from_env().ok()?;
+    update::session_notice(&config.data_dir, Version::installed(), Utc::now(), || {
+        releases.latest().ok()
+    })
 }
 
 fn read_stdin() -> anyhow::Result<String> {

@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: passes-on-the-update-notice
+description: The session starts with the notice about a newer recollect; the agent tells the user and does not run the update.
+tags: [update]
+context:
+  scaffold_script: setup.sh

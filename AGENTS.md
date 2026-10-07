@@ -52,6 +52,7 @@ cargo test                                   # all tests; the first run download
 cargo test --test cli                        # end-to-end tests of the binary
 cargo test --test plugin                     # the Claude Code plugin's manifests, hooks and skills
 cargo test --test sync                       # sync end to end: daemons and CLI on local sockets
+cargo test --test update                     # the update notice and `recollect update` against a fake release site
 evals/run.sh --model opus                    # the plugin's behaviour evals (claude plugin eval; paid model calls)
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
@@ -83,7 +84,7 @@ name) in `src/detect.rs`.
 
 `evals/` holds `claude plugin eval` cases for the skill: whether an agent
 searches recollect before answering, stores decisions in the right project,
-and keeps working preferences in auto memory instead. `evals/run.sh` stages the plugin (cargo's hard links in `target/`
+keeps working preferences in auto memory instead, and passes the update notice on to the user without running the update. `evals/run.sh` stages the plugin (cargo's hard links in `target/`
 make `claude plugin eval .` refuse the repository) and runs them against the
 `recollect` on PATH, so install the build under test first (`cargo install
 --path . --locked --root ~/.local`). Bash in eval runs needs `bubblewrap`
@@ -97,13 +98,28 @@ binaries, publishes the GitHub Release and installs it with `install.sh` on
 each platform; started by hand it only builds and checks. `install.sh` is
 tested by `tests/install.rs` against a fake release.
 
+Updates are `src/update.rs`: the lookup of the latest release (`<base>/latest`
+redirects to the tag page; the redirect is read, not followed), the check
+remembered in `update-check.json` in the data directory, the notice that
+`hook session-start` appends, and `recollect update`, which pipes the
+`install.sh` embedded in the binary to `sh`. Old binaries install new
+releases with the script they were built with, so the release files keep
+their names and layout (`recollect-<target>.tar.gz`, `SHA256SUMS`,
+`download/<tag>/`). A development build looks up and installs releases only
+from `RECOLLECT_DOWNLOAD_BASE`; the tests point it at
+`tests/common/release.rs`'s server and never reach GitHub.
+
 Sync between machines is `src/sync/`: `identity` (the machine's key,
 `identity.key` in the data directory), `protocol` (the JSON messages and
 their framing), `exchange` (manifest, diff, validation, batching),
 `transport` (TLS with pinned key fingerprints), `round` (one round),
 `pairing` (invites) and `daemon` (`recollect serve`); peers and invites are
 tables in `memories.db` (`src/db/peers.rs`), the rows a round moves go
-through `src/db/sync.rs`. Embeddings and local ids never travel. Whenever a
+through `src/db/sync.rs`. The daemon compares the device and inode of its
+executable before every timer pass and every answered connection and `exec`s
+the new file after an update (`Restart` in `daemon.rs`): it opens the database
+per round, so without that an old daemon would fail every round once a new CLI
+has migrated the schema. Embeddings and local ids never travel. Whenever a
 change alters what goes over the wire (a message, a record field, a value a
 field may take, such as a new memory type), bump `PROTOCOL_VERSION` in
 `src/sync/protocol.rs` and update the fixtures in its tests, which pin the

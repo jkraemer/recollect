@@ -1,6 +1,8 @@
 //! install.sh, run against a fake release served from a temporary directory
 //! through file:// URLs, with a stub `recollect` in place of the real binary.
 
+mod common;
+
 use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
@@ -8,20 +10,10 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
+use common::release::{self, SYSTEM_PATH, write_script};
 use tempfile::TempDir;
 
-/// Every target install.sh can pick, so the fake release serves any of them.
-const TARGETS: [&str; 3] = [
-    "x86_64-unknown-linux-gnu",
-    "aarch64-unknown-linux-gnu",
-    "aarch64-apple-darwin",
-];
-
-/// Where curl, tar, sha256sum or shasum, uname and the other tools the
-/// script uses live on Linux and macOS.
-const SYSTEM_PATH: &str = "/usr/bin:/bin";
-
-const MODEL_NOTE: &str = "The embedding model (about 30 MB) downloads on first use.";
+const MODEL_NOTE: &str = "The embedding model (about 65 MB) downloads on first use.";
 
 struct Fixture {
     dir: TempDir,
@@ -71,26 +63,7 @@ impl Fixture {
     /// Like `publish`, with the stub in each target's archive running
     /// `body_for(target)`.
     fn publish_per_target(&self, location: &str, body_for: impl Fn(&str) -> String) {
-        let dir = self.releases().join(location);
-        fs::create_dir_all(&dir).unwrap();
-        let staging = self.subdir("staging");
-        let mut sums = String::new();
-        for target in TARGETS {
-            write_script(&staging.join("recollect"), &body_for(target));
-            let archive = format!("recollect-{target}.tar.gz");
-            let status = Command::new("tar")
-                .arg("-czf")
-                .arg(dir.join(&archive))
-                .arg("-C")
-                .arg(&staging)
-                .arg("recollect")
-                .status()
-                .unwrap();
-            assert!(status.success(), "tar failed");
-            sums.push_str(&format!("{}  {archive}\n", sha256(&dir.join(&archive))));
-        }
-        fs::remove_dir_all(&staging).unwrap();
-        fs::write(dir.join("SHA256SUMS"), sums).unwrap();
+        release::publish(&self.releases().join(location), body_for);
     }
 
     /// Publishes a release whose stub prints `recollect <version>`.
@@ -173,24 +146,6 @@ fn script() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("install.sh")
 }
 
-fn write_script(path: &Path, body: &str) {
-    fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-}
-
-/// The SHA-256 of `file` in hex, from sha256sum or shasum, whichever exists.
-fn sha256(file: &Path) -> String {
-    for (program, args) in [("sha256sum", &[][..]), ("shasum", &["-a", "256"][..])] {
-        if let Ok(output) = Command::new(program).args(args).arg(file).output()
-            && output.status.success()
-        {
-            let line = String::from_utf8(output.stdout).unwrap();
-            return line.split_whitespace().next().unwrap().to_string();
-        }
-    }
-    panic!("neither sha256sum nor shasum is available");
-}
-
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
@@ -241,6 +196,23 @@ fn an_upgrade_replaces_the_installed_binary_in_one_step() {
         entries(&fixture.install_dir()),
         [OsString::from("recollect")],
         "no temporary file left"
+    );
+}
+
+#[test]
+fn an_upgrade_does_not_mention_the_model_download() {
+    let fixture = Fixture::new();
+    fixture.install_old_version();
+    fixture.publish_version("latest/download", "9.9.9");
+    let output = fixture.run(&fixture.path_with_install_dir(), &[]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(
+        text(&output.stdout),
+        format!(
+            "installed recollect 9.9.9 to {}\n",
+            fixture.installed().display()
+        )
     );
 }
 
