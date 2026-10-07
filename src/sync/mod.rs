@@ -2,6 +2,7 @@
 //! directly, with no server in between.
 
 pub mod identity;
+pub mod protocol;
 
 /// Whether `name` can label a machine: 1 to 64 ASCII letters, digits, `.`,
 /// `_` or `-`.
