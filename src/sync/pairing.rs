@@ -266,60 +266,41 @@ mod tests {
 
     use super::*;
     use crate::sync::protocol::UNPAIRED_MESSAGE_LIMIT;
-
-    const T0: &str = "2026-10-07T10:00:00.000Z";
-
-    /// A machine with a key and an empty database.
-    struct Machine {
-        _dir: tempfile::TempDir,
-        identity: Identity,
-        db: Database,
-    }
-
-    impl Machine {
-        fn new() -> Self {
-            let dir = tempfile::tempdir().unwrap();
-            let identity = Identity::load_or_create(dir.path()).unwrap();
-            Self {
-                _dir: dir,
-                identity,
-                db: Database::open_in_memory().unwrap(),
-            }
-        }
-    }
+    use crate::sync::test_support::{Machine, T0, listener};
 
     /// Makes `inviter` listen on a local port and hand out an invite, as
     /// `foehn`, at `now`.
-    fn inviting(inviter: &mut Machine, now: DateTime<Utc>) -> (TcpListener, Invite) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap().to_string();
-        let invite =
-            create_invite(&mut inviter.db, &inviter.identity, "foehn", &address, now).unwrap();
+    fn inviting(inviter: &Machine, now: DateTime<Utc>) -> (TcpListener, Invite) {
+        let (listener, address) = listener();
+        let invite = create_invite(
+            &mut inviter.database(),
+            &inviter.identity,
+            "foehn",
+            &address,
+            now,
+        )
+        .unwrap();
         (listener, invite)
     }
 
     /// Answers one connection the way the daemon answers a machine it does
     /// not know, at `now`.
-    fn answer_one(
-        listener: &TcpListener,
-        inviter: &mut Machine,
-        now: DateTime<Utc>,
-    ) -> Result<String> {
+    fn answer_one(listener: &TcpListener, inviter: &Machine, now: DateTime<Utc>) -> Result<String> {
         let (socket, _) = listener.accept().unwrap();
         let mut connection = transport::accept(&inviter.identity, socket, Timeouts::default())?;
         let message = connection.channel.receive(UNPAIRED_MESSAGE_LIMIT)?;
         accept(
             &mut connection.channel,
-            &mut inviter.db,
+            &mut inviter.database(),
             &connection.peer_fingerprint,
             message,
             now,
         )
     }
 
-    fn join_as(joiner: &mut Machine, invite: &Invite, name: &str) -> Result<Peer> {
+    fn join_as(joiner: &Machine, invite: &Invite, name: &str) -> Result<Peer> {
         join(
-            &mut joiner.db,
+            &mut joiner.database(),
             &joiner.identity,
             invite,
             name,
@@ -331,9 +312,9 @@ mod tests {
     /// Joins while the inviter answers one connection at `answered_at`;
     /// returns what each side reports.
     fn pair(
-        inviter: &mut Machine,
+        inviter: &Machine,
         listener: &TcpListener,
-        joiner: &mut Machine,
+        joiner: &Machine,
         invite: &Invite,
         name: &str,
         answered_at: DateTime<Utc>,
@@ -353,8 +334,8 @@ mod tests {
 
     #[test]
     fn an_invite_survives_its_text_form_and_stray_whitespace() {
-        let mut inviter = Machine::new();
-        let (_listener, invite) = inviting(&mut inviter, Utc::now());
+        let inviter = Machine::new();
+        let (_listener, invite) = inviting(&inviter, Utc::now());
         let text = invite.to_string();
         assert_eq!(text.split(',').count(), 4, "{text}");
         assert!(!text.contains(char::is_whitespace), "{text}");
@@ -367,8 +348,8 @@ mod tests {
 
     #[test]
     fn a_mangled_invite_is_refused_with_what_is_wrong() {
-        let mut inviter = Machine::new();
-        let (_listener, invite) = inviting(&mut inviter, Utc::now());
+        let inviter = Machine::new();
+        let (_listener, invite) = inviting(&inviter, Utc::now());
         let with = |change: fn(&mut Invite)| {
             let mut mangled = invite.clone();
             change(&mut mangled);
@@ -405,15 +386,15 @@ mod tests {
 
     #[test]
     fn one_join_leaves_both_machines_knowing_each_other() {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
         let made_at = Utc::now();
-        let (listener, invite) = inviting(&mut inviter, made_at);
+        let (listener, invite) = inviting(&inviter, made_at);
         let nine_minutes_later = made_at + TimeDelta::minutes(9);
 
         let (joined, answered) = pair(
-            &mut inviter,
+            &inviter,
             &listener,
-            &mut joiner,
+            &joiner,
             &invite,
             "twelve",
             nine_minutes_later,
@@ -433,26 +414,26 @@ mod tests {
                 invite.address.as_str()
             )
         );
-        assert_eq!(joiner.db.peers().unwrap(), [foehn]);
-        let twelve = inviter.db.peer_named("twelve").unwrap();
+        assert_eq!(joiner.database().peers().unwrap(), [foehn]);
+        let twelve = inviter.database().peer_named("twelve").unwrap();
         assert_eq!(
             (twelve.fingerprint.as_str(), twelve.address.as_str()),
             (joiner.identity.fingerprint(), "twelve.example:7327")
         );
-        assert_eq!(inviter.db.peers().unwrap().len(), 1);
+        assert_eq!(inviter.database().peers().unwrap().len(), 1);
     }
 
     #[test]
     fn an_invite_expires_after_ten_minutes_and_pairs_nothing() {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
         let made_at = Utc::now();
-        let (listener, invite) = inviting(&mut inviter, made_at);
+        let (listener, invite) = inviting(&inviter, made_at);
         let ten_minutes_later = made_at + TimeDelta::minutes(INVITE_VALID_MINUTES);
 
         let (joined, answered) = pair(
-            &mut inviter,
+            &inviter,
             &listener,
-            &mut joiner,
+            &joiner,
             &invite,
             "twelve",
             ten_minutes_later,
@@ -460,110 +441,103 @@ mod tests {
 
         assert_eq!(message_of(joined), NOT_VALID);
         assert!(matches!(answered, Err(Error::InvalidInvite)));
-        assert!(inviter.db.peers().unwrap().is_empty());
-        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(inviter.database().peers().unwrap().is_empty());
+        assert!(joiner.database().peers().unwrap().is_empty());
     }
 
     #[test]
     fn an_invite_works_only_once() {
-        let (mut inviter, mut first, mut second) = (Machine::new(), Machine::new(), Machine::new());
+        let (inviter, first, second) = (Machine::new(), Machine::new(), Machine::new());
         let now = Utc::now();
-        let (listener, invite) = inviting(&mut inviter, now);
-        pair(&mut inviter, &listener, &mut first, &invite, "twelve", now)
+        let (listener, invite) = inviting(&inviter, now);
+        pair(&inviter, &listener, &first, &invite, "twelve", now)
             .0
             .unwrap();
 
-        let (joined, _) = pair(&mut inviter, &listener, &mut second, &invite, "laptop", now);
+        let (joined, _) = pair(&inviter, &listener, &second, &invite, "laptop", now);
 
         assert_eq!(message_of(joined), NOT_VALID);
-        assert!(second.db.peers().unwrap().is_empty());
-        assert_eq!(inviter.db.peers().unwrap().len(), 1);
+        assert!(second.database().peers().unwrap().is_empty());
+        assert_eq!(inviter.database().peers().unwrap().len(), 1);
     }
 
     #[test]
     fn a_wrong_secret_pairs_nothing() {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
         let now = Utc::now();
-        let (listener, invite) = inviting(&mut inviter, now);
-        let (_other_listener, other) = inviting(&mut Machine::new(), now);
+        let (listener, invite) = inviting(&inviter, now);
+        let (_other_listener, other) = inviting(&Machine::new(), now);
         let guessed = Invite {
             secret: other.secret,
             ..invite
         };
 
-        let (joined, _) = pair(
-            &mut inviter,
-            &listener,
-            &mut joiner,
-            &guessed,
-            "twelve",
-            now,
-        );
+        let (joined, _) = pair(&inviter, &listener, &joiner, &guessed, "twelve", now);
 
         assert_eq!(message_of(joined), NOT_VALID);
-        assert!(inviter.db.peers().unwrap().is_empty());
-        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(inviter.database().peers().unwrap().is_empty());
+        assert!(joiner.database().peers().unwrap().is_empty());
     }
 
     #[test]
     fn a_name_taken_on_the_inviting_machine_is_refused_and_stores_nothing() {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
         inviter
-            .db
+            .database()
             .add_peer("twelve", "SHA256:another-machine", "x:1", T0)
             .unwrap();
         let now = Utc::now();
-        let (listener, invite) = inviting(&mut inviter, now);
+        let (listener, invite) = inviting(&inviter, now);
 
-        let (joined, _) = pair(&mut inviter, &listener, &mut joiner, &invite, "twelve", now);
+        let (joined, _) = pair(&inviter, &listener, &joiner, &invite, "twelve", now);
 
         assert_eq!(
             message_of(joined),
             "foehn answered: a peer named \"twelve\" already exists; remove it first with: recollect peer remove twelve"
         );
-        assert!(joiner.db.peers().unwrap().is_empty());
-        assert_eq!(inviter.db.peers().unwrap().len(), 1);
+        assert!(joiner.database().peers().unwrap().is_empty());
+        assert_eq!(inviter.database().peers().unwrap().len(), 1);
 
         // The refused join did not use the invite up.
-        let (joined, _) = pair(&mut inviter, &listener, &mut joiner, &invite, "laptop", now);
+        let (joined, _) = pair(&inviter, &listener, &joiner, &invite, "laptop", now);
         joined.unwrap();
-        assert_eq!(inviter.db.peers().unwrap().len(), 2);
+        assert_eq!(inviter.database().peers().unwrap().len(), 2);
     }
 
     #[test]
     fn a_name_or_key_the_joiner_already_knows_is_refused_before_anything_is_sent() {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
         let now = Utc::now();
-        let (listener, invite) = inviting(&mut inviter, now);
+        let (listener, invite) = inviting(&inviter, now);
 
         joiner
-            .db
+            .database()
             .add_peer("foehn", "SHA256:another-machine", "x:1", T0)
             .unwrap();
         // Nobody answers: these joins fail before they connect.
-        let taken = join_as(&mut joiner, &invite, "twelve");
+        let taken = join_as(&joiner, &invite, "twelve");
         assert!(matches!(taken, Err(Error::PeerExists(name)) if name == "foehn"));
 
-        joiner.db.remove_peer("foehn").unwrap();
+        joiner.database().remove_peer("foehn").unwrap();
         joiner
-            .db
+            .database()
             .add_peer("desktop", inviter.identity.fingerprint(), "x:1", T0)
             .unwrap();
-        let paired = join_as(&mut joiner, &invite, "twelve");
+        let paired = join_as(&joiner, &invite, "twelve");
         assert!(matches!(paired, Err(Error::AlreadyPaired(name)) if name == "desktop"));
 
         // The invite is still good.
-        joiner.db.remove_peer("desktop").unwrap();
-        let (joined, _) = pair(&mut inviter, &listener, &mut joiner, &invite, "twelve", now);
+        joiner.database().remove_peer("desktop").unwrap();
+        let (joined, _) = pair(&inviter, &listener, &joiner, &invite, "twelve", now);
         joined.unwrap();
     }
 
     #[test]
     fn a_join_that_cannot_reach_the_inviter_names_the_address_and_what_to_check() {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
-        let (listener, invite) = inviting(&mut inviter, Utc::now());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
+        let (listener, invite) = inviting(&inviter, Utc::now());
         drop(listener);
-        let reason = message_of(join_as(&mut joiner, &invite, "twelve"));
+        let reason = message_of(join_as(&joiner, &invite, "twelve"));
         assert!(
             reason.starts_with(&format!("{}: cannot connect (", invite.address)),
             "{reason}"
@@ -572,13 +546,13 @@ mod tests {
             reason.ends_with(" (is recollect serve running there, and is its port open?)"),
             "{reason}"
         );
-        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(joiner.database().peers().unwrap().is_empty());
     }
 
     #[test]
     fn a_join_that_finds_another_key_at_the_address_says_so_and_sends_nothing() {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
-        let (listener, invite) = inviting(&mut inviter, Utc::now());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
+        let (listener, invite) = inviting(&inviter, Utc::now());
         // Another machine answers where the invite says the inviter is.
         let other = Machine::new();
         let (joined, heard) = std::thread::scope(|scope| {
@@ -587,7 +561,7 @@ mod tests {
                 transport::accept(&other.identity, socket, Timeouts::default())
                     .and_then(|mut connection| connection.channel.receive(UNPAIRED_MESSAGE_LIMIT))
             });
-            let joined = join_as(&mut joiner, &invite, "twelve");
+            let joined = join_as(&joiner, &invite, "twelve");
             (joined, listening.join().unwrap())
         });
         assert_eq!(
@@ -599,7 +573,7 @@ mod tests {
                 invite.fingerprint
             )
         );
-        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(joiner.database().peers().unwrap().is_empty());
         assert!(
             heard.is_err(),
             "the joiner hung up without sending its pair message"
@@ -608,9 +582,9 @@ mod tests {
 
     #[test]
     fn an_invite_made_on_this_machine_is_refused() {
-        let mut machine = Machine::new();
-        let (_listener, invite) = inviting(&mut machine, Utc::now());
-        let err = join_as(&mut machine, &invite, "foehn");
+        let machine = Machine::new();
+        let (_listener, invite) = inviting(&machine, Utc::now());
+        let err = join_as(&machine, &invite, "foehn");
         assert_eq!(
             message_of(err),
             "this invite was made on this machine; run recollect join on the other one"
@@ -621,8 +595,8 @@ mod tests {
     /// `pair` message and then lets `afterwards` act on the connection
     /// instead of answering it; the connection closes when `afterwards` ends.
     fn join_unanswered(afterwards: fn(&mut transport::Connection)) -> (Result<Peer>, Machine) {
-        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
-        let (listener, invite) = inviting(&mut inviter, Utc::now());
+        let (inviter, joiner) = (Machine::new(), Machine::new());
+        let (listener, invite) = inviting(&inviter, Utc::now());
         let joined = std::thread::scope(|scope| {
             scope.spawn(|| {
                 let (socket, _) = listener.accept().unwrap();
@@ -632,7 +606,7 @@ mod tests {
                 assert!(matches!(message, Message::Pair { .. }));
                 afterwards(&mut connection);
             });
-            join_as(&mut joiner, &invite, "twelve")
+            join_as(&joiner, &invite, "twelve")
         });
         (joined, joiner)
     }
@@ -650,7 +624,7 @@ mod tests {
             message_of(joined),
             unconfirmed("the peer closed the connection")
         );
-        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(joiner.database().peers().unwrap().is_empty());
     }
 
     #[test]
@@ -662,7 +636,7 @@ mod tests {
             message_of(joined),
             unconfirmed("it sent end where paired was expected")
         );
-        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(joiner.database().peers().unwrap().is_empty());
     }
 
     #[test]
@@ -679,17 +653,17 @@ mod tests {
             message_of(joined),
             "foehn answered: no\u{fffd}[2J\u{fffd}paired with foehn"
         );
-        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(joiner.database().peers().unwrap().is_empty());
     }
 
     /// Connects as a machine the inviter does not know, sends `message` and
     /// returns the inviter's reply and what the inviter reports.
     fn send_unpaired(message: Message) -> (Message, Result<String>, Machine) {
-        let (mut inviter, stranger) = (Machine::new(), Machine::new());
+        let (inviter, stranger) = (Machine::new(), Machine::new());
         let now = Utc::now();
-        let (listener, invite) = inviting(&mut inviter, now);
+        let (listener, invite) = inviting(&inviter, now);
         let (reply, answered) = std::thread::scope(|scope| {
-            let answering = scope.spawn(|| answer_one(&listener, &mut inviter, now));
+            let answering = scope.spawn(|| answer_one(&listener, &inviter, now));
             let mut connection = transport::connect(
                 &stranger.identity,
                 &invite.address,
@@ -727,7 +701,7 @@ mod tests {
             }
         );
         assert_eq!(message_of(answered), NOT_PAIRED);
-        assert!(inviter.db.peers().unwrap().is_empty());
+        assert!(inviter.database().peers().unwrap().is_empty());
     }
 
     #[test]
@@ -743,7 +717,7 @@ mod tests {
             }
         );
         assert_eq!(message_of(answered), mismatch);
-        assert!(inviter.db.peers().unwrap().is_empty());
+        assert!(inviter.database().peers().unwrap().is_empty());
     }
 
     #[test]
@@ -767,7 +741,7 @@ mod tests {
                     message: reason.into()
                 }
             );
-            assert!(inviter.db.peers().unwrap().is_empty());
+            assert!(inviter.database().peers().unwrap().is_empty());
         }
     }
 }

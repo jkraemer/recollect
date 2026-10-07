@@ -277,8 +277,6 @@ impl ClientCertVerifier for AnyKey {
 
 #[cfg(test)]
 mod tests {
-    use std::net::TcpListener;
-
     use rustls::SupportedProtocolVersion;
     use rustls::client::ResolvesClientCert;
     use rustls::crypto::verify_tls12_signature;
@@ -287,18 +285,13 @@ mod tests {
 
     use super::*;
     use crate::sync::protocol::{MESSAGE_LIMIT, Message};
+    use crate::sync::test_support::listener;
 
     /// A machine's identity; the directory holds its key and must outlive it.
     fn identity() -> (tempfile::TempDir, Identity) {
         let dir = tempfile::tempdir().unwrap();
         let identity = Identity::load_or_create(dir.path()).unwrap();
         (dir, identity)
-    }
-
-    fn listener() -> (TcpListener, String) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap().to_string();
-        (listener, address)
     }
 
     /// A certificate presented without the key inside it: the signature that

@@ -187,23 +187,10 @@ pub(super) fn apply_tombstone(conn: &Connection, tombstone: &Tombstone) -> Resul
 mod tests {
     use rusqlite::params;
 
-    use crate::db::test_support::{concurrently, record};
+    use crate::db::test_support::{LATER, T0, concurrently, fts_hits, record};
     use crate::db::{Database, ImportCounts};
     use crate::error::Error;
     use crate::memory::{Embedded, MemoryType, NewRecord, Tombstone};
-
-    const T0: &str = "2026-09-01T10:00:00.000Z";
-    const LATER: &str = "2026-09-02T10:00:00.000Z";
-
-    fn fts_hits(db: &Database, query: &str) -> i64 {
-        db.conn
-            .query_row(
-                "SELECT count(*) FROM memories_fts WHERE memories_fts MATCH ?1",
-                [query],
-                |row| row.get(0),
-            )
-            .unwrap()
-    }
 
     fn embedded(model_id: &str, chunks: usize) -> Embedded {
         Embedded {

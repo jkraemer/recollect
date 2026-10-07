@@ -237,74 +237,17 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use crate::db::Database;
     use crate::db::test_support::note;
     use crate::sync::exchange::manifest;
     use crate::sync::pairing::{self, NOT_PAIRED};
     use crate::sync::protocol::{MESSAGE_LIMIT, Message, PROTOCOL_VERSION};
-    use crate::sync::transport::Connection;
-
-    const T0: &str = "2026-10-07T10:00:00.000Z";
-
-    /// A machine with a data directory. Its embedding model can never load,
-    /// so what a round brings stays without vectors and is warned about.
-    struct Machine {
-        dir: tempfile::TempDir,
-        config: Config,
-        identity: Identity,
-    }
-
-    impl Machine {
-        fn new() -> Self {
-            let dir = tempfile::tempdir().unwrap();
-            let no_model = dir.path().join("not-a-directory");
-            std::fs::write(&no_model, "").unwrap();
-            let config = Config::load_from(dir.path().to_path_buf(), Some(no_model)).unwrap();
-            let identity = Identity::load_or_create(dir.path()).unwrap();
-            Self {
-                dir,
-                config,
-                identity,
-            }
-        }
-
-        fn database(&self) -> Database {
-            Database::open(&self.dir.path().join("memories.db")).unwrap()
-        }
-
-        fn knows(&self, name: &str, other: &Machine, address: &str) {
-            self.database()
-                .add_peer(name, other.identity.fingerprint(), address, T0)
-                .unwrap();
-        }
-
-        fn connect_to(&self, other: &Machine, address: &str) -> Connection {
-            transport::connect(
-                &self.identity,
-                address,
-                other.identity.fingerprint(),
-                Timeouts::default(),
-            )
-            .unwrap()
-        }
-    }
+    use crate::sync::test_support::{Machine, closed_address, listener};
 
     fn collecting_log() -> (Log, Arc<Mutex<Vec<String>>>) {
         let lines = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&lines);
         let log: Log = Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string()));
         (log, lines)
-    }
-
-    fn listener() -> (TcpListener, String) {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap().to_string();
-        (listener, address)
-    }
-
-    /// A local address nothing listens on.
-    fn closed_address() -> String {
-        listener().1
     }
 
     /// Lets `machine` answer the next connection on `listener` while `visit`
@@ -319,7 +262,7 @@ mod tests {
             scope.spawn(|| {
                 let (socket, _) = listener.accept().unwrap();
                 answer(
-                    &machine.config,
+                    &machine.config(),
                     &machine.identity,
                     socket,
                     Timeouts::default(),
@@ -551,8 +494,8 @@ mod tests {
                     round::respond(&mut connection.channel, &mut b_db, "a").unwrap();
                 }
             });
-            sync_with_peers(&a.config, &a.identity, Timeouts::default(), &log).unwrap();
-            sync_with_peers(&a.config, &a.identity, Timeouts::default(), &log).unwrap();
+            sync_with_peers(&a.config(), &a.identity, Timeouts::default(), &log).unwrap();
+            sync_with_peers(&a.config(), &a.identity, Timeouts::default(), &log).unwrap();
         });
 
         let lines = lines.lock().unwrap().clone();
@@ -581,7 +524,7 @@ mod tests {
         // Three intervals: a's dial fails, then b's round with a succeeds.
         // Only the first of b's rounds brings something.
         for _ in 0..3 {
-            sync_with_peers(&a.config, &a.identity, Timeouts::default(), &log).unwrap();
+            sync_with_peers(&a.config(), &a.identity, Timeouts::default(), &log).unwrap();
             lines.append(&mut logged_by_passes.lock().unwrap());
             let (initiated, logged_by_answer) = answering(&a, &listener, || {
                 let mut connection = b.connect_to(&a, &address);

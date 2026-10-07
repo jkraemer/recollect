@@ -7,6 +7,8 @@ pub mod identity;
 pub mod pairing;
 pub mod protocol;
 pub mod round;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod transport;
 
 use chrono::Utc;
@@ -180,45 +182,9 @@ fn own_address(config: &Config, given: Option<&str>) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::net::TcpListener;
-
     use super::*;
-    use crate::config::Config;
-    use crate::db::Database;
     use crate::db::test_support::note;
-    use crate::service::Recollect;
-    use crate::sync::identity::Identity;
-    use crate::sync::transport::Timeouts;
-
-    const T0: &str = "2026-10-07T10:00:00.000Z";
-
-    /// A machine with a data directory: its key and its database.
-    struct Machine {
-        dir: tempfile::TempDir,
-        identity: Identity,
-    }
-
-    impl Machine {
-        fn new() -> Self {
-            let dir = tempfile::tempdir().unwrap();
-            let identity = Identity::load_or_create(dir.path()).unwrap();
-            Self { dir, identity }
-        }
-
-        /// The machine as the commands open it; the model is never loaded here.
-        fn app(&self) -> Recollect {
-            let config = Config::load_from(
-                self.dir.path().to_path_buf(),
-                Some(self.dir.path().join("no-model")),
-            )
-            .unwrap();
-            Recollect::open(config).unwrap()
-        }
-
-        fn database(&self) -> Database {
-            Database::open(&self.dir.path().join("memories.db")).unwrap()
-        }
-    }
+    use crate::sync::test_support::{Machine, T0, closed_address, listener};
 
     #[test]
     fn peer_names_are_short_and_made_of_host_name_characters() {
@@ -259,8 +225,7 @@ mod tests {
     #[test]
     fn a_round_with_a_peer_is_recorded_as_its_last_sync() {
         let (a, b) = (Machine::new(), Machine::new());
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap().to_string();
+        let (listener, address) = listener();
         let mut app = a.app();
         app.db_mut()
             .add_peer("b", b.identity.fingerprint(), &address, T0)
@@ -291,9 +256,7 @@ mod tests {
     #[test]
     fn an_unreachable_peer_is_recorded_with_the_reason_and_the_one_before() {
         let (a, b) = (Machine::new(), Machine::new());
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap().to_string();
-        drop(listener);
+        let address = closed_address();
         let mut app = a.app();
         app.db_mut()
             .add_peer("b", b.identity.fingerprint(), &address, T0)

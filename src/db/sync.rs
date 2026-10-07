@@ -112,13 +112,10 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::test_support::record;
+    use crate::db::test_support::{LATER, T0, fts_hits, record};
     use crate::db::{Database, SyncApplied};
     use crate::error::Error;
     use crate::memory::{MemoryType, NewRecord, SyncRecord, Tombstone};
-
-    const T0: &str = "2026-09-01T10:00:00.000Z";
-    const LATER: &str = "2026-09-02T10:00:00.000Z";
 
     /// A live memory as a peer sends it; `record(content, ..)` has the same global id.
     fn live(content: &str) -> SyncRecord {
@@ -155,16 +152,6 @@ mod tests {
             .iter()
             .map(|content| format!("test-{content}"))
             .collect()
-    }
-
-    fn fts_hits(db: &Database, query: &str) -> i64 {
-        db.conn
-            .query_row(
-                "SELECT count(*) FROM memories_fts WHERE memories_fts MATCH ?1",
-                [query],
-                |row| row.get(0),
-            )
-            .unwrap()
     }
 
     #[test]
