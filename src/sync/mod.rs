@@ -1,6 +1,7 @@
 //! Sync between machines: paired peers exchange their memories and deletions
 //! directly, with no server in between.
 
+pub mod exchange;
 pub mod identity;
 pub mod protocol;
 
@@ -25,6 +26,15 @@ pub fn is_valid_address(address: &str) -> bool {
         }
         None => false,
     }
+}
+
+/// The SHA-256 of `bytes` in lowercase hex.
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    ring::digest::digest(&ring::digest::SHA256, bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 #[cfg(test)]
