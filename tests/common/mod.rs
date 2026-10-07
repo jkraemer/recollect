@@ -1,6 +1,7 @@
 //! Helpers shared by the integration tests.
 #![allow(dead_code)] // each test binary uses a different subset
 
+pub mod release;
 pub mod ruby;
 
 use std::path::PathBuf;

@@ -2,6 +2,7 @@ use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use chrono::Utc;
 use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use serde::Serialize;
@@ -20,6 +21,7 @@ use recollect::sync;
 use recollect::sync::SyncReport;
 use recollect::sync::pairing::INVITE_VALID_MINUTES;
 use recollect::time::{parse_since, parse_until};
+use recollect::update::{self, Releases, Version};
 
 /// Persistent, searchable memory for coding agents.
 #[derive(Parser)]
@@ -514,7 +516,13 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
             let text = if after_compaction {
                 session_header_text(&detection)
             } else {
-                session_start_text(&detection, &app.context(detection.project())?)
+                let text = session_start_text(&detection, &app.context(detection.project())?);
+                // One short line on top of SESSION_START_BUDGET, which leaves
+                // room for it below Claude Code's limit.
+                match update_notice(app.config()) {
+                    Some(notice) => format!("{text}\n\n{notice}"),
+                    None => text,
+                }
             };
             print_text(&text)?;
         }
@@ -541,6 +549,20 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+/// What a starting session is told about a newer release: nothing when the
+/// check is switched off, when this build may not look releases up, or when
+/// there is none. The lookup happens at most once a day and gives up after
+/// two seconds; whatever goes wrong with it, the session starts without it.
+fn update_notice(config: &Config) -> Option<String> {
+    if !config.update.check {
+        return None;
+    }
+    let releases = Releases::from_env().ok()?;
+    update::session_notice(&config.data_dir, Version::installed(), Utc::now(), || {
+        releases.latest().ok()
+    })
 }
 
 fn read_stdin() -> anyhow::Result<String> {

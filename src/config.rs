@@ -55,6 +55,21 @@ impl Default for SyncConfig {
     }
 }
 
+/// The `[update]` table: whether this machine looks for newer releases.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdateConfig {
+    /// Whether a starting session looks up the latest release (once a day)
+    /// and mentions a newer one. `recollect update` works either way.
+    pub check: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self { check: true }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub data_dir: PathBuf,
@@ -63,6 +78,7 @@ pub struct Config {
     pub max_vector_distance: f64,
     pub recency: RecencyConfig,
     pub sync: SyncConfig,
+    pub update: UpdateConfig,
 }
 
 impl Config {
@@ -112,6 +128,7 @@ impl Config {
             max_vector_distance: file.search.max_vector_distance,
             recency: file.recency,
             sync: file.sync,
+            update: file.update,
         })
     }
 
@@ -127,6 +144,7 @@ struct FileConfig {
     search: SearchSection,
     recency: RecencyConfig,
     sync: SyncConfig,
+    update: UpdateConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,6 +273,15 @@ mod tests {
                 half_life_days: 30.0
             }
         );
+        assert_eq!(config.update, UpdateConfig { check: true });
+    }
+
+    #[test]
+    fn the_update_check_can_be_switched_off() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(dir.path(), "[update]\ncheck = false\n");
+        let config = Config::load_from(dir.path().to_path_buf(), None).unwrap();
+        assert_eq!(config.update, UpdateConfig { check: false });
     }
 
     #[test]
