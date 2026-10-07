@@ -33,7 +33,9 @@ pub enum EntryState {
 /// One memory in a manifest: its global id and its state.
 pub type ManifestEntry = (String, EntryState);
 
-/// Everything two machines say to each other.
+/// Everything two machines say to each other. `End` and `Paired` are empty
+/// struct variants because serde ignores unknown fields on an internally
+/// tagged unit variant, and an unknown field must be refused in every message.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Message {
@@ -49,7 +51,7 @@ pub enum Message {
     /// Deletions of memories the receiver still holds live.
     Tombstones { entries: Vec<Tombstone> },
     /// The sender has sent all its changes.
-    End,
+    End {},
     /// What the sender applied of the receiver's changes.
     Applied { inserted: usize, deleted: usize },
     /// A machine that is not a peer yet redeems an invite.
@@ -60,7 +62,7 @@ pub enum Message {
         address: String,
     },
     /// The invite was accepted.
-    Paired,
+    Paired {},
     /// The sender gives up on the round or the pairing, and says why.
     Error { message: String },
 }
@@ -73,10 +75,10 @@ impl Message {
             Message::Manifest { .. } => "manifest",
             Message::Records { .. } => "records",
             Message::Tombstones { .. } => "tombstones",
-            Message::End => "end",
+            Message::End {} => "end",
             Message::Applied { .. } => "applied",
             Message::Pair { .. } => "pair",
-            Message::Paired => "paired",
+            Message::Paired {} => "paired",
             Message::Error { .. } => "error",
         }
     }
@@ -221,7 +223,7 @@ mod tests {
                 },
                 r#"{"type":"tombstones","entries":[{"global_id":"0199a8c0-0000-7000-8000-000000000002","deleted_at":"2026-10-07T11:00:00.000Z","deleted_by_peer":null}]}"#,
             ),
-            (Message::End, r#"{"type":"end"}"#),
+            (Message::End {}, r#"{"type":"end"}"#),
             (
                 Message::Applied {
                     inserted: 3,
@@ -238,7 +240,7 @@ mod tests {
                 },
                 r#"{"type":"pair","protocol":1,"secret":"c2VjcmV0","name":"twelve","address":"twelve:7327"}"#,
             ),
-            (Message::Paired, r#"{"type":"paired"}"#),
+            (Message::Paired {}, r#"{"type":"paired"}"#),
             (
                 Message::Error {
                     message: "this invite is not valid (expired or already used)".into(),
@@ -270,6 +272,9 @@ mod tests {
     fn unknown_fields_messages_and_memory_types_are_refused() {
         for json in [
             r#"{"type":"hello","protocol":1,"manifest_hash":"abc","extra":true}"#,
+            r#"{"type":"end","extra":1}"#,
+            r#"{"type":"paired","extra":1}"#,
+            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"note","content":"c","tags":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null,"extra":1}]}"#,
             r#"{"type":"greeting"}"#,
             r#"{"protocol":1,"manifest_hash":"abc"}"#,
             r#"{"type":"tombstones","entries":[{"global_id":"g","deleted_at":"t","deleted_by_peer":null,"why":"x"}]}"#,
@@ -294,7 +299,7 @@ mod tests {
     #[test]
     fn a_frame_is_a_big_endian_length_and_the_json() {
         let mut channel = Channel::new(Cursor::new(Vec::new()));
-        channel.send(&Message::End).unwrap();
+        channel.send(&Message::End {}).unwrap();
         let mut expected = vec![0, 0, 0, 14];
         expected.extend_from_slice(br#"{"type":"end"}"#);
         assert_eq!(channel.stream.into_inner(), expected);
@@ -303,7 +308,7 @@ mod tests {
     #[test]
     fn a_message_over_the_limit_is_refused_before_it_is_read() {
         let mut channel = Channel::new(Cursor::new(Vec::new()));
-        channel.send(&Message::End).unwrap();
+        channel.send(&Message::End {}).unwrap();
         channel.stream.set_position(0);
         let err = channel.receive(10).unwrap_err();
         assert_eq!(
