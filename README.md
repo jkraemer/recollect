@@ -77,6 +77,13 @@ curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.s
 another directory. Other platforms are not supported for now: building
 recollect from source there needs an ONNX Runtime built for the platform.
 
+The x86_64 build needs a CPU with AVX2, and the install script checks for it.
+Most desktop and server CPUs since about 2015 have it; low-power Atom-class
+Pentium and Celeron models do not. A virtual machine has to pass AVX2 through
+to the guest: choose the CPU type `host` in QEMU or Proxmox, or the mode
+`host-passthrough` in libvirt. Generic types such as `qemu64`, `kvm64` or
+`x86-64-v2-AES` hide it, and recollect stops with `Illegal instruction` there.
+
 Then, in Claude Code:
 
 ```

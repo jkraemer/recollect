@@ -130,6 +130,21 @@ impl Fixture {
         format!("{}:{}", stubs.display(), self.path_with_install_dir())
     }
 
+    /// A file like `/proc/cpuinfo` for a CPU with these feature flags; returns
+    /// its path. Only the `flags` line counts: the `vmx flags` line names
+    /// AVX2 to show that it does not.
+    fn cpuinfo(&self, flags: &str) -> String {
+        let path = self.dir.path().join("cpuinfo");
+        fs::write(
+            &path,
+            format!(
+                "processor\t: 0\nmodel name\t: Test CPU\nflags\t\t: {flags}\nvmx flags\t: vnmi avx2\n\n"
+            ),
+        )
+        .unwrap();
+        path.display().to_string()
+    }
+
     /// `/bin/sh` with only the variables a fresh shell would have, the fake
     /// releases as download base, and `path` as PATH.
     fn command(&self, path: &str, env: &[(&str, &str)]) -> Command {
@@ -418,6 +433,91 @@ fn an_unsupported_platform_is_refused() {
         "error: no prebuilt recollect for Darwin x86_64\n"
     );
     assert!(!fixture.installed().exists());
+}
+
+const NO_AVX2: &str = "error: this CPU has no AVX2, which the prebuilt recollect needs (in a virtual machine, choose a CPU type that passes it through, such as \"host\")\n";
+
+#[test]
+fn an_x86_64_cpu_without_avx2_is_refused_before_anything_is_downloaded() {
+    let fixture = Fixture::new();
+    // No release is published: a download attempt would be the error instead.
+    // AVX and a flag that merely contains "avx2" are not AVX2.
+    let cpuinfo = fixture.cpuinfo("fpu sse4_2 popcnt avx avx512f not-avx2");
+    let output = fixture.run(
+        &fixture.path_on_platform("Linux", "x86_64"),
+        &[("RECOLLECT_CPUINFO", &cpuinfo)],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(text(&output.stderr), NO_AVX2);
+    assert_eq!(text(&output.stdout), "");
+    assert!(!fixture.installed().exists());
+}
+
+#[test]
+fn an_x86_64_cpu_with_avx2_gets_the_binary() {
+    let fixture = Fixture::new();
+    fixture.publish_version("latest/download", "9.9.9");
+    let cpuinfo = fixture.cpuinfo("fpu sse4_2 popcnt avx avx2 fma bmi2");
+    let output = fixture.run(
+        &fixture.path_on_platform("Linux", "x86_64"),
+        &[("RECOLLECT_CPUINFO", &cpuinfo)],
+    );
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(version_of(&fixture.installed()), "recollect 9.9.9\n");
+}
+
+#[test]
+fn only_the_x86_64_build_asks_for_avx2() {
+    for (os, arch) in [("Linux", "aarch64"), ("Darwin", "arm64")] {
+        let fixture = Fixture::new();
+        fixture.publish_version("latest/download", "9.9.9");
+        let cpuinfo = fixture.cpuinfo("fpu sse4_2 popcnt avx");
+        let output = fixture.run(
+            &fixture.path_on_platform(os, arch),
+            &[("RECOLLECT_CPUINFO", &cpuinfo)],
+        );
+        assert!(
+            output.status.success(),
+            "{os} {arch}: {}",
+            text(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn a_machine_that_does_not_list_its_cpu_features_is_not_refused() {
+    let fixture = Fixture::new();
+    fixture.publish_version("latest/download", "9.9.9");
+    let missing = fixture.dir.path().join("no-cpuinfo").display().to_string();
+    let without_flags = fixture.dir.path().join("cpuinfo-without-flags");
+    fs::write(&without_flags, "processor\t: 0\nmodel name\t: Test CPU\n").unwrap();
+    let without_flags = without_flags.display().to_string();
+    for cpuinfo in [missing, without_flags] {
+        let output = fixture.run(
+            &fixture.path_on_platform("Linux", "x86_64"),
+            &[("RECOLLECT_CPUINFO", &cpuinfo)],
+        );
+        assert!(
+            output.status.success(),
+            "{cpuinfo}: {}",
+            text(&output.stderr)
+        );
+        assert_eq!(text(&output.stderr), "", "{cpuinfo}");
+    }
+}
+
+#[test]
+fn a_binary_that_dies_without_a_word_is_reported_without_a_reason() {
+    let fixture = Fixture::new();
+    fixture.install_old_version();
+    fixture.publish("latest/download", "exit 1");
+    let output = fixture.run(&fixture.path_with_install_dir(), &[]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        text(&output.stderr),
+        "error: the downloaded recollect does not run on this machine\n"
+    );
+    assert_eq!(version_of(&fixture.installed()), "recollect 0.0.1\n");
 }
 
 #[test]
