@@ -52,7 +52,8 @@ pub struct Connection {
 }
 
 /// Dials `address` and accepts only a machine holding the key with
-/// `expected_fingerprint`.
+/// `expected_fingerprint`. An address that does not resolve or that nothing
+/// answers at is `Error::Unreachable`; every other failure is `Error::Sync`.
 pub fn connect(
     identity: &Identity,
     address: &str,
@@ -60,7 +61,8 @@ pub fn connect(
     timeouts: Timeouts,
 ) -> Result<Connection> {
     let failed = |reason: String| Error::Sync(format!("{address}: {reason}"));
-    let mut socket = dial(address, timeouts.connect).map_err(failed)?;
+    let mut socket = dial(address, timeouts.connect)
+        .map_err(|reason| Error::Unreachable(format!("{address}: {reason}")))?;
     set_timeouts(&socket, timeouts.io).map_err(|err| failed(err.to_string()))?;
     let config =
         client_config(identity, expected_fingerprint).map_err(|err| failed(err.to_string()))?;
@@ -473,6 +475,7 @@ mod tests {
         let err = connect(&a, &address, "SHA256:whoever", Timeouts::default())
             .err()
             .unwrap();
+        assert!(matches!(err, Error::Unreachable(_)), "{err}");
         assert!(
             err.to_string()
                 .starts_with(&format!("{address}: cannot connect (")),
@@ -487,6 +490,7 @@ mod tests {
         let err = connect(&a, address, "SHA256:whoever", Timeouts::default())
             .err()
             .unwrap();
+        assert!(matches!(err, Error::Unreachable(_)), "{err}");
         assert!(
             err.to_string()
                 .starts_with(&format!("{address}: cannot resolve the address (")),

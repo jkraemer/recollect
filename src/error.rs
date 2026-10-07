@@ -70,6 +70,10 @@ pub enum Error {
     /// A sync failure that needs no variant of its own; the text is the whole message.
     #[error("{0}")]
     Sync(String),
+    /// Another machine could not be reached: its address did not resolve or
+    /// nothing accepted the connection. The text is the whole message.
+    #[error("{0}")]
+    Unreachable(String),
     /// A sync round that failed after this machine had stored what the peer
     /// sent: `received` live memories, which still need embedding. Reads as
     /// the failure itself.

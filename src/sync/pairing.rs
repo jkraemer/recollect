@@ -139,10 +139,13 @@ pub fn join(
     db.check_new_peer(&invite.name, &invite.fingerprint)?;
     let mut connection =
         transport::connect(identity, &invite.address, &invite.fingerprint, timeouts).map_err(
-            |err| {
-                Error::Sync(format!(
-                    "{err} (is recollect serve running there, and is its port open?)"
-                ))
+            |err| match err {
+                Error::Unreachable(reason) => Error::Unreachable(format!(
+                    "{reason} (is recollect serve running there, and is its port open?)"
+                )),
+                // Whatever answered is not the inviter, or not a working one:
+                // the daemon and the port are not what to check.
+                other => other,
             },
         )?;
     // The inviter stores this machine before it answers, so from here on a
@@ -566,6 +569,37 @@ mod tests {
             "{reason}"
         );
         assert!(joiner.db.peers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_join_that_finds_another_key_at_the_address_says_so_and_sends_nothing() {
+        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
+        let (listener, invite) = inviting(&mut inviter, Utc::now());
+        // Another machine answers where the invite says the inviter is.
+        let other = Machine::new();
+        let (joined, heard) = std::thread::scope(|scope| {
+            let listening = scope.spawn(|| {
+                let (socket, _) = listener.accept().unwrap();
+                transport::accept(&other.identity, socket, Timeouts::default())
+                    .and_then(|mut connection| connection.channel.receive(UNPAIRED_MESSAGE_LIMIT))
+            });
+            let joined = join_as(&mut joiner, &invite, "twelve");
+            (joined, listening.join().unwrap())
+        });
+        assert_eq!(
+            message_of(joined),
+            format!(
+                "{}: it presented the key {}, not the expected {}",
+                invite.address,
+                other.identity.fingerprint(),
+                invite.fingerprint
+            )
+        );
+        assert!(joiner.db.peers().unwrap().is_empty());
+        assert!(
+            heard.is_err(),
+            "the joiner hung up without sending its pair message"
+        );
     }
 
     #[test]
