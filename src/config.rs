@@ -4,6 +4,7 @@
 //! and may hold an optional `config.toml`. The embedding model cache comes from
 //! `RECOLLECT_MODEL_DIR` (default `<data dir>/models`).
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -30,6 +31,29 @@ impl Default for RecencyConfig {
     }
 }
 
+/// The `[sync]` table: how this machine takes part in sync.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SyncConfig {
+    /// The address and port `recollect serve` listens on.
+    pub listen: SocketAddr,
+    /// Seconds between the daemon's rounds with its peers.
+    pub interval_seconds: u64,
+    /// This machine's name as its peers store it; its short host name when unset.
+    pub name: Option<String>,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            // 7326 is the Ruby server's port.
+            listen: SocketAddr::from(([0, 0, 0, 0], 7327)),
+            interval_seconds: 300,
+            name: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub data_dir: PathBuf,
@@ -37,6 +61,7 @@ pub struct Config {
     /// Cosine distance beyond which a chunk does not count as a vector match.
     pub max_vector_distance: f64,
     pub recency: RecencyConfig,
+    pub sync: SyncConfig,
 }
 
 impl Config {
@@ -69,11 +94,22 @@ impl Config {
                 "search.max_vector_distance must be between 0 and 2",
             ));
         }
+        if file.sync.interval_seconds == 0 {
+            return Err(invalid("sync.interval_seconds must be at least 1"));
+        }
+        if let Some(name) = &file.sync.name
+            && !crate::sync::is_valid_peer_name(name)
+        {
+            return Err(invalid(
+                "sync.name may only contain letters, digits, '.', '_' and '-' (at most 64)",
+            ));
+        }
         Ok(Self {
             model_dir: model_dir.unwrap_or_else(|| data_dir.join("models")),
             data_dir,
             max_vector_distance: file.search.max_vector_distance,
             recency: file.recency,
+            sync: file.sync,
         })
     }
 
@@ -88,6 +124,7 @@ impl Config {
 struct FileConfig {
     search: SearchSection,
     recency: RecencyConfig,
+    sync: SyncConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,6 +296,57 @@ mod tests {
         let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
         assert!(
             matches!(&err, Error::File { path, .. } if *path == dir.path().join(CONFIG_FILE)),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn sync_listens_on_7327_every_five_minutes_under_the_host_name_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config::load_from(dir.path().to_path_buf(), None).unwrap();
+        assert_eq!(config.sync.listen.to_string(), "0.0.0.0:7327");
+        assert_eq!(config.sync.interval_seconds, 300);
+        assert_eq!(config.sync.name, None);
+    }
+
+    #[test]
+    fn sync_settings_come_from_config_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(
+            dir.path(),
+            "[sync]\nlisten = \"127.0.0.1:9000\"\ninterval_seconds = 60\nname = \"laptop\"\n",
+        );
+        let config = Config::load_from(dir.path().to_path_buf(), None).unwrap();
+        assert_eq!(config.sync.listen.to_string(), "127.0.0.1:9000");
+        assert_eq!(config.sync.interval_seconds, 60);
+        assert_eq!(config.sync.name.as_deref(), Some("laptop"));
+    }
+
+    #[test]
+    fn invalid_sync_settings_are_rejected() {
+        for (text, expected) in [
+            (
+                "[sync]\ninterval_seconds = 0\n",
+                "sync.interval_seconds must be at least 1",
+            ),
+            (
+                "[sync]\nname = \"two words\"\n",
+                "sync.name may only contain letters, digits, '.', '_' and '-' (at most 64)",
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            write_config(dir.path(), text);
+            let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
+            assert!(
+                matches!(&err, Error::Config { message, .. } if message == expected),
+                "{err}"
+            );
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_config(dir.path(), "[sync]\nlisten = \"nowhere\"\n");
+        let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
+        assert!(
+            matches!(&err, Error::Config { message, .. } if message.contains("socket address")),
             "{err}"
         );
     }

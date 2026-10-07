@@ -43,6 +43,31 @@ pub enum Error {
     },
     #[error("{}: {message}", path.display())]
     RubyData { path: PathBuf, message: String },
+    #[error("no peer named {0:?}")]
+    UnknownPeer(String),
+    #[error("a peer named {0:?} already exists; remove it first with: recollect peer remove {0}")]
+    PeerExists(String),
+    #[error("this machine is already paired with that key, as peer {0:?}")]
+    AlreadyPaired(String),
+    #[error("this invite is not valid (expired or already used)")]
+    InvalidInvite,
+    #[error("invalid invite: {0}")]
+    MalformedInvite(String),
+    #[error("invalid address {0:?}: use host:port, such as foehn:7327")]
+    InvalidAddress(String),
+    #[error("{}: {message}", path.display())]
+    Identity { path: PathBuf, message: String },
+    #[error(
+        "peer {peer} speaks sync protocol {theirs}, this recollect speaks {ours}; upgrade the older one"
+    )]
+    ProtocolMismatch {
+        peer: String,
+        theirs: u32,
+        ours: u32,
+    },
+    /// A sync failure that needs no variant of its own; the text is the whole message.
+    #[error("{0}")]
+    Sync(String),
 }
 
 impl Error {

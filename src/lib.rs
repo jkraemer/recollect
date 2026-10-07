@@ -12,6 +12,7 @@ pub mod migrate;
 pub mod output;
 pub mod search;
 pub mod service;
+pub mod sync;
 pub mod time;
 
 pub use error::{Error, Result};
