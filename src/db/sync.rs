@@ -1,12 +1,13 @@
 //! What sync reads from and writes to the memories table.
 
 use rusqlite::Row;
-use rusqlite::types::Type;
 
 use super::Database;
-use super::memories::{INSERT_MEMORY, apply_tombstone, insert_row};
+use super::memories::{
+    INSERT_MEMORY, apply_tombstone, insert_row, json_array, memory_type_at, tags_at,
+};
 use crate::error::Result;
-use crate::memory::{MemoryType, SyncRecord, Tombstone};
+use crate::memory::{SyncRecord, Tombstone};
 
 /// What applying a peer's changes did.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -21,33 +22,17 @@ pub struct SyncApplied {
 const SYNC_COLUMNS: &str = "global_id, project, memory_type, content, tags, origin_peer, created_at, deleted_at, deleted_by_peer";
 
 fn sync_record_from_row(row: &Row<'_>) -> rusqlite::Result<SyncRecord> {
-    let memory_type: String = row.get(2)?;
-    let tags: String = row.get(4)?;
     Ok(SyncRecord {
         global_id: row.get(0)?,
         project: row.get(1)?,
-        memory_type: MemoryType::from_db(&memory_type).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                2,
-                Type::Text,
-                format!("unknown memory type {memory_type:?}").into(),
-            )
-        })?,
+        memory_type: memory_type_at(row, 2)?,
         content: row.get(3)?,
-        tags: serde_json::from_str(&tags).map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(4, Type::Text, Box::new(err))
-        })?,
+        tags: tags_at(row, 4)?,
         origin_peer: row.get(5)?,
         created_at: row.get(6)?,
         deleted_at: row.get(7)?,
         deleted_by_peer: row.get(8)?,
     })
-}
-
-/// The ids as one JSON array for `json_each`, which takes a list of any
-/// length in a single parameter.
-fn id_list(global_ids: &[String]) -> String {
-    serde_json::to_string(global_ids).expect("a list of strings always serializes")
 }
 
 impl Database {
@@ -68,7 +53,7 @@ impl Database {
             "SELECT {SYNC_COLUMNS} FROM memories
              WHERE global_id IN (SELECT value FROM json_each(?1)) ORDER BY global_id"
         ))?;
-        let rows = statement.query_map([id_list(global_ids)], sync_record_from_row)?;
+        let rows = statement.query_map([json_array(global_ids)], sync_record_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -80,7 +65,7 @@ impl Database {
              WHERE deleted_at IS NOT NULL AND global_id IN (SELECT value FROM json_each(?1))
              ORDER BY global_id",
         )?;
-        let rows = statement.query_map([id_list(global_ids)], |row| {
+        let rows = statement.query_map([json_array(global_ids)], |row| {
             Ok(Tombstone {
                 global_id: row.get(0)?,
                 deleted_at: row.get(1)?,

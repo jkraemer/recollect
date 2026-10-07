@@ -12,29 +12,41 @@ pub(super) const MEMORY_COLUMNS: &str =
     "m.id, m.global_id, m.project, m.memory_type, m.content, m.tags, m.created_at";
 
 pub(super) fn memory_from_row(row: &Row<'_>) -> rusqlite::Result<Memory> {
-    let memory_type: String = row.get(3)?;
-    let tags: String = row.get(5)?;
     Ok(Memory {
         id: row.get(0)?,
         global_id: row.get(1)?,
         project: row.get(2)?,
-        memory_type: MemoryType::from_db(&memory_type).ok_or_else(|| {
-            rusqlite::Error::FromSqlConversionFailure(
-                3,
-                Type::Text,
-                format!("unknown memory type {memory_type:?}").into(),
-            )
-        })?,
+        memory_type: memory_type_at(row, 3)?,
         content: row.get(4)?,
-        tags: serde_json::from_str(&tags).map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(5, Type::Text, Box::new(err))
-        })?,
+        tags: tags_at(row, 5)?,
         created_at: row.get(6)?,
     })
 }
 
-fn tags_json(tags: &[String]) -> String {
-    serde_json::to_string(tags).expect("a list of strings always serializes")
+/// The memory type stored in column `index` of `row`.
+pub(super) fn memory_type_at(row: &Row<'_>, index: usize) -> rusqlite::Result<MemoryType> {
+    let memory_type: String = row.get(index)?;
+    MemoryType::from_db(&memory_type).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            index,
+            Type::Text,
+            format!("unknown memory type {memory_type:?}").into(),
+        )
+    })
+}
+
+/// The tags stored as a JSON array in column `index` of `row`.
+pub(super) fn tags_at(row: &Row<'_>, index: usize) -> rusqlite::Result<Vec<String>> {
+    let tags: String = row.get(index)?;
+    serde_json::from_str(&tags)
+        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(err)))
+}
+
+/// A list of strings as a JSON array: the stored form of a memory's tags, and
+/// an id list for `json_each`, which takes a list of any length in a single
+/// parameter.
+pub(super) fn json_array(strings: &[String]) -> String {
+    serde_json::to_string(strings).expect("a list of strings always serializes")
 }
 
 /// Inserts one memory row; `import` appends a conflict clause.
@@ -50,7 +62,7 @@ pub(super) fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Re
         record.project,
         record.memory_type.as_str(),
         record.content,
-        tags_json(&record.tags),
+        json_array(&record.tags),
         record.origin_peer,
         record.created_at,
     ])?)
