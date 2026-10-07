@@ -86,6 +86,7 @@ enum Command {
     /// Sync with every peer now, or with the named ones
     Sync {
         /// Peer names; none means every peer
+        #[arg(value_name = "PEER")]
         peers: Vec<String>,
     },
     /// Print an invite that pairs one other machine with this one
@@ -599,5 +600,17 @@ mod tests {
             message.contains("Usage: recollect store [OPTIONS] [CONTENT]"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn the_sync_usage_shows_that_each_argument_is_one_peer() {
+        let mut cli = Cli::command();
+        cli.build();
+        let usage = cli
+            .find_subcommand_mut("sync")
+            .expect("sync is a subcommand")
+            .render_usage()
+            .to_string();
+        assert_eq!(usage, "Usage: recollect sync [PEER]...");
     }
 }

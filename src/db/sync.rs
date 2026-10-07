@@ -4,7 +4,7 @@ use rusqlite::Row;
 
 use super::Database;
 use super::memories::{
-    INSERT_MEMORY, apply_tombstone, insert_row, json_array, memory_type_at, tags_at,
+    INSERT_MEMORY, UNLESS_STORED, apply_tombstone, insert_row, json_array, memory_type_at, tags_at,
 };
 use crate::error::Result;
 use crate::memory::{SyncRecord, Tombstone};
@@ -87,7 +87,7 @@ impl Database {
         tombstones: &[Tombstone],
     ) -> Result<SyncApplied> {
         let tx = self.write_transaction()?;
-        let insert = format!("{INSERT_MEMORY} ON CONFLICT(global_id) DO NOTHING");
+        let insert = format!("{INSERT_MEMORY} {UNLESS_STORED}");
         let mut applied = SyncApplied::default();
         for record in records {
             let inserted = insert_row(&tx, &insert, &record.to_new_record())?;

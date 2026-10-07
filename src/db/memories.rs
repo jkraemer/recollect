@@ -49,12 +49,16 @@ pub(super) fn json_array(strings: &[String]) -> String {
     serde_json::to_string(strings).expect("a list of strings always serializes")
 }
 
-/// Inserts one memory row; `import` appends a conflict clause.
+/// Inserts one memory row; `import` and `apply_sync` append `UNLESS_STORED`.
 pub(super) const INSERT_MEMORY: &str =
     "INSERT INTO memories (global_id, project, memory_type, content, tags, origin_peer, created_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
 
-/// Runs `sql`, `INSERT_MEMORY` with or without a conflict clause, for
+/// The conflict clause for `INSERT_MEMORY` that skips a memory whose
+/// `global_id` is already stored, live or deleted, so nothing stored changes.
+pub(super) const UNLESS_STORED: &str = "ON CONFLICT(global_id) DO NOTHING";
+
+/// Runs `sql`, `INSERT_MEMORY` with or without `UNLESS_STORED`, for
 /// `record`; returns how many rows it inserted.
 pub(super) fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Result<usize> {
     Ok(conn.prepare_cached(sql)?.execute(params![
@@ -103,7 +107,7 @@ impl Database {
         tombstones: &[Tombstone],
     ) -> Result<ImportCounts> {
         let tx = self.write_transaction()?;
-        let sql = format!("{INSERT_MEMORY} ON CONFLICT(global_id) DO NOTHING");
+        let sql = format!("{INSERT_MEMORY} {UNLESS_STORED}");
         let mut counts = ImportCounts {
             inserted: 0,
             deleted: 0,

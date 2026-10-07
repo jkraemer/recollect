@@ -155,6 +155,9 @@ systemctl --user daemon-reload
 systemctl --user enable --now recollect-serve
 ```
 
+To keep the daemon running while you are logged out, enable lingering once:
+`loginctl enable-linger`.
+
 It listens on port 7327. If a firewall blocks incoming connections (Fedora's
 does by default), open the port on at least one of the two machines, for
 example `sudo firewall-cmd --permanent --add-port=7327/tcp && sudo firewall-cmd --reload`,
@@ -169,19 +172,24 @@ recollect pair
 ```
 
 This prints a `recollect join …` command. Run it on the other machine
-within ten minutes. From then on the two are equals: each knows the other's
-name, key and address, each syncs with the other when it starts and every
-five minutes, and one working direction is enough. `recollect sync` runs a
-round right away, and `recollect peer list` shows every peer with its last
-sync and, if this machine's own last round with it failed, why. A machine
-that cannot reach a peer keeps showing that failure there, even while the
-peer's own rounds keep the two in sync.
+within ten minutes. Treat that command like a password until it is used:
+whoever runs it first, within those ten minutes, becomes a peer and receives
+every memory. From then on the two are equals: each knows the other's name,
+key and address, each syncs with the other when it starts and every five
+minutes, and one working direction is enough. `recollect sync` runs a round
+right away, and `recollect peer list` shows every peer with its last sync
+and, if this machine's own last round with it failed, why. A machine that
+cannot reach a peer keeps showing that failure there, even while the peer's
+own rounds keep the two in sync. `recollect sync` on such a machine reports
+that failure and exits with status 1 for the same reason.
 
 `recollect pair` and `recollect join` assume a machine is reached under its
 host name; where that does not resolve on the other machine, pass
 `--address <host-or-ip>:7327` to both, or correct a peer later with
-`recollect peer address <name> <host:port>`. Two machines with the same host
-name need different names: set one in `~/.recollect/config.toml`.
+`recollect peer address <name> <host:port>`. All peers of a machine need
+different names, and a machine's name is its host name up to the first dot
+unless it sets one. Where two would clash, set a name on one of them in
+`~/.recollect/config.toml`.
 
 ```toml
 [sync]

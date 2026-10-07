@@ -108,9 +108,11 @@ fn check_timestamp(global_id: &str, field: &str, value: &str) -> Result<()> {
     }
 }
 
-/// Checks what a peer sent against the rules every local write follows, so
-/// that nothing enters the database through sync that a local store or
-/// delete could not have written. The error names the first offending record.
+/// Checks what a peer sent against the rules every local write follows for
+/// global ids, timestamps, project names, content and tags; a deleted memory
+/// must be blank, and only a deleted one may name who deleted it. The peers
+/// a record names (`origin_peer`, `deleted_by_peer`) are stored as sent. The
+/// error names the first offending record.
 pub fn validate(records: &[SyncRecord], tombstones: &[Tombstone]) -> Result<()> {
     for record in records {
         let id = record.global_id.as_str();

@@ -18,7 +18,9 @@ pub struct Peer {
     pub added_at: String,
     /// When a round with the peer last succeeded.
     pub last_sync_at: Option<String>,
-    /// Why the last round failed; `None` after a success.
+    /// Why a round with the peer last failed. A successful round this
+    /// machine started clears it; one the peer started leaves it, because it
+    /// does not show that this machine can reach the peer.
     pub last_error: Option<String>,
 }
 

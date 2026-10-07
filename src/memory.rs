@@ -114,8 +114,9 @@ pub struct NewRecord {
     pub created_at: String,
 }
 
-/// A memory deleted elsewhere: its `global_id`, when it was deleted, in the
-/// stored timestamp format, and the peer that deleted it where that is known.
+/// The deletion of a memory, on this machine or another: its `global_id`,
+/// when it was deleted, in the stored timestamp format, and the peer that
+/// deleted it where that is known.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Tombstone {

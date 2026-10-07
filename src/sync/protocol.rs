@@ -12,8 +12,10 @@ use crate::memory::{SyncRecord, Tombstone};
 /// whenever messages, their order, the fields of a record or the values a
 /// field may take change; peers with different versions refuse each other.
 /// Releases and schema migrations that leave the wire alone do not touch it.
-/// The `hello` message must keep its shape in every version: it is how
-/// peers find out that they differ.
+/// Three messages must keep their shape in every version: `hello` and `pair`
+/// open a round and a pairing and carry the version, which is how two
+/// machines find out that they differ, and `error` is how a machine that
+/// refuses a `pair` for its version says so.
 pub const PROTOCOL_VERSION: u32 = 1;
 
 /// The largest message a peer may send.
