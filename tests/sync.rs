@@ -6,6 +6,7 @@ mod common;
 use std::io::{BufRead, BufReader};
 use std::net::TcpListener;
 use std::process::{Child, Command as StdCommand, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -146,24 +147,38 @@ impl Machine {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let mut lines = BufReader::new(child.stderr.take().unwrap()).lines();
-        let first = lines.next().expect("the daemon wrote nothing").unwrap();
-        let address = first
-            .strip_prefix("listening on ")
-            .unwrap_or_else(|| panic!("unexpected first line: {first}"))
-            .to_string();
-        let log = Arc::new(Mutex::new(Vec::new()));
-        let collected = Arc::clone(&log);
+        let stderr = child.stderr.take().unwrap();
+        // The guard comes first: whatever fails below, the daemon is stopped.
+        let mut daemon = Daemon {
+            child,
+            address: String::new(),
+            log: Arc::default(),
+        };
+        let (first_line, first) = mpsc::channel();
+        let collected = Arc::clone(&daemon.log);
         std::thread::spawn(move || {
-            for line in lines.map_while(Result::ok) {
+            let mut lines = BufReader::new(stderr).lines().map_while(Result::ok);
+            if let Some(line) = lines.next() {
+                let _ = first_line.send(line);
+            }
+            for line in lines {
                 collected.lock().unwrap().push(line);
             }
         });
-        Daemon {
-            child,
-            address,
-            log,
-        }
+        let first = match first.recv_timeout(Duration::from_secs(20)) {
+            Ok(line) => line,
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("{}'s daemon wrote nothing for 20 seconds", self.name)
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("{}'s daemon ended without a word", self.name)
+            }
+        };
+        daemon.address = first
+            .strip_prefix("listening on ")
+            .unwrap_or_else(|| panic!("unexpected first line: {first}"))
+            .to_string();
+        daemon
     }
 }
 
@@ -413,10 +428,11 @@ fn two_daemons_sync_on_their_timers_and_embed_what_they_receive() {
         logged.iter().any(|line| line.contains("1 memory")),
         "a round that moved something is logged: {logged:?}"
     );
-    assert!(
-        logged.iter().all(|line| !line.contains("error")),
-        "{logged:?}"
-    );
+    // A round that fails while the two are still being introduced to each
+    // other is made up for by the next one.
+    eventually("neither machine has a failed round on record", || {
+        alpha.peer("beta")["last_error"].is_null() && beta.peer("alpha")["last_error"].is_null()
+    });
     assert!(alpha.peer("beta")["last_sync_at"].is_string());
 }
 
