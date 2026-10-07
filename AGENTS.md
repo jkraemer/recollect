@@ -66,12 +66,14 @@ embedding model is cached in `$RECOLLECT_MODEL_DIR` (default
 `<data dir>/models`). fastembed lets `HF_HOME` override the model directory, so
 keep `HF_HOME` unset: the tests expect it to be.
 
-A development build run by hand needs `RECOLLECT_DATA_DIR` set to a scratch
-directory on the same command line, and `RECOLLECT_MODEL_DIR` pointed at the
-model the tests already downloaded (`RECOLLECT_DATA_DIR="$(mktemp -d)"
-RECOLLECT_MODEL_DIR="$PWD/.model-cache" cargo run -- …`). Without it the build
-opens `~/.recollect` and migrates the real database to its own schema version,
-which an older installed `recollect` then refuses to open.
+`cargo run` and `cargo test` use `target/test-data` as the data directory
+unless `RECOLLECT_DATA_DIR` is set: `.cargo/config.toml` sets it for
+everything cargo starts, so a development build cannot open `~/.recollect` by
+accident and migrate the real database to its own schema version, which an
+older installed `recollect` then refuses to open. A binary started directly
+(`target/debug/recollect …`) does not get that default: give it
+`RECOLLECT_DATA_DIR` on the same command line. The embedding model comes from
+`.model-cache` the same way.
 
 The Claude Code plugin's hooks (`hooks/hooks.json`) run `recollect hook
 session-start` and `recollect hook post-compact` with Claude Code's hook

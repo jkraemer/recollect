@@ -366,6 +366,25 @@ fn a_fresh_data_directory_answers_read_commands_with_empty_output() {
 }
 
 #[test]
+fn a_run_through_cargo_uses_the_scratch_data_directory() {
+    let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/test-data");
+    // Checked before the binary runs: without the default from
+    // .cargo/config.toml the command below would open ~/.recollect.
+    assert_eq!(
+        std::env::var("RECOLLECT_DATA_DIR").ok(),
+        Some(scratch.display().to_string()),
+        "cargo must hand its test processes the scratch data directory (.cargo/config.toml)"
+    );
+    let status = json_of(
+        Command::cargo_bin("recollect")
+            .unwrap()
+            .env("RECOLLECT_MODEL_DIR", common::model_dir())
+            .args(["status", "--json"]),
+    );
+    assert_eq!(status["data_dir"], scratch.display().to_string());
+}
+
+#[test]
 fn without_recollect_data_dir_the_home_directory_is_used() {
     let home = tempfile::tempdir().unwrap();
     let _ = common::shared_model();
