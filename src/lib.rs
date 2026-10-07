@@ -14,5 +14,6 @@ pub mod search;
 pub mod service;
 pub mod sync;
 pub mod time;
+pub mod update;
 
 pub use error::{Error, Result};

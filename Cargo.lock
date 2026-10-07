@@ -1789,6 +1789,7 @@ dependencies = [
  "thiserror",
  "tokenizers",
  "toml",
+ "ureq",
  "uuid",
 ]
 
