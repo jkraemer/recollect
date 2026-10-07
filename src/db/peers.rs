@@ -301,6 +301,10 @@ mod tests {
             matches!(&err, Error::AlreadyPaired(name) if name == "twelve"),
             "{err}"
         );
+        assert_eq!(
+            err.to_string(),
+            "this machine is already paired with that key, as peer \"twelve\"; to pair again, remove it first with: recollect peer remove twelve"
+        );
         assert!(matches!(
             db.check_new_peer("twelve", "SHA256:new"),
             Err(Error::PeerExists(_))

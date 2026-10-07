@@ -47,7 +47,9 @@ pub enum Error {
     UnknownPeer(String),
     #[error("a peer named {0:?} already exists; remove it first with: recollect peer remove {0}")]
     PeerExists(String),
-    #[error("this machine is already paired with that key, as peer {0:?}")]
+    #[error(
+        "this machine is already paired with that key, as peer {0:?}; to pair again, remove it first with: recollect peer remove {0}"
+    )]
     AlreadyPaired(String),
     #[error("this invite is not valid (expired or already used)")]
     InvalidInvite,
