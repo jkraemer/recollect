@@ -2,9 +2,13 @@
 //! timer.
 
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::os::unix::fs::MetadataExt;
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, SyncSender};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 
@@ -27,9 +31,11 @@ pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
 pub const MAX_CONNECTIONS: usize = 4;
 
 /// Runs the sync daemon: answers the machine's peers, and syncs with every
-/// peer now and then every `interval_seconds`. Returns only if it cannot
+/// peer now and then every `interval_seconds`. When an update has replaced
+/// its executable it restarts as the new version. Returns only if it cannot
 /// start; afterwards failures are logged and the daemon carries on.
 pub fn serve(config: Config, log: Log) -> Result<()> {
+    let restart = Arc::new(Restart::of(Executable::running()?));
     let identity = Arc::new(Identity::load_or_create(&config.data_dir)?);
     // Opened once here so that a database problem stops the daemon at
     // startup instead of failing every connection later.
@@ -40,31 +46,61 @@ pub fn serve(config: Config, log: Log) -> Result<()> {
     let listener = TcpListener::bind(listen).map_err(cannot_listen)?;
     let address = listener.local_addr().map_err(cannot_listen)?;
     log(&format!("listening on {address}"));
+    // The thread answering peers wakes the timer when a connection arrives
+    // after the executable was replaced. This end is kept so that the timer
+    // keeps its pace should that thread ever end.
+    let (wake, woken) = mpsc::sync_channel(1);
     {
         let (config, identity, log) = (config.clone(), Arc::clone(&identity), Arc::clone(&log));
-        std::thread::spawn(move || answer_peers(listener, config, identity, log));
+        let (restart, wake) = (Arc::clone(&restart), wake.clone());
+        std::thread::spawn(move || answer_peers(listener, config, identity, log, restart, wake));
     }
     let interval = Duration::from_secs(config.sync.interval_seconds);
+    let mut next_pass = Instant::now();
     loop {
-        if let Err(err) = sync_with_peers(&config, &identity, Timeouts::default(), &log) {
-            log(&format!("error: {err}"));
+        if restart.executable.replaced() {
+            restart.run(&log);
         }
-        std::thread::sleep(interval);
+        if Instant::now() >= next_pass {
+            if let Err(err) = sync_with_peers(&config, &identity, Timeouts::default(), &log) {
+                log(&format!("error: {err}"));
+            }
+            next_pass = Instant::now() + interval;
+        }
+        let _ = woken.recv_timeout(next_pass.saturating_duration_since(Instant::now()));
     }
 }
 
 /// Answers every incoming connection on a thread of its own, at most
-/// `MAX_CONNECTIONS` at a time.
-fn answer_peers(listener: TcpListener, config: Config, identity: Arc<Identity>, log: Log) {
-    let answering = Arc::new(AtomicUsize::new(0));
+/// `MAX_CONNECTIONS` at a time. A connection is also the moment to look
+/// whether an update has replaced the executable: the timer, which restarts
+/// the daemon, may be minutes away from its next pass.
+fn answer_peers(
+    listener: TcpListener,
+    config: Config,
+    identity: Arc<Identity>,
+    log: Log,
+    restart: Arc<Restart>,
+    wake: SyncSender<()>,
+) {
     for socket in listener.incoming() {
         let Ok(socket) = socket else {
             // Out of file descriptors, most likely: give the system a moment.
             std::thread::sleep(Duration::from_millis(100));
             continue;
         };
-        // Dropping the socket closes a connection there is no slot for.
-        let Some(slot) = Slot::take(&answering) else {
+        if restart.executable.replaced() {
+            // A full channel means the timer has been told already.
+            let _ = wake.try_send(());
+        }
+        // Dropping the socket closes a connection that arrives while the
+        // daemon waits to restart, or that there is no slot for. One taken
+        // in the instant before the restart is cut off by it, which its
+        // peer makes up for with its next round.
+        if restart.pending.load(Ordering::SeqCst) {
+            continue;
+        }
+        let Some(slot) = Slot::take(&restart.answering) else {
             continue;
         };
         let (config, identity, log) = (config.clone(), Arc::clone(&identity), Arc::clone(&log));
@@ -95,6 +131,90 @@ impl Slot {
 impl Drop for Slot {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// The file the daemon runs from, watched so that the daemon notices an
+/// update. An installer puts a new file at the path (install.sh renames it
+/// into place), which the file's device and inode tell.
+struct Executable {
+    path: PathBuf,
+    /// The file this process runs, or the replacement it could not start.
+    file: Mutex<(u64, u64)>,
+}
+
+impl Executable {
+    /// The executable of this process.
+    fn running() -> Result<Self> {
+        let cannot_find =
+            |err: std::io::Error| Error::Sync(format!("cannot find the running recollect: {err}"));
+        Self::at(std::env::current_exe().map_err(cannot_find)?).map_err(cannot_find)
+    }
+
+    fn at(path: PathBuf) -> std::io::Result<Self> {
+        let file = Mutex::new(file_identity(&path)?);
+        Ok(Self { path, file })
+    }
+
+    /// Whether another file is at the path now. A path without a file is an
+    /// installer at work, not a new version.
+    fn replaced(&self) -> bool {
+        file_identity(&self.path).is_ok_and(|now| now != *self.file.lock().unwrap())
+    }
+
+    /// Takes the file now at the path as the one to compare with, so that a
+    /// replacement that cannot be started is tried once and not at every
+    /// pass.
+    fn settle(&self) {
+        if let Ok(now) = file_identity(&self.path) {
+            *self.file.lock().unwrap() = now;
+        }
+    }
+}
+
+/// What tells one file from another at the same path: its device and inode.
+fn file_identity(path: &Path) -> std::io::Result<(u64, u64)> {
+    std::fs::metadata(path).map(|file| (file.dev(), file.ino()))
+}
+
+/// Restarting the daemon as the version an update installed. Without it the
+/// old daemon would keep running against a database the new version has
+/// migrated, failing every round without ever exiting.
+struct Restart {
+    executable: Executable,
+    /// How many connections are being answered.
+    answering: Arc<AtomicUsize>,
+    /// Set while the daemon waits to restart: no new connection is answered.
+    pending: AtomicBool,
+}
+
+impl Restart {
+    fn of(executable: Executable) -> Self {
+        Self {
+            executable,
+            answering: Arc::new(AtomicUsize::new(0)),
+            pending: AtomicBool::new(false),
+        }
+    }
+
+    /// Replaces this process with the executable now at its path, started
+    /// with the same arguments, once the connections being answered are
+    /// done. Called between the timer's passes. Returns only if the new
+    /// executable cannot be started; the daemon then carries on as it is.
+    fn run(&self, log: &Log) {
+        self.pending.store(true, Ordering::SeqCst);
+        while self.answering.load(Ordering::SeqCst) > 0 {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        log("recollect was replaced; restarting as the new version");
+        // The listening socket closes with the exec; the new process binds
+        // it again.
+        let err = std::process::Command::new(&self.executable.path)
+            .args(std::env::args_os().skip(1))
+            .exec();
+        log(&format!("error: cannot restart as the new version: {err}"));
+        self.executable.settle();
+        self.pending.store(false, Ordering::SeqCst);
     }
 }
 
@@ -591,5 +711,99 @@ mod tests {
             Slot::take(&answering).is_some(),
             "finished connections free their slots"
         );
+    }
+
+    /// Puts a new file with `content` where `path` is, the way an installer
+    /// does: written beside it and renamed into place.
+    fn replace(path: &std::path::Path, content: &str) {
+        let new = path.with_extension("new");
+        std::fs::write(&new, content).unwrap();
+        std::fs::rename(&new, path).unwrap();
+    }
+
+    /// A file standing in for the daemon's executable. It has no execute
+    /// permission, so a restart from it always fails.
+    fn stand_in_executable(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        let path = dir.path().join("recollect");
+        std::fs::write(&path, "the running version").unwrap();
+        path
+    }
+
+    #[test]
+    fn an_executable_counts_as_replaced_when_another_file_is_at_its_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = stand_in_executable(&dir);
+        let executable = Executable::at(path.clone()).unwrap();
+        assert!(!executable.replaced());
+
+        replace(&path, "the new version");
+        assert!(executable.replaced());
+
+        executable.settle();
+        assert!(!executable.replaced(), "settled on the file now there");
+
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            !executable.replaced(),
+            "a path without a file is an installer at work, not a new version"
+        );
+    }
+
+    #[test]
+    fn a_replacement_that_cannot_be_started_is_logged_once_and_the_daemon_carries_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = stand_in_executable(&dir);
+        let restart = Restart::of(Executable::at(path.clone()).unwrap());
+        replace(&path, "not a program");
+        let (log, lines) = collecting_log();
+
+        restart.run(&log);
+
+        let lines = lines.lock().unwrap().clone();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(
+            lines[0],
+            "recollect was replaced; restarting as the new version"
+        );
+        assert!(
+            lines[1].starts_with("error: cannot restart as the new version: "),
+            "{lines:?}"
+        );
+        assert!(
+            !restart.executable.replaced(),
+            "the same file is not tried again"
+        );
+        assert!(
+            !restart.pending.load(Ordering::SeqCst),
+            "connections are answered again"
+        );
+    }
+
+    #[test]
+    fn a_restart_waits_for_the_connections_being_answered() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = stand_in_executable(&dir);
+        let restart = Arc::new(Restart::of(Executable::at(path.clone()).unwrap()));
+        replace(&path, "not a program");
+        let slot = Slot::take(&restart.answering).expect("a free slot");
+        let (log, lines) = collecting_log();
+
+        let running = {
+            let restart = Arc::clone(&restart);
+            std::thread::spawn(move || restart.run(&log))
+        };
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            lines.lock().unwrap().is_empty(),
+            "nothing happens while a connection is answered"
+        );
+        assert!(
+            restart.pending.load(Ordering::SeqCst),
+            "no new connection is answered meanwhile"
+        );
+
+        drop(slot);
+        running.join().unwrap();
+        assert_eq!(lines.lock().unwrap().len(), 2);
     }
 }

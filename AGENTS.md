@@ -115,7 +115,11 @@ their framing), `exchange` (manifest, diff, validation, batching),
 `transport` (TLS with pinned key fingerprints), `round` (one round),
 `pairing` (invites) and `daemon` (`recollect serve`); peers and invites are
 tables in `memories.db` (`src/db/peers.rs`), the rows a round moves go
-through `src/db/sync.rs`. Embeddings and local ids never travel. Whenever a
+through `src/db/sync.rs`. The daemon compares the device and inode of its
+executable before every timer pass and every answered connection and `exec`s
+the new file after an update (`Restart` in `daemon.rs`): it opens the database
+per round, so without that an old daemon would fail every round once a new CLI
+has migrated the schema. Embeddings and local ids never travel. Whenever a
 change alters what goes over the wire (a message, a record field, a value a
 field may take, such as a new memory type), bump `PROTOCOL_VERSION` in
 `src/sync/protocol.rs` and update the fixtures in its tests, which pin the

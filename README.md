@@ -176,6 +176,10 @@ systemctl --user enable --now recollect-serve
 To keep the daemon running while you are logged out, enable lingering once:
 `loginctl enable-linger`.
 
+The daemon needs no restart after an upgrade: when it finds another file
+where its binary was, it finishes the rounds in progress and starts again as
+the new version.
+
 It listens on port 7327. If a firewall blocks incoming connections (Fedora's
 does by default), open the port on at least one of the two machines, for
 example `sudo firewall-cmd --permanent --add-port=7327/tcp && sudo firewall-cmd --reload`,
