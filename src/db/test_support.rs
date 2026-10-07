@@ -15,6 +15,14 @@ pub fn record(content: &str, project: Option<&str>, created_at: &str) -> NewReco
     }
 }
 
+/// A live note in project `p` with a UUID as its global id, as sync requires.
+pub fn note(content: &str) -> NewRecord {
+    NewRecord {
+        global_id: uuid::Uuid::now_v7().to_string(),
+        ..record(content, Some("p"), "2026-09-01T10:00:00.000Z")
+    }
+}
+
 /// Runs `work(n)` for `n` in `0..threads`, all starting at the same moment,
 /// and returns the results in order of `n`.
 pub fn concurrently<T: Send>(threads: usize, work: impl Fn(usize) -> T + Sync) -> Vec<T> {
