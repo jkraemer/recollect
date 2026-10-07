@@ -178,7 +178,9 @@ To keep the daemon running while you are logged out, enable lingering once:
 
 The daemon needs no restart after an upgrade: when it finds another file
 where its binary was, it finishes the rounds in progress and starts again as
-the new version.
+the new version. A daemon started by recollect 0.2.0 or older cannot do that
+yet: restart it once after upgrading from such a version
+(`systemctl --user restart recollect-serve`).
 
 It listens on port 7327. If a firewall blocks incoming connections (Fedora's
 does by default), open the port on at least one of the two machines, for
