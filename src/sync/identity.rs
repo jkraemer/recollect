@@ -100,9 +100,16 @@ fn create_key(data_dir: &Path, path: &Path) -> Result<String> {
         .mode(0o600)
         .open(&scratch)
         .map_err(Error::file(&scratch))?;
-    file.write_all(pem.as_bytes())
-        .map_err(Error::file(&scratch))?;
+    // On disk before it is linked: a key file left empty by a power loss
+    // would stay, because a key file is never replaced.
+    let written = file
+        .write_all(pem.as_bytes())
+        .and_then(|()| file.sync_all());
     drop(file);
+    if let Err(err) = written {
+        let _ = std::fs::remove_file(&scratch);
+        return Err(Error::file(&scratch)(err));
+    }
     // A hard link appears with its content complete, and fails if another
     // process stored its key first.
     let linked = std::fs::hard_link(&scratch, path);
