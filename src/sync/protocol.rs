@@ -133,10 +133,37 @@ impl<S: Read + Write> Channel<S> {
         self.stream.read_exact(&mut json).map_err(failed)?;
         serde_json::from_slice(&json).map_err(|err| {
             Error::Sync(format!(
-                "the peer sent a message this recollect cannot read: {err}"
+                "the peer sent a message this recollect cannot read: {}",
+                printable(&err.to_string())
             ))
         })
     }
+}
+
+/// The longest parser text kept in an error, in characters.
+const PARSER_TEXT_LIMIT: usize = 300;
+
+/// Makes the parser's error text safe to print and to log. The parser quotes
+/// names the other machine chose, and a machine that is not a peer can send
+/// any: its text must not be able to forge a log line or steer a terminal,
+/// nor fill one. Control characters become the replacement character, and the
+/// text is cut at `PARSER_TEXT_LIMIT` characters, marked with `…`.
+fn printable(parser_text: &str) -> String {
+    let mut text: String = parser_text
+        .chars()
+        .take(PARSER_TEXT_LIMIT)
+        .map(|c| {
+            if c.is_control() {
+                char::REPLACEMENT_CHARACTER
+            } else {
+                c
+            }
+        })
+        .collect();
+    if parser_text.chars().nth(PARSER_TEXT_LIMIT).is_some() {
+        text.push('…');
+    }
+    text
 }
 
 /// Says in words why reading from or writing to a peer failed.
@@ -351,6 +378,38 @@ mod tests {
                 .starts_with("the peer sent a message this recollect cannot read: "),
             "{err}"
         );
+    }
+
+    /// The error from receiving `json` as the only frame of a stream.
+    fn receive_error(json: &str) -> Error {
+        let mut bytes = (json.len() as u32).to_be_bytes().to_vec();
+        bytes.extend_from_slice(json.as_bytes());
+        Channel::new(Cursor::new(bytes))
+            .receive(UNPAIRED_MESSAGE_LIMIT)
+            .unwrap_err()
+    }
+
+    #[test]
+    fn the_text_of_an_unreadable_message_has_no_control_characters() {
+        let err = receive_error(
+            r#"{"type":"\u001b[2J\u001b]0;owned\u0007\n2026-10-07 peer twelve paired"}"#,
+        )
+        .to_string();
+        assert!(
+            err.starts_with("the peer sent a message this recollect cannot read: "),
+            "{err:?}"
+        );
+        assert!(!err.contains(char::is_control), "{err:?}");
+    }
+
+    #[test]
+    fn the_text_of_an_unreadable_message_is_cut_at_300_characters() {
+        let err = receive_error(&format!(r#"{{"type":"{}"}}"#, "x".repeat(1000))).to_string();
+        let text = err
+            .strip_prefix("the peer sent a message this recollect cannot read: ")
+            .unwrap();
+        assert_eq!(text.chars().count(), 301, "{err}");
+        assert!(text.ends_with('…'), "{err}");
     }
 
     #[test]
