@@ -3,9 +3,10 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader};
-use std::net::TcpListener;
+use std::io::{BufRead, BufReader, ErrorKind};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::process::{Child, Command as StdCommand, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -276,10 +277,44 @@ fn eventually(what: &str, check: impl Fn() -> bool) {
     }
 }
 
-/// A local address nothing listens on.
+/// The ports closed addresses are taken from: `CLOSED_PORTS` of them, from
+/// `FIRST_CLOSED_PORT` on. They lie far below the ports the system assigns to
+/// listeners and to outgoing connections (from 32768 on Linux, from 49152 on
+/// macOS), so nothing takes one of them while a test relies on it.
+const FIRST_CLOSED_PORT: u16 = 20000;
+const CLOSED_PORTS: usize = 10000;
+
+/// How many ports `closed_address` tries before it gives up.
+const CANDIDATES: usize = 50;
+
+/// A local address nothing listens on. Each call hands out another port; one
+/// that something does listen on is passed over. The library's unit tests
+/// have the same fixture in `sync::test_support`.
 fn closed_address() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.local_addr().unwrap().to_string()
+    static HANDED_OUT: AtomicUsize = AtomicUsize::new(0);
+    let candidates = std::iter::repeat_with(|| {
+        let offset = HANDED_OUT.fetch_add(1, Ordering::Relaxed) % CLOSED_PORTS;
+        FIRST_CLOSED_PORT + offset as u16
+    });
+    first_closed(candidates.take(CANDIDATES)).unwrap_or_else(|| {
+        panic!(
+            "no closed address: none of {CANDIDATES} local ports tried from {FIRST_CLOSED_PORT} on refused a connection"
+        )
+    })
+}
+
+/// The first of `ports` that refuses a connection, as a local address. A
+/// port is tried by dialling it, not by binding it: a listener bound to try
+/// it would itself answer a dial for a moment.
+fn first_closed(ports: impl IntoIterator<Item = u16>) -> Option<String> {
+    ports
+        .into_iter()
+        .map(|port| SocketAddr::from(([127, 0, 0, 1], port)))
+        .find(|address| {
+            TcpStream::connect_timeout(address, Duration::from_secs(1))
+                .is_err_and(|err| err.kind() == ErrorKind::ConnectionRefused)
+        })
+        .map(|address| address.to_string())
 }
 
 #[test]
@@ -506,8 +541,6 @@ fn a_corrected_address_is_dialled_and_the_daemon_says_it_syncs_again() {
         .into_iter()
         .filter(|line| line.starts_with("beta: "))
         .collect();
-    // Why the first dial failed is not checked: the port the test closed
-    // may have gone to another test's listener in the meantime.
     assert_eq!(about_beta.len(), 2, "{about_beta:?}");
     assert!(about_beta[0].starts_with("beta: error: "), "{about_beta:?}");
     assert_eq!(about_beta[1], "beta: syncing again");

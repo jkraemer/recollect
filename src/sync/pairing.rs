@@ -266,20 +266,25 @@ mod tests {
 
     use super::*;
     use crate::sync::protocol::UNPAIRED_MESSAGE_LIMIT;
-    use crate::sync::test_support::{Machine, T0, listener};
+    use crate::sync::test_support::{Machine, T0, closed_address, listener};
+
+    /// The invite `inviter` hands out at `now`, as `foehn` reached at `address`.
+    fn invite_to(inviter: &Machine, address: &str, now: DateTime<Utc>) -> Invite {
+        create_invite(
+            &mut inviter.database(),
+            &inviter.identity,
+            "foehn",
+            address,
+            now,
+        )
+        .unwrap()
+    }
 
     /// Makes `inviter` listen on a local port and hand out an invite, as
     /// `foehn`, at `now`.
     fn inviting(inviter: &Machine, now: DateTime<Utc>) -> (TcpListener, Invite) {
         let (listener, address) = listener();
-        let invite = create_invite(
-            &mut inviter.database(),
-            &inviter.identity,
-            "foehn",
-            &address,
-            now,
-        )
-        .unwrap();
+        let invite = invite_to(inviter, &address, now);
         (listener, invite)
     }
 
@@ -535,8 +540,7 @@ mod tests {
     #[test]
     fn a_join_that_cannot_reach_the_inviter_names_the_address_and_what_to_check() {
         let (inviter, joiner) = (Machine::new(), Machine::new());
-        let (listener, invite) = inviting(&inviter, Utc::now());
-        drop(listener);
+        let invite = invite_to(&inviter, &closed_address(), Utc::now());
         let reason = message_of(join_as(&joiner, &invite, "twelve"));
         assert!(
             reason.starts_with(&format!("{}: cannot connect (", invite.address)),

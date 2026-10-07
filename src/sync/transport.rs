@@ -285,7 +285,7 @@ mod tests {
 
     use super::*;
     use crate::sync::protocol::{MESSAGE_LIMIT, Message};
-    use crate::sync::test_support::listener;
+    use crate::sync::test_support::{closed_address, listener};
 
     /// A machine's identity; the directory holds its key and must outlive it.
     fn identity() -> (tempfile::TempDir, Identity) {
@@ -481,8 +481,7 @@ mod tests {
     #[test]
     fn a_machine_that_is_not_listening_is_reported_with_its_address() {
         let (_dir, a) = identity();
-        let (listener, address) = listener();
-        drop(listener);
+        let address = closed_address();
         let err = connect(&a, &address, "SHA256:whoever", Timeouts::default())
             .err()
             .unwrap();
