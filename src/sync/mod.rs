@@ -1,6 +1,7 @@
 //! Sync between machines: paired peers exchange their memories and deletions
 //! directly, with no server in between.
 
+pub mod daemon;
 pub mod exchange;
 pub mod identity;
 pub mod pairing;
@@ -8,10 +9,13 @@ pub mod protocol;
 pub mod round;
 pub mod transport;
 
+use serde::Serialize;
+
+use crate::config::Config;
 use crate::db::{Database, Peer};
 use crate::error::Result;
 use crate::service::Recollect;
-use crate::sync::identity::Identity;
+use crate::sync::identity::{Identity, local_name};
 use crate::sync::round::RoundOutcome;
 use crate::sync::transport::Timeouts;
 use crate::time::now_timestamp;
@@ -84,6 +88,27 @@ pub fn sync_with(
         peer: peer.name.clone(),
         result,
         previous_error,
+    })
+}
+
+/// What `recollect id` shows: how this machine appears to its peers.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct LocalMachine {
+    pub name: String,
+    pub fingerprint: String,
+    /// The address and port `recollect serve` listens on.
+    pub listen: String,
+}
+
+/// This machine's name, key fingerprint (the key is generated on first use)
+/// and listen address.
+pub fn local_machine(config: &Config) -> Result<LocalMachine> {
+    Ok(LocalMachine {
+        name: local_name(config)?,
+        fingerprint: Identity::load_or_create(&config.data_dir)?
+            .fingerprint()
+            .to_string(),
+        listen: config.sync.listen.to_string(),
     })
 }
 

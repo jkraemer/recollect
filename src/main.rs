@@ -16,6 +16,7 @@ use recollect::memory::{MemoryType, ProjectRef, normalize_tags};
 use recollect::migrate::{Rename, read_ruby_data};
 use recollect::output;
 use recollect::service::{Recollect, StoreInput};
+use recollect::sync;
 use recollect::time::{parse_since, parse_until};
 
 /// Persistent, searchable memory for coding agents.
@@ -78,6 +79,16 @@ enum Command {
     /// Run a Claude Code hook on the hook's JSON input from stdin
     #[command(subcommand)]
     Hook(HookEvent),
+    /// Run the sync daemon: answer this machine's peers and sync with them on a timer
+    Serve,
+    /// This machine's sync name, key fingerprint and listen address
+    Id {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// The machines this one syncs with
+    #[command(subcommand)]
+    Peer(PeerCommand),
 }
 
 /// The Claude Code hook events recollect handles.
@@ -87,6 +98,29 @@ enum HookEvent {
     SessionStart,
     /// Store Claude Code's compaction summary as a session memory of the project
     PostCompact,
+}
+
+/// What can be done with the machine's peers.
+#[derive(Subcommand)]
+enum PeerCommand {
+    /// List the peers with their last sync
+    List {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Change the address this machine dials for a peer
+    Address {
+        /// The peer's name
+        name: String,
+        /// Where to reach it
+        #[arg(value_name = "HOST:PORT")]
+        address: String,
+    },
+    /// Stop syncing with a peer
+    Remove {
+        /// The peer's name
+        name: String,
+    },
 }
 
 #[derive(Args)]
@@ -229,12 +263,15 @@ fn reader_went_away(err: &anyhow::Error) -> bool {
 }
 
 fn run(command: Command) -> anyhow::Result<()> {
-    if let Command::MigrateFromRuby {
-        ruby_data_dir,
-        rename,
-    } = &command
-    {
-        return migrate_from_ruby(ruby_data_dir, rename);
+    // These commands do not start from an open database.
+    match &command {
+        Command::MigrateFromRuby {
+            ruby_data_dir,
+            rename,
+        } => return migrate_from_ruby(ruby_data_dir, rename),
+        Command::Serve => return serve(),
+        Command::Id { output } => return print_machine(output),
+        _ => {}
     }
     let mut app = open_app()?;
     match command {
@@ -337,8 +374,24 @@ fn run(command: Command) -> anyhow::Result<()> {
             }
         }
         Command::Hook(event) => run_hook(event, &mut app)?,
-        Command::MigrateFromRuby { .. } => {
-            unreachable!("migrate-from-ruby returned before the database opened")
+        Command::Peer(PeerCommand::List { output }) => {
+            let peers = app.peers()?;
+            if output.json {
+                print_json(&peers)?;
+            } else {
+                print_text(&output::peers_text(&peers))?;
+            }
+        }
+        Command::Peer(PeerCommand::Address { name, address }) => {
+            app.set_peer_address(&name, &address)?;
+            print_text(&format!("{name} is now dialled at {address}"))?;
+        }
+        Command::Peer(PeerCommand::Remove { name }) => {
+            app.remove_peer(&name)?;
+            print_text(&format!("removed {name}"))?;
+        }
+        Command::MigrateFromRuby { .. } | Command::Serve | Command::Id { .. } => {
+            unreachable!("handled before the database opened")
         }
     }
     Ok(())
@@ -364,6 +417,22 @@ fn migrate_from_ruby(ruby_data_dir: &Path, renames: &[Rename]) -> anyhow::Result
     ))?;
     warn(outcome.warning.as_deref());
     print_text(&format!("embedded {} memories", outcome.embedded))?;
+    Ok(())
+}
+
+/// Runs the sync daemon, logging to stderr, where systemd picks the lines up.
+fn serve() -> anyhow::Result<()> {
+    let log: sync::daemon::Log = std::sync::Arc::new(output::print_diagnostic);
+    Ok(sync::daemon::serve(Config::load()?, log)?)
+}
+
+fn print_machine(output: &OutputArgs) -> anyhow::Result<()> {
+    let machine = sync::local_machine(&Config::load()?)?;
+    if output.json {
+        print_json(&machine)?;
+    } else {
+        print_text(&output::machine_text(&machine))?;
+    }
     Ok(())
 }
 
