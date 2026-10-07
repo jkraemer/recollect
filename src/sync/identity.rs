@@ -51,7 +51,11 @@ impl Identity {
     /// The identity of the PKCS#8 PEM key `pem`; the error says why the key
     /// cannot be used.
     fn from_pem(pem: &str) -> std::result::Result<Self, String> {
-        let key_pair = rcgen::KeyPair::from_pem(pem).map_err(|err| err.to_string())?;
+        let key_pair = rcgen::KeyPair::from_pem(pem).map_err(|err| match err {
+            // The PEM parser's text can quote a line of the file, which is the key.
+            rcgen::Error::PemError(_) => "not valid PEM".to_string(),
+            err => err.to_string(),
+        })?;
         // Peers judge the certificate by its key alone; the name is never checked.
         let certificate = rcgen::CertificateParams::new(vec!["recollect".to_string()])
             .and_then(|params| params.self_signed(&key_pair))
@@ -224,6 +228,30 @@ mod tests {
             "{err}"
         );
         assert_eq!(std::fs::read_to_string(&key).unwrap(), "not a key");
+    }
+
+    #[test]
+    fn a_key_file_the_pem_parser_rejects_is_not_quoted_in_the_error() {
+        let dir = tempfile::tempdir().unwrap();
+        Identity::load_or_create(dir.path()).unwrap();
+        let key = dir.path().join(IDENTITY_FILE);
+        let pem = std::fs::read_to_string(&key).unwrap();
+        let mut lines: Vec<&str> = pem.lines().collect();
+        let body: Vec<&str> = lines[1..lines.len() - 1].to_vec();
+        assert!(body.len() >= 2, "a blank line goes between two body lines");
+        lines.insert(2, "");
+        let damaged = lines.join("\n") + "\n";
+        std::fs::write(&key, &damaged).unwrap();
+        let err = Identity::load_or_create(dir.path()).err().unwrap();
+        assert!(
+            matches!(&err, Error::Identity { path, message }
+                if *path == key && message == "not a usable key (not valid PEM); it is not replaced automatically, because a new key would break every pairing"),
+            "{err}"
+        );
+        for line in body {
+            assert!(!err.to_string().contains(line), "{err}");
+        }
+        assert_eq!(std::fs::read_to_string(&key).unwrap(), damaged);
     }
 
     #[test]
