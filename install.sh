@@ -34,10 +34,11 @@ command -v curl > /dev/null 2>&1 || fail "curl is required to download recollect
 # The x86_64 build needs AVX2: the ONNX Runtime linked into it is compiled
 # for it, and without it the binary dies with "Illegal instruction" before it
 # can say why. Virtual machines often hide AVX2 from the guest. A machine that
-# does not list its CPU's features is not refused.
+# does not list its CPU's features is not refused: awk succeeds only when the
+# features are listed and AVX2 is not among them.
 if [ "$target" = x86_64-unknown-linux-gnu ] && [ -r "$cpuinfo" ] &&
   awk '/^flags/ { listed = 1; for (i = 1; i <= NF; i++) if ($i == "avx2") found = 1 }
-       END { exit (listed && !found) ? 0 : 1 }' "$cpuinfo"; then
+       END { if (listed && !found) exit 0; exit 1 }' "$cpuinfo"; then
   fail "this CPU has no AVX2, which the prebuilt recollect needs (in a virtual machine, choose a CPU type that passes it through, such as \"host\")"
 fi
 

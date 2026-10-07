@@ -131,13 +131,14 @@ impl Fixture {
     }
 
     /// A file like `/proc/cpuinfo` for a CPU with these feature flags; returns
-    /// its path.
+    /// its path. Only the `flags` line counts: the `vmx flags` line names
+    /// AVX2 to show that it does not.
     fn cpuinfo(&self, flags: &str) -> String {
         let path = self.dir.path().join("cpuinfo");
         fs::write(
             &path,
             format!(
-                "processor\t: 0\nmodel name\t: Test CPU\nflags\t\t: {flags}\nvmx flags\t: vnmi\n\n"
+                "processor\t: 0\nmodel name\t: Test CPU\nflags\t\t: {flags}\nvmx flags\t: vnmi avx2\n\n"
             ),
         )
         .unwrap();
@@ -440,7 +441,8 @@ const NO_AVX2: &str = "error: this CPU has no AVX2, which the prebuilt recollect
 fn an_x86_64_cpu_without_avx2_is_refused_before_anything_is_downloaded() {
     let fixture = Fixture::new();
     // No release is published: a download attempt would be the error instead.
-    let cpuinfo = fixture.cpuinfo("fpu sse4_2 popcnt avx avx512f");
+    // AVX and a flag that merely contains "avx2" are not AVX2.
+    let cpuinfo = fixture.cpuinfo("fpu sse4_2 popcnt avx avx512f not-avx2");
     let output = fixture.run(
         &fixture.path_on_platform("Linux", "x86_64"),
         &[("RECOLLECT_CPUINFO", &cpuinfo)],
