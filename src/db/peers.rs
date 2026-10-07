@@ -180,6 +180,21 @@ impl Database {
         Ok(previous.flatten())
     }
 
+    /// Records that a round the peer `name` started succeeded at `at`: sets
+    /// the time of the last sync. The stored error stays, because it says
+    /// why this machine's own last round with the peer failed, and a round
+    /// the peer started does not show that the peer can be reached. A peer
+    /// removed in the meantime is ignored.
+    pub fn record_answered_round(&mut self, name: &str, at: &str) -> Result<()> {
+        let tx = self.write_transaction()?;
+        tx.execute(
+            "UPDATE peers SET last_sync_at = ?2 WHERE name = ?1",
+            params![name, at],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Stores the hash of an invite's secret, valid until `expires_at`, and
     /// drops the invites that expired by `now`.
     pub fn add_invite(&mut self, secret_hash: &str, expires_at: &str, now: &str) -> Result<()> {
@@ -367,6 +382,25 @@ mod tests {
         let mut db = Database::open_in_memory().unwrap();
         assert_eq!(db.record_round("gone", T1, Some("reason")).unwrap(), None);
         assert!(db.peers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_answered_round_sets_the_sync_time_and_keeps_the_error() {
+        let mut db = with_peer("twelve", "SHA256:t");
+        db.record_round("twelve", T1, Some("unreachable")).unwrap();
+
+        db.record_answered_round("twelve", T2).unwrap();
+
+        let peer = db.peer_named("twelve").unwrap();
+        assert_eq!(peer.last_sync_at.as_deref(), Some(T2));
+        assert_eq!(peer.last_error.as_deref(), Some("unreachable"));
+
+        db.record_answered_round("gone", T2).unwrap();
+        assert_eq!(
+            db.peers().unwrap(),
+            [peer],
+            "a peer removed meanwhile is ignored"
+        );
     }
 
     #[test]

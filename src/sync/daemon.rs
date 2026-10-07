@@ -17,6 +17,7 @@ use crate::sync::protocol::UNPAIRED_MESSAGE_LIMIT;
 use crate::sync::round::{self, RoundOutcome};
 use crate::sync::transport::{self, Timeouts};
 use crate::sync::{pairing, record_round, sync_with};
+use crate::time::now_timestamp;
 
 /// Where the daemon's log lines go.
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
@@ -125,7 +126,19 @@ fn answer(
             let result = round::respond(&mut connection.channel, app.db_mut(), &peer.name);
             // Hung up before the embedding starts, which can take a while.
             drop(connection);
-            let previous_error = record_round(app.db_mut(), &peer.name, &result)?;
+            let previous_error = match &result {
+                // A round the peer started says nothing about whether this
+                // machine can reach the peer: the failure of this machine's
+                // own last round stays recorded. So the answered round is
+                // not logged as the peer being back, and the next failed
+                // dial is not logged as a new failure.
+                Ok(_) => {
+                    app.db_mut()
+                        .record_answered_round(&peer.name, &now_timestamp())?;
+                    None
+                }
+                Err(_) => record_round(app.db_mut(), &peer.name, &result)?,
+            };
             finish_round(
                 &mut app,
                 &peer.name,
@@ -552,6 +565,50 @@ mod tests {
             "the second pass repeats neither the failure nor the quiet round: {lines:?}"
         );
         assert_eq!(a.database().live_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_peer_that_reaches_this_machine_but_cannot_be_dialled_is_logged_once() {
+        let (a, b) = (Machine::new(), Machine::new());
+        let (listener, address) = listener();
+        let nowhere = closed_address();
+        a.knows("b", &b, &nowhere);
+        let mut b_db = b.database();
+        b_db.insert_memory(&note("from b"), None).unwrap();
+        let (log, logged_by_passes) = collecting_log();
+        let mut lines = Vec::new();
+
+        // Three intervals: a's dial fails, then b's round with a succeeds.
+        // Only the first of b's rounds brings something.
+        for _ in 0..3 {
+            sync_with_peers(&a.config, &a.identity, Timeouts::default(), &log).unwrap();
+            lines.append(&mut logged_by_passes.lock().unwrap());
+            let (initiated, logged_by_answer) = answering(&a, &listener, || {
+                let mut connection = b.connect_to(&a, &address);
+                round::initiate(&mut connection.channel, &mut b_db, "a")
+            });
+            initiated.unwrap();
+            lines.extend(logged_by_answer);
+        }
+
+        assert_eq!(
+            lines.len(),
+            4,
+            "an answered round neither ends nor renews the dial failure: {lines:?}"
+        );
+        let dial_failure = lines[0]
+            .strip_prefix("b: error: ")
+            .expect("the dial failure");
+        assert!(
+            dial_failure.starts_with(&format!("{nowhere}: cannot connect (")),
+            "{lines:?}"
+        );
+        assert_eq!(lines[1], "b: received 1 memory");
+        assert!(lines[2].starts_with(DOWNLOADING), "{lines:?}");
+        assert!(lines[3].starts_with(NO_VECTORS), "{lines:?}");
+        let recorded = a.database().peer_named("b").unwrap();
+        assert!(recorded.last_sync_at.is_some());
+        assert_eq!(recorded.last_error.as_deref(), Some(dial_failure));
     }
 
     #[test]
