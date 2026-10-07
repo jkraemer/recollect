@@ -268,6 +268,10 @@ impl ClientCertVerifier for AnyKey {
 mod tests {
     use std::net::TcpListener;
 
+    use rustls::client::ResolvesClientCert;
+    use rustls::server::{ClientHello, ResolvesServerCert};
+    use rustls::sign::CertifiedKey;
+
     use super::*;
     use crate::sync::protocol::{MESSAGE_LIMIT, Message};
 
@@ -282,6 +286,108 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap().to_string();
         (listener, address)
+    }
+
+    /// A certificate presented without the key inside it: the signature that
+    /// proves possession comes from another machine's key.
+    #[derive(Debug)]
+    struct StolenCertificate(Arc<CertifiedKey>);
+
+    impl StolenCertificate {
+        /// `victim`'s certificate, signed for with `thief`'s key.
+        fn of(victim: &Identity, thief: &Identity) -> Arc<Self> {
+            let key = provider()
+                .key_provider
+                .load_private_key(thief.private_key())
+                .unwrap();
+            Arc::new(Self(Arc::new(CertifiedKey::new(
+                vec![victim.certificate()],
+                key,
+            ))))
+        }
+    }
+
+    impl ResolvesClientCert for StolenCertificate {
+        fn resolve(
+            &self,
+            _root_hint_subjects: &[&[u8]],
+            _sigschemes: &[SignatureScheme],
+        ) -> Option<Arc<CertifiedKey>> {
+            Some(self.0.clone())
+        }
+
+        fn has_certs(&self) -> bool {
+            true
+        }
+    }
+
+    impl ResolvesServerCert for StolenCertificate {
+        fn resolve(&self, _client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+            Some(self.0.clone())
+        }
+    }
+
+    /// A hostile client does not care whom it talks to: it accepts any
+    /// listener's certificate.
+    #[derive(Debug)]
+    struct TrustsAnyListener(WebPkiSupportedAlgorithms);
+
+    impl ServerCertVerifier for TrustsAnyListener {
+        fn verify_server_cert(
+            &self,
+            _end_entity: &CertificateDer<'_>,
+            _intermediates: &[CertificateDer<'_>],
+            _server_name: &ServerName<'_>,
+            _ocsp_response: &[u8],
+            _now: UnixTime,
+        ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+            Ok(ServerCertVerified::assertion())
+        }
+
+        fn verify_tls12_signature(
+            &self,
+            _message: &[u8],
+            _cert: &CertificateDer<'_>,
+            _dss: &DigitallySignedStruct,
+        ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+            Err(rustls::Error::General(NO_TLS_12.to_string()))
+        }
+
+        fn verify_tls13_signature(
+            &self,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
+        ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+            verify_tls13_signature(message, cert, dss, &self.0)
+        }
+
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            self.0.supported_schemes()
+        }
+    }
+
+    /// A client made from rustls alone, to be given the certificate it
+    /// presents (or none) by the test.
+    fn hostile_client() -> rustls::ConfigBuilder<ClientConfig, rustls::client::WantsClientCert> {
+        let provider = provider();
+        let algorithms = provider.signature_verification_algorithms;
+        ClientConfig::builder_with_provider(provider)
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(TrustsAnyListener(algorithms)))
+    }
+
+    /// Runs a hostile client against `address` until the listener hangs up.
+    /// How it ends does not matter: the test judges the listener's side.
+    fn run_hostile_client(config: ClientConfig, address: &str) {
+        let mut socket = TcpStream::connect(address).unwrap();
+        set_timeouts(&socket, Duration::from_secs(5)).unwrap();
+        let name = ServerName::try_from("recollect").unwrap();
+        let mut tls = ClientConnection::new(Arc::new(config), name).unwrap();
+        let _ = shake_hands(&mut tls, &mut socket);
+        let _ = rustls::Stream::new(&mut tls, &mut socket).read(&mut [0u8; 16]);
     }
 
     #[test]
@@ -401,6 +507,80 @@ mod tests {
             });
             let mut socket = TcpStream::connect(&address).unwrap();
             socket.write_all(b"GET / HTTP/1.1\r\n\r\n").unwrap();
+            let err = answering.join().unwrap().expect("the handshake must fail");
+            assert!(err.starts_with("handshake failed: "), "{err}");
+        });
+    }
+
+    #[test]
+    fn a_client_presenting_a_certificate_it_holds_no_key_for_is_refused() {
+        let (_listening_dir, listening) = identity();
+        let (_victim_dir, victim) = identity();
+        let (_thief_dir, thief) = identity();
+        let (listener, address) = listener();
+        std::thread::scope(|scope| {
+            let answering = scope.spawn(|| {
+                let (socket, _) = listener.accept().unwrap();
+                accept(&listening, socket, Timeouts::default())
+                    .err()
+                    .map(|err| err.to_string())
+            });
+            let config =
+                hostile_client().with_client_cert_resolver(StolenCertificate::of(&victim, &thief));
+            run_hostile_client(config, &address);
+            assert_eq!(
+                answering.join().unwrap().expect("the handshake must fail"),
+                "handshake failed: invalid peer certificate: BadSignature"
+            );
+        });
+    }
+
+    #[test]
+    fn a_listener_presenting_a_certificate_it_holds_no_key_for_is_refused() {
+        let (_dialling_dir, dialling) = identity();
+        let (_victim_dir, victim) = identity();
+        let (_thief_dir, thief) = identity();
+        let (listener, address) = listener();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let (mut socket, _) = listener.accept().unwrap();
+                set_timeouts(&socket, Duration::from_secs(5)).unwrap();
+                let config = ServerConfig::builder_with_provider(provider())
+                    .with_protocol_versions(&[&rustls::version::TLS13])
+                    .unwrap()
+                    .with_no_client_auth()
+                    .with_cert_resolver(StolenCertificate::of(&victim, &thief));
+                let mut tls = ServerConnection::new(Arc::new(config)).unwrap();
+                // The dialling machine breaks the handshake off.
+                assert!(shake_hands(&mut tls, &mut socket).is_err());
+            });
+            let err = connect(
+                &dialling,
+                &address,
+                victim.fingerprint(),
+                Timeouts::default(),
+            )
+            .err()
+            .unwrap();
+            assert_eq!(
+                err.to_string(),
+                format!("{address}: invalid peer certificate: BadSignature")
+            );
+        });
+    }
+
+    #[test]
+    fn a_client_presenting_no_certificate_gets_no_connection() {
+        let (_dir, a) = identity();
+        let (listener, address) = listener();
+        std::thread::scope(|scope| {
+            let answering = scope.spawn(|| {
+                let (socket, _) = listener.accept().unwrap();
+                accept(&a, socket, Timeouts::default())
+                    .err()
+                    .map(|err| err.to_string())
+            });
+            run_hostile_client(hostile_client().with_no_client_auth(), &address);
             let err = answering.join().unwrap().expect("the handshake must fail");
             assert!(err.starts_with("handshake failed: "), "{err}");
         });
