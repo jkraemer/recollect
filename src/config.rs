@@ -1,8 +1,9 @@
 //! Where recollect keeps its data and how search is tuned.
 //!
-//! The data directory comes from `RECOLLECT_DATA_DIR` (default `~/.recollect`)
-//! and may hold an optional `config.toml`. The embedding model cache comes from
-//! `RECOLLECT_MODEL_DIR` (default `<data dir>/models`).
+//! The data directory comes from `RECOLLECT_DATA_DIR` (default `~/.recollect`;
+//! a development build has no default) and may hold an optional `config.toml`.
+//! The embedding model cache comes from `RECOLLECT_MODEL_DIR` (default
+//! `<data dir>/models`).
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -67,10 +68,11 @@ pub struct Config {
 impl Config {
     /// Resolves directories from the environment, then reads `config.toml`.
     pub fn load() -> Result<Self> {
-        let data_dir = match non_empty_env("RECOLLECT_DATA_DIR") {
-            Some(dir) => dir,
-            None => home_dir()?.join(".recollect"),
-        };
+        let data_dir = data_dir(
+            non_empty_env("RECOLLECT_DATA_DIR"),
+            home_dir,
+            cfg!(debug_assertions),
+        )?;
         Self::load_from(data_dir, non_empty_env("RECOLLECT_MODEL_DIR"))
     }
 
@@ -165,12 +167,74 @@ fn home_dir() -> Result<PathBuf> {
     non_empty_env("HOME").ok_or(Error::NoDataDir)
 }
 
+/// Chooses the data directory. `explicit`, the value of `RECOLLECT_DATA_DIR`,
+/// always wins. Without it a release build uses `.recollect` in the home
+/// directory `home_dir` finds. A development build has no default: there it
+/// would open the real database and migrate it to a schema version that the
+/// installed release may refuse to open.
+fn data_dir(
+    explicit: Option<PathBuf>,
+    home_dir: impl FnOnce() -> Result<PathBuf>,
+    development_build: bool,
+) -> Result<PathBuf> {
+    match explicit {
+        Some(dir) => Ok(dir),
+        None if development_build => Err(Error::DevelopmentBuildWithoutDataDir),
+        None => Ok(home_dir()?.join(".recollect")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn write_config(dir: &Path, text: &str) {
         std::fs::write(dir.join(CONFIG_FILE), text).unwrap();
+    }
+
+    fn home() -> Result<PathBuf> {
+        Ok(PathBuf::from("/home/someone"))
+    }
+
+    fn no_home() -> Result<PathBuf> {
+        Err(Error::NoDataDir)
+    }
+
+    #[test]
+    fn an_explicit_data_directory_wins_in_every_build() {
+        for development_build in [false, true] {
+            for home_dir in [home, no_home] {
+                let chosen = data_dir(Some("/scratch".into()), home_dir, development_build);
+                assert_eq!(chosen.unwrap(), PathBuf::from("/scratch"));
+            }
+        }
+    }
+
+    #[test]
+    fn a_release_build_defaults_to_dot_recollect_in_the_home_directory() {
+        assert_eq!(
+            data_dir(None, home, false).unwrap(),
+            PathBuf::from("/home/someone/.recollect")
+        );
+    }
+
+    #[test]
+    fn a_release_build_without_a_home_directory_has_no_data_directory() {
+        let err = data_dir(None, no_home, false).unwrap_err();
+        assert!(matches!(err, Error::NoDataDir), "{err}");
+    }
+
+    #[test]
+    fn a_development_build_has_no_default_data_directory() {
+        // Refused before the home directory matters: it is the same refusal
+        // with and without one.
+        for home_dir in [home, no_home] {
+            let err = data_dir(None, home_dir, true).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "this is a development build; set RECOLLECT_DATA_DIR to a scratch directory (it does not open the default data directory, whose database it would migrate)"
+            );
+        }
     }
 
     #[test]

@@ -384,6 +384,49 @@ fn a_run_through_cargo_uses_the_scratch_data_directory() {
     assert_eq!(status["data_dir"], scratch.display().to_string());
 }
 
+/// What a development build says when it is started without a data directory.
+#[cfg(debug_assertions)]
+const NO_DEFAULT_DATA_DIR: &str = "error: this is a development build; set RECOLLECT_DATA_DIR to a scratch directory (it does not open the default data directory, whose database it would migrate)\n";
+
+#[cfg(debug_assertions)]
+#[test]
+fn a_development_build_refuses_to_start_without_a_data_directory() {
+    // A home directory of the test's own: whatever this build did with one,
+    // it could not reach the real one.
+    let home = tempfile::tempdir().unwrap();
+    Command::cargo_bin("recollect")
+        .unwrap()
+        .env_remove("RECOLLECT_DATA_DIR")
+        .env("HOME", home.path())
+        .env("RECOLLECT_MODEL_DIR", common::model_dir())
+        .args(["store", "x"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(NO_DEFAULT_DATA_DIR);
+    assert_eq!(
+        std::fs::read_dir(home.path()).unwrap().count(),
+        0,
+        "nothing is created in the home directory"
+    );
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn a_development_build_without_a_home_directory_gives_the_same_refusal() {
+    Command::cargo_bin("recollect")
+        .unwrap()
+        .env_remove("RECOLLECT_DATA_DIR")
+        .env_remove("HOME")
+        .env("RECOLLECT_MODEL_DIR", common::model_dir())
+        .arg("list")
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(NO_DEFAULT_DATA_DIR);
+}
+
+#[cfg(not(debug_assertions))]
 #[test]
 fn without_recollect_data_dir_the_home_directory_is_used() {
     let home = tempfile::tempdir().unwrap();
@@ -400,6 +443,7 @@ fn without_recollect_data_dir_the_home_directory_is_used() {
     assert!(home.path().join(".recollect").join("memories.db").is_file());
 }
 
+#[cfg(not(debug_assertions))]
 #[test]
 fn without_a_data_directory_or_home_the_command_fails_with_advice() {
     Command::cargo_bin("recollect")

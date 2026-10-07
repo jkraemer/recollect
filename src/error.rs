@@ -32,6 +32,10 @@ pub enum Error {
     Config { path: String, message: String },
     #[error("HOME is not set; set RECOLLECT_DATA_DIR to choose the data directory")]
     NoDataDir,
+    #[error(
+        "this is a development build; set RECOLLECT_DATA_DIR to a scratch directory (it does not open the default data directory, whose database it would migrate)"
+    )]
+    DevelopmentBuildWithoutDataDir,
     #[error("invalid hook input: {0}")]
     HookInput(String),
     #[error("database error: {0}")]
