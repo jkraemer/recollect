@@ -7,7 +7,7 @@ use std::path::Path;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::server::ParsedCertificate;
 
 use crate::config::Config;
@@ -19,10 +19,6 @@ pub const IDENTITY_FILE: &str = "identity.key";
 
 /// This machine's key, the certificate it presents, and its fingerprint.
 /// Deliberately without `Debug`: it holds the private key.
-#[expect(
-    dead_code,
-    reason = "only the TLS transport reads the certificate and the key"
-)]
 pub struct Identity {
     certificate: CertificateDer<'static>,
     key: PrivatePkcs8KeyDer<'static>,
@@ -73,6 +69,16 @@ impl Identity {
     /// What peers know this machine by.
     pub fn fingerprint(&self) -> &str {
         &self.fingerprint
+    }
+
+    /// The certificate this machine presents in a TLS handshake.
+    pub(crate) fn certificate(&self) -> CertificateDer<'static> {
+        self.certificate.clone()
+    }
+
+    /// The key that proves the certificate is this machine's.
+    pub(crate) fn private_key(&self) -> PrivateKeyDer<'static> {
+        PrivateKeyDer::Pkcs8(self.key.clone_key())
     }
 }
 

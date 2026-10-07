@@ -4,6 +4,7 @@
 pub mod exchange;
 pub mod identity;
 pub mod protocol;
+pub mod transport;
 
 /// Whether `name` can label a machine: 1 to 64 ASCII letters, digits, `.`,
 /// `_` or `-`.
