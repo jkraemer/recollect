@@ -6,7 +6,9 @@ use crate::db::{Database, SyncApplied};
 use crate::error::{Error, Result};
 use crate::memory::{SyncRecord, Tombstone};
 use crate::sync::exchange::{batches, manifest, manifest_hash, outgoing, validate};
-use crate::sync::protocol::{Channel, MESSAGE_LIMIT, ManifestEntry, Message, PROTOCOL_VERSION};
+use crate::sync::protocol::{
+    Channel, MESSAGE_LIMIT, ManifestEntry, Message, PROTOCOL_VERSION, printable,
+};
 
 /// What one round changed on both machines.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -117,7 +119,10 @@ fn after_apply<T>(received: SyncApplied, steps: impl FnOnce() -> Result<T>) -> R
 /// The next message from `peer`; an `error` message from it ends the round.
 fn receive<S: Read + Write>(channel: &mut Channel<S>, peer: &str) -> Result<Message> {
     match channel.receive(MESSAGE_LIMIT)? {
-        Message::Error { message } => Err(Error::Sync(format!("{peer} reports: {message}"))),
+        Message::Error { message } => Err(Error::Sync(format!(
+            "{peer} reports: {}",
+            printable(&message)
+        ))),
         message => Ok(message),
     }
 }
@@ -478,6 +483,28 @@ mod tests {
             assert_eq!(
                 result.unwrap_err().to_string(),
                 "peer b speaks sync protocol 2, this recollect speaks 1; upgrade the older one"
+            );
+        });
+    }
+
+    #[test]
+    fn the_reason_a_peer_gives_is_reported_without_control_characters() {
+        let mut a = database();
+        let (connecting, answering) = socket_pair();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let mut refusing = scripted(answering);
+                refusing.receive(MESSAGE_LIMIT).unwrap();
+                refusing
+                    .send(&Message::Error {
+                        message: "no\u{1b}[2J\nc: received 9 memories".into(),
+                    })
+                    .unwrap();
+            });
+            let result = initiate(&mut Channel::new(connecting), &mut a, "b");
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "b reports: no\u{fffd}[2J\u{fffd}c: received 9 memories"
             );
         });
     }

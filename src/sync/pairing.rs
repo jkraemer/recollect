@@ -12,7 +12,7 @@ use ring::rand::SecureRandom;
 use crate::db::{Database, Peer};
 use crate::error::{Error, Result};
 use crate::sync::identity::Identity;
-use crate::sync::protocol::{Channel, MESSAGE_LIMIT, Message, PROTOCOL_VERSION};
+use crate::sync::protocol::{Channel, MESSAGE_LIMIT, Message, PROTOCOL_VERSION, printable};
 use crate::sync::transport::{self, Timeouts};
 use crate::sync::{is_valid_address, is_valid_peer_name, sha256_hex};
 use crate::time::{format_timestamp, now_timestamp};
@@ -173,7 +173,11 @@ pub fn join(
         Message::Paired {} => {}
         // The inviter stored nothing when it refuses.
         Message::Error { message } => {
-            return Err(Error::Sync(format!("{} answered: {message}", invite.name)));
+            return Err(Error::Sync(format!(
+                "{} answered: {}",
+                invite.name,
+                printable(&message)
+            )));
         }
         other => {
             return Err(unconfirmed(format!(
@@ -657,6 +661,23 @@ mod tests {
         assert_eq!(
             message_of(joined),
             unconfirmed("it sent end where paired was expected")
+        );
+        assert!(joiner.db.peers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_reason_an_inviter_gives_is_reported_without_control_characters() {
+        let (joined, joiner) = join_unanswered(|connection| {
+            connection
+                .channel
+                .send(&Message::Error {
+                    message: "no\u{1b}[2J\npaired with foehn".into(),
+                })
+                .unwrap();
+        });
+        assert_eq!(
+            message_of(joined),
+            "foehn answered: no\u{fffd}[2J\u{fffd}paired with foehn"
         );
         assert!(joiner.db.peers().unwrap().is_empty());
     }

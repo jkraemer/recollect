@@ -140,18 +140,20 @@ impl<S: Read + Write> Channel<S> {
     }
 }
 
-/// The longest parser text kept in an error, in characters.
-const PARSER_TEXT_LIMIT: usize = 300;
+/// The longest text of another machine's making kept in an error, in
+/// characters.
+const FOREIGN_TEXT_LIMIT: usize = 300;
 
-/// Makes the parser's error text safe to print and to log. The parser quotes
-/// names the other machine chose, and a machine that is not a peer can send
-/// any: its text must not be able to forge a log line or steer a terminal,
-/// nor fill one. Control characters become the replacement character, and the
-/// text is cut at `PARSER_TEXT_LIMIT` characters, marked with `…`.
-fn printable(parser_text: &str) -> String {
-    let mut text: String = parser_text
+/// Makes text of another machine's making safe to print and to log: the
+/// reason in an `error` message, and the parser's error text, which quotes
+/// names the other machine chose (a machine that is not a peer can send any).
+/// Such text must not be able to forge a log line or steer a terminal, nor
+/// fill one. Control characters become the replacement character, and the
+/// text is cut at `FOREIGN_TEXT_LIMIT` characters, marked with `…`.
+pub(crate) fn printable(foreign_text: &str) -> String {
+    let mut text: String = foreign_text
         .chars()
-        .take(PARSER_TEXT_LIMIT)
+        .take(FOREIGN_TEXT_LIMIT)
         .map(|c| {
             if c.is_control() {
                 char::REPLACEMENT_CHARACTER
@@ -160,7 +162,7 @@ fn printable(parser_text: &str) -> String {
             }
         })
         .collect();
-    if parser_text.chars().nth(PARSER_TEXT_LIMIT).is_some() {
+    if foreign_text.chars().nth(FOREIGN_TEXT_LIMIT).is_some() {
         text.push('…');
     }
     text
