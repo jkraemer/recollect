@@ -50,8 +50,8 @@ class PackagingTest < Minitest::Test
     %w[Cargo.toml Cargo.lock rust-toolchain.toml install.sh].each do |path|
       refute_includes gemspec.files, path, "#{path} belongs to the Rust crate, not the gem"
     end
-    refute(gemspec.files.any? { |f| f.start_with?("src/", "tests/") },
-      "src/ and tests/ belong to the Rust crate, not the gem")
+    refute(gemspec.files.any? { |f| f.start_with?("src/", "tests/", ".cargo/") },
+      "src/, tests/ and .cargo/ belong to the Rust crate, not the gem")
   end
 
   def test_gemspec_omits_the_claude_code_plugin

@@ -1,0 +1,8 @@
+[env]
+# Everything cargo starts (cargo run, cargo test) works on a scratch data
+# directory unless told otherwise, so a development build cannot open
+# ~/.recollect and migrate the real database.
+RECOLLECT_DATA_DIR = { value = "target/test-data", relative = true }
+# The embedding model comes from the cache the tests fill, so a run through
+# cargo does not download it again.
+RECOLLECT_MODEL_DIR = { value = ".model-cache", relative = true }

@@ -13,13 +13,17 @@ use crate::error::{Error, Result};
 mod candidates;
 mod chunks;
 mod memories;
+mod peers;
 mod queries;
 mod schema;
+mod sync;
 #[cfg(test)]
 pub(crate) mod test_support;
 
 pub use memories::ImportCounts;
+pub use peers::Peer;
 pub use schema::SCHEMA_VERSION;
+pub use sync::SyncApplied;
 
 /// An open recollect database, migrated to the current schema.
 #[derive(Debug)]

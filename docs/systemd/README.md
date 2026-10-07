@@ -87,3 +87,20 @@ Environment=RECOLLECT_PORT=9000
 Environment=WEB_CONCURRENCY=4
 ExecStart=/path/to/recollect/bin/start-service
 ```
+
+## The sync daemon (Rust binary)
+
+`recollect serve`, the daemon that syncs memories between machines, has its
+own unit. It expects the binary where `install.sh` puts it,
+`~/.local/bin/recollect`:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp docs/systemd/recollect-serve.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now recollect-serve
+journalctl --user -u recollect-serve -f
+```
+
+To keep it running while you are logged out, enable lingering once:
+`loginctl enable-linger`.

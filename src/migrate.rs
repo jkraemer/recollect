@@ -301,6 +301,7 @@ fn read_tombstone(
         global_id: global_id.ok_or("no global_id")?,
         deleted_at: parse_timestamp(deleted_at)
             .map_err(|_| format!("deleted_at {deleted_at:?} is not an RFC 3339 timestamp"))?,
+        deleted_by_peer: None,
     })
 }
 

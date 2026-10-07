@@ -5,7 +5,7 @@ use serde::Serialize;
 use uuid::Uuid;
 
 use crate::config::Config;
-use crate::db::Database;
+use crate::db::{Database, Peer};
 use crate::embed::{Embedder, FastEmbedder, MODEL_ID, embed_memory};
 use crate::error::{Error, Result};
 use crate::filter::Filter;
@@ -15,6 +15,7 @@ use crate::memory::{
 };
 use crate::search::fts_query::build_fts_query;
 use crate::search::{self, SearchRequest};
+use crate::sync::is_valid_address;
 use crate::time::now_timestamp;
 
 pub struct StoreInput {
@@ -300,25 +301,72 @@ impl Recollect {
         tombstones: &[Tombstone],
     ) -> Result<ImportOutcome> {
         let counts = self.db.import(records, tombstones)?;
-        let mut outcome = ImportOutcome {
+        let (embedded, warning) = self.embed_all_pending(true)?;
+        Ok(ImportOutcome {
             imported: counts.inserted,
             already_present: records.len() - counts.inserted,
             deleted: counts.deleted,
-            embedded: 0,
-            warning: None,
-        };
+            embedded,
+            warning,
+        })
+    }
+
+    /// Embeds the memories sync rounds brought, which arrive without vectors.
+    /// Returns the warning to show when they had to stay that way.
+    pub fn embed_received(&mut self) -> Result<Option<String>> {
+        Ok(self.embed_all_pending(false)?.1)
+    }
+
+    /// The machines this one syncs with, by name.
+    pub fn peers(&self) -> Result<Vec<Peer>> {
+        self.db.peers()
+    }
+
+    /// Changes where this machine dials the peer `name`.
+    pub fn set_peer_address(&mut self, name: &str, address: &str) -> Result<()> {
+        if !is_valid_address(address) {
+            return Err(Error::InvalidAddress(address.to_string()));
+        }
+        self.db.set_peer_address(name, address)
+    }
+
+    /// Stops syncing with the peer `name`; what it sent stays.
+    pub fn remove_peer(&mut self, name: &str) -> Result<()> {
+        self.db.remove_peer(name)
+    }
+
+    /// Embeds every live memory without vectors; with `announce`, a notice
+    /// goes out first, because many memories take a while. Returns how many
+    /// memories got vectors and, when vectors are unusable, the warning that
+    /// the memories stay without them.
+    fn embed_all_pending(&mut self, announce: bool) -> Result<(usize, Option<String>)> {
         let pending = self.db.pending_embedding_count()?;
         if pending == 0 {
-            return Ok(outcome);
+            return Ok((0, None));
         }
         // Checks the stored vectors and loads the model before announcing any work.
         if let Err(why) = self.with_vectors(|_| Ok(()))? {
-            outcome.warning = Some(why.stored_without_vectors(&format!("{pending} memories")));
-            return Ok(outcome);
+            let warning = why.stored_without_vectors(&format!("{pending} memories"));
+            return Ok((0, Some(warning)));
         }
-        (self.notify)(&format!("embedding {pending} memories"));
-        outcome.embedded = self.embed_pending()?;
-        Ok(outcome)
+        if announce {
+            (self.notify)(&format!("embedding {pending} memories"));
+        }
+        Ok((self.embed_pending()?, None))
+    }
+
+    /// The database, for the sync module, which reads and writes memory rows
+    /// and peers directly.
+    pub(crate) fn db(&self) -> &Database {
+        &self.db
+    }
+
+    pub(crate) fn db_mut(&mut self) -> &mut Database {
+        &mut self.db
+    }
+
+    pub(crate) fn config(&self) -> &Config {
+        &self.config
     }
 
     /// Embeds the live memories that have no vectors, one at a time; returns

@@ -55,6 +55,23 @@ const MIGRATIONS: &[&str] = &[
 
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     "#,
+    // 2: the machines this one syncs with, and the invites handed out to pair with them.
+    r#"
+    CREATE TABLE peers (
+      name         TEXT PRIMARY KEY,
+      fingerprint  TEXT NOT NULL UNIQUE,
+      address      TEXT NOT NULL,
+      added_at     TEXT NOT NULL,
+      last_sync_at TEXT,
+      last_error   TEXT
+    );
+
+    CREATE TABLE pairing_invites (
+      secret_hash TEXT PRIMARY KEY,
+      expires_at  TEXT NOT NULL,
+      used_at     TEXT
+    );
+    "#,
 ];
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -84,4 +101,44 @@ pub fn migrate(conn: &mut Connection) -> Result<()> {
 
 fn user_version(conn: &Connection) -> Result<i64> {
     Ok(conn.query_row("PRAGMA user_version", [], |row| row.get(0))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    use super::*;
+
+    #[test]
+    fn a_version_1_database_keeps_its_memories_and_gains_the_sync_tables() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        conn.execute(
+            "INSERT INTO memories (global_id, memory_type, content, created_at)
+             VALUES ('g', 'note', 'kept', '2026-09-01T10:00:00.000Z')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        assert_eq!(user_version(&conn).unwrap(), 2);
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM memories WHERE global_id = 'g'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(content, "kept");
+        for table in ["peers", "pairing_invites"] {
+            let rows: i64 = conn
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(rows, 0, "{table}");
+        }
+    }
 }

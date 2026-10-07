@@ -27,7 +27,7 @@ Gem::Specification.new do |spec|
       path.start_with?("test/", "docs/", "skills/", "hooks/", "evals/", ".claude-plugin/") ||
         path.start_with?(".git", ".rubocop") ||
         # The Rust crate and its installer are developed beside the Ruby code and ship separately.
-        path.start_with?("src/", "tests/") ||
+        path.start_with?("src/", "tests/", ".cargo/") ||
         %w[Cargo.toml Cargo.lock rust-toolchain.toml install.sh].include?(path) ||
         # bin/ holds working-copy wrappers; bin/embed-server is the one the server runs
         (path.start_with?("bin/") && path != "bin/embed-server") ||

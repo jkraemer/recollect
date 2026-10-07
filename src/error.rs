@@ -32,6 +32,10 @@ pub enum Error {
     Config { path: String, message: String },
     #[error("HOME is not set; set RECOLLECT_DATA_DIR to choose the data directory")]
     NoDataDir,
+    #[error(
+        "this is a development build; set RECOLLECT_DATA_DIR to a scratch directory (it does not open the default data directory, whose database it would migrate)"
+    )]
+    DevelopmentBuildWithoutDataDir,
     #[error("invalid hook input: {0}")]
     HookInput(String),
     #[error("database error: {0}")]
@@ -43,6 +47,44 @@ pub enum Error {
     },
     #[error("{}: {message}", path.display())]
     RubyData { path: PathBuf, message: String },
+    #[error("no peer named {0:?}")]
+    UnknownPeer(String),
+    #[error(
+        "a peer named {0:?} already exists; remove it first with: recollect peer remove {0}, or, if it is a different machine, give one of the two another name (name in the [sync] table of config.toml)"
+    )]
+    PeerExists(String),
+    #[error(
+        "this machine is already paired with that key, as peer {0:?}; to pair again, remove it first with: recollect peer remove {0}"
+    )]
+    AlreadyPaired(String),
+    #[error("this invite is not valid (expired or already used)")]
+    InvalidInvite,
+    #[error("invalid invite: {0}")]
+    MalformedInvite(String),
+    #[error("invalid address {0:?}: use host:port, such as foehn:7327")]
+    InvalidAddress(String),
+    #[error("{}: {message}", path.display())]
+    Identity { path: PathBuf, message: String },
+    #[error(
+        "peer {peer} speaks sync protocol {theirs}, this recollect speaks {ours}; upgrade the older one"
+    )]
+    ProtocolMismatch {
+        peer: String,
+        theirs: u32,
+        ours: u32,
+    },
+    /// A sync failure that needs no variant of its own; the text is the whole message.
+    #[error("{0}")]
+    Sync(String),
+    /// Another machine could not be reached: its address did not resolve or
+    /// nothing accepted the connection. The text is the whole message.
+    #[error("{0}")]
+    Unreachable(String),
+    /// A sync round that failed after this machine had stored what the peer
+    /// sent: `received` live memories, which still need embedding. Reads as
+    /// the failure itself.
+    #[error("{source}")]
+    RoundFailedAfterApply { received: usize, source: Box<Error> },
 }
 
 impl Error {

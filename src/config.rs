@@ -1,9 +1,11 @@
 //! Where recollect keeps its data and how search is tuned.
 //!
-//! The data directory comes from `RECOLLECT_DATA_DIR` (default `~/.recollect`)
-//! and may hold an optional `config.toml`. The embedding model cache comes from
-//! `RECOLLECT_MODEL_DIR` (default `<data dir>/models`).
+//! The data directory comes from `RECOLLECT_DATA_DIR` (default `~/.recollect`;
+//! a development build has no default) and may hold an optional `config.toml`.
+//! The embedding model cache comes from `RECOLLECT_MODEL_DIR` (default
+//! `<data dir>/models`).
 
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -30,6 +32,29 @@ impl Default for RecencyConfig {
     }
 }
 
+/// The `[sync]` table: how this machine takes part in sync.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SyncConfig {
+    /// The address and port `recollect serve` listens on.
+    pub listen: SocketAddr,
+    /// Seconds between the daemon's rounds with its peers.
+    pub interval_seconds: u64,
+    /// This machine's name as its peers store it; its short host name when unset.
+    pub name: Option<String>,
+}
+
+impl Default for SyncConfig {
+    fn default() -> Self {
+        Self {
+            // 7326 is the Ruby server's port.
+            listen: SocketAddr::from(([0, 0, 0, 0], 7327)),
+            interval_seconds: 300,
+            name: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub data_dir: PathBuf,
@@ -37,15 +62,17 @@ pub struct Config {
     /// Cosine distance beyond which a chunk does not count as a vector match.
     pub max_vector_distance: f64,
     pub recency: RecencyConfig,
+    pub sync: SyncConfig,
 }
 
 impl Config {
     /// Resolves directories from the environment, then reads `config.toml`.
     pub fn load() -> Result<Self> {
-        let data_dir = match non_empty_env("RECOLLECT_DATA_DIR") {
-            Some(dir) => dir,
-            None => home_dir()?.join(".recollect"),
-        };
+        let data_dir = data_dir(
+            non_empty_env("RECOLLECT_DATA_DIR"),
+            home_dir,
+            cfg!(debug_assertions),
+        )?;
         Self::load_from(data_dir, non_empty_env("RECOLLECT_MODEL_DIR"))
     }
 
@@ -69,11 +96,22 @@ impl Config {
                 "search.max_vector_distance must be between 0 and 2",
             ));
         }
+        if file.sync.interval_seconds == 0 {
+            return Err(invalid("sync.interval_seconds must be at least 1"));
+        }
+        if let Some(name) = &file.sync.name
+            && !crate::sync::is_valid_peer_name(name)
+        {
+            return Err(invalid(
+                "sync.name may only contain letters, digits, '.', '_' and '-' (at most 64)",
+            ));
+        }
         Ok(Self {
             model_dir: model_dir.unwrap_or_else(|| data_dir.join("models")),
             data_dir,
             max_vector_distance: file.search.max_vector_distance,
             recency: file.recency,
+            sync: file.sync,
         })
     }
 
@@ -88,6 +126,7 @@ impl Config {
 struct FileConfig {
     search: SearchSection,
     recency: RecencyConfig,
+    sync: SyncConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,12 +167,74 @@ fn home_dir() -> Result<PathBuf> {
     non_empty_env("HOME").ok_or(Error::NoDataDir)
 }
 
+/// Chooses the data directory. `explicit`, the value of `RECOLLECT_DATA_DIR`,
+/// always wins. Without it a release build uses `.recollect` in the home
+/// directory `home_dir` finds. A development build has no default: there it
+/// would open the real database and migrate it to a schema version that the
+/// installed release may refuse to open.
+fn data_dir(
+    explicit: Option<PathBuf>,
+    home_dir: impl FnOnce() -> Result<PathBuf>,
+    development_build: bool,
+) -> Result<PathBuf> {
+    match explicit {
+        Some(dir) => Ok(dir),
+        None if development_build => Err(Error::DevelopmentBuildWithoutDataDir),
+        None => Ok(home_dir()?.join(".recollect")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn write_config(dir: &Path, text: &str) {
         std::fs::write(dir.join(CONFIG_FILE), text).unwrap();
+    }
+
+    fn home() -> Result<PathBuf> {
+        Ok(PathBuf::from("/home/someone"))
+    }
+
+    fn no_home() -> Result<PathBuf> {
+        Err(Error::NoDataDir)
+    }
+
+    #[test]
+    fn an_explicit_data_directory_wins_in_every_build() {
+        for development_build in [false, true] {
+            for home_dir in [home, no_home] {
+                let chosen = data_dir(Some("/scratch".into()), home_dir, development_build);
+                assert_eq!(chosen.unwrap(), PathBuf::from("/scratch"));
+            }
+        }
+    }
+
+    #[test]
+    fn a_release_build_defaults_to_dot_recollect_in_the_home_directory() {
+        assert_eq!(
+            data_dir(None, home, false).unwrap(),
+            PathBuf::from("/home/someone/.recollect")
+        );
+    }
+
+    #[test]
+    fn a_release_build_without_a_home_directory_has_no_data_directory() {
+        let err = data_dir(None, no_home, false).unwrap_err();
+        assert!(matches!(err, Error::NoDataDir), "{err}");
+    }
+
+    #[test]
+    fn a_development_build_has_no_default_data_directory() {
+        // Refused before the home directory matters: it is the same refusal
+        // with and without one.
+        for home_dir in [home, no_home] {
+            let err = data_dir(None, home_dir, true).unwrap_err();
+            assert_eq!(
+                err.to_string(),
+                "this is a development build; set RECOLLECT_DATA_DIR to a scratch directory (it does not open the default data directory, whose database it would migrate)"
+            );
+        }
     }
 
     #[test]
@@ -259,6 +360,57 @@ mod tests {
         let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
         assert!(
             matches!(&err, Error::File { path, .. } if *path == dir.path().join(CONFIG_FILE)),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn sync_listens_on_7327_every_five_minutes_under_the_host_name_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config::load_from(dir.path().to_path_buf(), None).unwrap();
+        assert_eq!(config.sync.listen.to_string(), "0.0.0.0:7327");
+        assert_eq!(config.sync.interval_seconds, 300);
+        assert_eq!(config.sync.name, None);
+    }
+
+    #[test]
+    fn sync_settings_come_from_config_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        write_config(
+            dir.path(),
+            "[sync]\nlisten = \"127.0.0.1:9000\"\ninterval_seconds = 60\nname = \"laptop\"\n",
+        );
+        let config = Config::load_from(dir.path().to_path_buf(), None).unwrap();
+        assert_eq!(config.sync.listen.to_string(), "127.0.0.1:9000");
+        assert_eq!(config.sync.interval_seconds, 60);
+        assert_eq!(config.sync.name.as_deref(), Some("laptop"));
+    }
+
+    #[test]
+    fn invalid_sync_settings_are_rejected() {
+        for (text, expected) in [
+            (
+                "[sync]\ninterval_seconds = 0\n",
+                "sync.interval_seconds must be at least 1",
+            ),
+            (
+                "[sync]\nname = \"two words\"\n",
+                "sync.name may only contain letters, digits, '.', '_' and '-' (at most 64)",
+            ),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            write_config(dir.path(), text);
+            let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
+            assert!(
+                matches!(&err, Error::Config { message, .. } if message == expected),
+                "{err}"
+            );
+        }
+        let dir = tempfile::tempdir().unwrap();
+        write_config(dir.path(), "[sync]\nlisten = \"nowhere\"\n");
+        let err = Config::load_from(dir.path().to_path_buf(), None).unwrap_err();
+        assert!(
+            matches!(&err, Error::Config { message, .. } if message.contains("socket address")),
             "{err}"
         );
     }

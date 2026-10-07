@@ -8,7 +8,7 @@ use recollect::config::Config;
 use recollect::db::Database;
 use recollect::embed::MODEL_ID;
 use recollect::filter::Filter;
-use recollect::memory::{Embedded, MemoryType, NewRecord, ProjectRef, Tombstone};
+use recollect::memory::{Embedded, MemoryType, NewRecord, ProjectRef, SyncRecord, Tombstone};
 use recollect::service::{Context, ImportOutcome, ProjectCount, Recollect, StoreInput, TagCount};
 use tempfile::TempDir;
 
@@ -559,10 +559,12 @@ fn import_deletes_memories_deleted_in_the_other_installation() {
         Tombstone {
             global_id: "ruby-1".into(),
             deleted_at: "2026-02-01T00:00:00.000Z".into(),
+            deleted_by_peer: None,
         },
         Tombstone {
             global_id: "ruby-never-imported".into(),
             deleted_at: "2026-02-01T00:00:00.000Z".into(),
+            deleted_by_peer: None,
         },
     ];
     assert_eq!(
@@ -630,6 +632,7 @@ fn import_does_not_embed_a_pending_memory_the_other_installation_deleted() {
     let tombstone = Tombstone {
         global_id: "ruby-1".into(),
         deleted_at: "2026-02-01T00:00:00.000Z".into(),
+        deleted_by_peer: None,
     };
     let outcome = app.import(&[], &[tombstone]).unwrap();
     assert_eq!((outcome.deleted, outcome.embedded), (1, 0));
@@ -684,4 +687,62 @@ fn import_under_vectors_from_another_model_warns_without_loading_the_model() {
         notices.borrow().is_empty(),
         "the model is neither downloaded nor loaded"
     );
+}
+
+/// A memory as a sync round stores it: without vectors.
+fn received(config: &Config, content: &str) {
+    let record = SyncRecord {
+        global_id: "0199a8c0-0000-7000-8000-000000000001".to_string(),
+        project: None,
+        memory_type: MemoryType::Note,
+        content: content.to_string(),
+        tags: Vec::new(),
+        origin_peer: None,
+        created_at: "2026-10-07T10:00:00.000Z".to_string(),
+        deleted_at: None,
+        deleted_by_peer: None,
+    };
+    Database::open(&config.database_path())
+        .unwrap()
+        .apply_sync(&[record], &[])
+        .unwrap();
+}
+
+#[test]
+fn memories_that_arrived_through_sync_are_embedded_without_a_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    received(
+        &config(&dir),
+        "We keep every memory in a single SQLite file with a project column.",
+    );
+    let (mut app, notices) = collecting_notices(app(&dir));
+    assert_eq!(app.status().unwrap().pending_embeddings, 1);
+
+    assert_eq!(app.embed_received().unwrap(), None);
+
+    assert_eq!(app.status().unwrap().pending_embeddings, 0);
+    assert!(notices.borrow().is_empty(), "{:?}", notices.borrow());
+    // No word of the query occurs in the memory: only its vectors can find it.
+    let outcome = app
+        .search("how is data persisted on disk", &Filter::default(), 5)
+        .unwrap();
+    assert_eq!(outcome.results.len(), 1);
+}
+
+#[test]
+fn received_memories_stay_pending_with_a_warning_when_the_model_is_unavailable() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = config_without_model(&dir);
+    received(&config, "left without vectors");
+    let mut app = Recollect::open(config).unwrap();
+
+    let warning = app.embed_received().unwrap().expect("a warning");
+
+    assert!(
+        warning.starts_with(
+            "stored 1 memories without embedding: the embedding model is unavailable ("
+        ),
+        "{warning}"
+    );
+    assert_eq!(app.status().unwrap().pending_embeddings, 1);
 }

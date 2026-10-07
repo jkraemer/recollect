@@ -1,13 +1,13 @@
 //! Memory domain types and the normalization rules shared by every command.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
 
 /// The CLI's name for memories without a project (`project IS NULL`).
 pub const GLOBAL: &str = "global";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum MemoryType {
     Note,
@@ -114,12 +114,56 @@ pub struct NewRecord {
     pub created_at: String,
 }
 
-/// A memory deleted elsewhere: its `global_id` and when it was deleted, in
-/// the stored timestamp format.
-#[derive(Debug, Clone, PartialEq)]
+/// The deletion of a memory, on this machine or another: its `global_id`,
+/// when it was deleted, in the stored timestamp format, and the peer that
+/// deleted it where that is known.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Tombstone {
     pub global_id: String,
     pub deleted_at: String,
+    pub deleted_by_peer: Option<String>,
+}
+
+/// A memory row as sync sends it: every column but the local id; vectors
+/// never travel. A deleted memory has blank content and no tags.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncRecord {
+    pub global_id: String,
+    pub project: Option<String>,
+    pub memory_type: MemoryType,
+    pub content: String,
+    pub tags: Vec<String>,
+    pub origin_peer: Option<String>,
+    pub created_at: String,
+    pub deleted_at: Option<String>,
+    pub deleted_by_peer: Option<String>,
+}
+
+impl SyncRecord {
+    /// The row to insert for this memory; a deleted one is tombstoned right
+    /// after its insert.
+    pub fn to_new_record(&self) -> NewRecord {
+        NewRecord {
+            global_id: self.global_id.clone(),
+            project: self.project.clone(),
+            memory_type: self.memory_type,
+            content: self.content.clone(),
+            tags: self.tags.clone(),
+            origin_peer: self.origin_peer.clone(),
+            created_at: self.created_at.clone(),
+        }
+    }
+
+    /// The tombstone of a deleted memory; `None` for a live one.
+    pub fn tombstone(&self) -> Option<Tombstone> {
+        self.deleted_at.as_ref().map(|deleted_at| Tombstone {
+            global_id: self.global_id.clone(),
+            deleted_at: deleted_at.clone(),
+            deleted_by_peer: self.deleted_by_peer.clone(),
+        })
+    }
 }
 
 /// Chunk embeddings of one memory, all produced by the model `model_id`.
