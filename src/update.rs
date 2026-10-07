@@ -1,5 +1,6 @@
 //! Newer releases: looking up the latest one, remembering the answer between
-//! sessions, and the notice a session starts with.
+//! sessions, the notice a session starts with, and installing a release over
+//! the running binary.
 
 use std::ffi::OsStr;
 use std::fmt;
@@ -21,7 +22,8 @@ const DEFAULT_DOWNLOAD_BASE: &str = "https://github.com/jkraemer/recollect/relea
 /// The file in the data directory that remembers the last lookup.
 pub const CHECK_FILE: &str = "update-check.json";
 
-/// How long a lookup may take in all: it runs while a session starts.
+/// How long a lookup may take in all. Short because it also runs while a
+/// session starts.
 const LOOKUP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// How long a lookup, or a failed attempt at one, is good for.

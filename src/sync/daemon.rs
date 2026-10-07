@@ -47,8 +47,9 @@ pub fn serve(config: Config, log: Log) -> Result<()> {
     let address = listener.local_addr().map_err(cannot_listen)?;
     log(&format!("listening on {address}"));
     // The thread answering peers wakes the timer when a connection arrives
-    // after the executable was replaced. This end is kept so that the timer
-    // keeps its pace should that thread ever end.
+    // after the executable was replaced. A sender is kept here because
+    // without one left, `recv_timeout` would return at once and the timer
+    // loop would spin should that thread ever end.
     let (wake, woken) = mpsc::sync_channel(1);
     {
         let (config, identity, log) = (config.clone(), Arc::clone(&identity), Arc::clone(&log));
