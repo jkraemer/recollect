@@ -145,21 +145,36 @@ pub fn join(
                 ))
             },
         )?;
-    connection.channel.send(&Message::Pair {
-        protocol: PROTOCOL_VERSION,
-        secret: invite.secret.clone(),
-        name: own_name.to_string(),
-        address: own_address.to_string(),
-    })?;
-    match connection.channel.receive(MESSAGE_LIMIT)? {
+    // The inviter stores this machine before it answers, so from here on a
+    // failure may leave it listed there; the user is told how to repair that.
+    let unconfirmed = |reason: String| {
+        Error::Sync(format!(
+            "{inviter} did not confirm the pairing ({reason}); if recollect peer list on {inviter} shows {own_name}, remove it there with: recollect peer remove {own_name}, then pair again with a new invite",
+            inviter = invite.name
+        ))
+    };
+    connection
+        .channel
+        .send(&Message::Pair {
+            protocol: PROTOCOL_VERSION,
+            secret: invite.secret.clone(),
+            name: own_name.to_string(),
+            address: own_address.to_string(),
+        })
+        .map_err(|err| unconfirmed(err.to_string()))?;
+    let answer = connection
+        .channel
+        .receive(MESSAGE_LIMIT)
+        .map_err(|err| unconfirmed(err.to_string()))?;
+    match answer {
         Message::Paired {} => {}
+        // The inviter stored nothing when it refuses.
         Message::Error { message } => {
             return Err(Error::Sync(format!("{} answered: {message}", invite.name)));
         }
         other => {
-            return Err(Error::Sync(format!(
-                "{} sent {} where paired was expected",
-                invite.name,
+            return Err(unconfirmed(format!(
+                "it sent {} where paired was expected",
                 other.name()
             )));
         }
@@ -562,6 +577,54 @@ mod tests {
             message_of(err),
             "this invite was made on this machine; run recollect join on the other one"
         );
+    }
+
+    /// Joins as `twelve` while the inviter, played by the test, reads the
+    /// `pair` message and then lets `afterwards` act on the connection
+    /// instead of answering it; the connection closes when `afterwards` ends.
+    fn join_unanswered(afterwards: fn(&mut transport::Connection)) -> (Result<Peer>, Machine) {
+        let (mut inviter, mut joiner) = (Machine::new(), Machine::new());
+        let (listener, invite) = inviting(&mut inviter, Utc::now());
+        let joined = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let (socket, _) = listener.accept().unwrap();
+                let mut connection =
+                    transport::accept(&inviter.identity, socket, Timeouts::default()).unwrap();
+                let message = connection.channel.receive(UNPAIRED_MESSAGE_LIMIT).unwrap();
+                assert!(matches!(message, Message::Pair { .. }));
+                afterwards(&mut connection);
+            });
+            join_as(&mut joiner, &invite, "twelve")
+        });
+        (joined, joiner)
+    }
+
+    fn unconfirmed(reason: &str) -> String {
+        format!(
+            "foehn did not confirm the pairing ({reason}); if recollect peer list on foehn shows twelve, remove it there with: recollect peer remove twelve, then pair again with a new invite"
+        )
+    }
+
+    #[test]
+    fn a_join_whose_answer_never_comes_says_the_inviter_may_have_stored_it() {
+        let (joined, joiner) = join_unanswered(|_| {});
+        assert_eq!(
+            message_of(joined),
+            unconfirmed("the peer closed the connection")
+        );
+        assert!(joiner.db.peers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_join_answered_with_another_message_says_the_inviter_may_have_stored_it() {
+        let (joined, joiner) = join_unanswered(|connection| {
+            connection.channel.send(&Message::End {}).unwrap();
+        });
+        assert_eq!(
+            message_of(joined),
+            unconfirmed("it sent end where paired was expected")
+        );
+        assert!(joiner.db.peers().unwrap().is_empty());
     }
 
     /// Connects as a machine the inviter does not know, sends `message` and
