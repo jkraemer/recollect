@@ -10,12 +10,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
-use common::release::{self, write_script};
+use common::release::{self, SYSTEM_PATH, write_script};
 use tempfile::TempDir;
-
-/// Where curl, tar, sha256sum or shasum, uname and the other tools the
-/// script uses live on Linux and macOS.
-const SYSTEM_PATH: &str = "/usr/bin:/bin";
 
 const MODEL_NOTE: &str = "The embedding model (about 65 MB) downloads on first use.";
 

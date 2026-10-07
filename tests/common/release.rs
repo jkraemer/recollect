@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
+/// Where curl, tar, sha256sum or shasum, uname and the other tools the
+/// script uses live on Linux and macOS.
+pub const SYSTEM_PATH: &str = "/usr/bin:/bin";
+
 /// Stands in for `https://github.com/jkraemer/recollect/releases`.
 pub struct ReleaseServer {
     /// What `RECOLLECT_DOWNLOAD_BASE` is set to.

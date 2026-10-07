@@ -10,7 +10,7 @@ use std::process::Command as StdCommand;
 use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
-use common::release::{self, ReleaseServer};
+use common::release::{self, ReleaseServer, SYSTEM_PATH};
 use predicates::prelude::*;
 use recollect::time::now_timestamp;
 use recollect::update::CHECK_FILE;
@@ -202,9 +202,6 @@ fn a_lookup_without_an_answer_leaves_the_session_start_as_it_is() {
         assert!(session.remembered()["latest"].is_null(), "{base}");
     }
 }
-
-/// Where curl, tar, sha256sum or shasum and uname live on Linux and macOS.
-const SYSTEM_PATH: &str = "/usr/bin:/bin";
 
 const AFTER_AN_UPDATE: &str = "A running `recollect serve` switches to the new version by itself.\nIf sync with another machine stops, update recollect there too.\n";
 
