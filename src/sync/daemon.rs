@@ -95,13 +95,8 @@ fn answer_peers(
             let _ = wake.try_send(());
         }
         // Dropping the socket closes a connection that arrives while the
-        // daemon waits to restart, or that there is no slot for. One taken
-        // in the instant before the restart is cut off by it, which its
-        // peer makes up for with its next round.
-        if restart.pending.load(Ordering::SeqCst) {
-            continue;
-        }
-        let Some(slot) = Slot::take(&restart.answering) else {
+        // daemon waits to restart, or that there is no slot for.
+        let Some(slot) = restart.admit() else {
             continue;
         };
         let (config, identity, log) = (config.clone(), Arc::clone(&identity), Arc::clone(&log));
@@ -196,6 +191,16 @@ impl Restart {
             answering: Arc::new(AtomicUsize::new(0)),
             pending: AtomicBool::new(false),
         }
+    }
+
+    /// A slot for answering one more connection, unless all are taken or
+    /// the daemon waits to restart. The slot is taken before `pending` is
+    /// read, and `run` sets `pending` before it reads `answering`: so either
+    /// `run` sees this connection and waits for it, or this connection sees
+    /// the restart and is not answered.
+    fn admit(&self) -> Option<Slot> {
+        let slot = Slot::take(&self.answering)?;
+        (!self.pending.load(Ordering::SeqCst)).then_some(slot)
     }
 
     /// Replaces this process with the executable now at its path, started
@@ -712,6 +717,29 @@ mod tests {
             Slot::take(&answering).is_some(),
             "finished connections free their slots"
         );
+    }
+
+    #[test]
+    fn no_connection_is_admitted_while_a_restart_is_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let restart = Restart::of(Executable::at(stand_in_executable(&dir)).unwrap());
+        let slot = restart.admit().expect("a free slot");
+        assert_eq!(restart.answering.load(Ordering::SeqCst), 1);
+
+        restart.pending.store(true, Ordering::SeqCst);
+        assert!(
+            restart.admit().is_none(),
+            "refused while a restart is pending"
+        );
+        assert_eq!(
+            restart.answering.load(Ordering::SeqCst),
+            1,
+            "a refused connection holds no slot"
+        );
+
+        restart.pending.store(false, Ordering::SeqCst);
+        drop(slot);
+        assert!(restart.admit().is_some());
     }
 
     /// Puts a new file with `content` where `path` is, the way an installer
