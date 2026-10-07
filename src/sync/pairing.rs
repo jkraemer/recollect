@@ -493,7 +493,7 @@ mod tests {
 
         assert_eq!(
             message_of(joined),
-            "foehn answered: a peer named \"twelve\" already exists; remove it first with: recollect peer remove twelve"
+            "foehn answered: a peer named \"twelve\" already exists; remove it first with: recollect peer remove twelve, or, if it is a different machine, give one of the two another name (name in the [sync] table of config.toml)"
         );
         assert!(joiner.database().peers().unwrap().is_empty());
         assert_eq!(inviter.database().peers().unwrap().len(), 1);

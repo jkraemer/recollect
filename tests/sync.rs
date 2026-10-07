@@ -637,7 +637,7 @@ fn a_name_already_in_use_is_refused() {
         .assert()
         .failure()
         .stderr(
-            "error: alpha answered: a peer named \"beta\" already exists; remove it first with: recollect peer remove beta\n",
+            "error: alpha answered: a peer named \"beta\" already exists; remove it first with: recollect peer remove beta, or, if it is a different machine, give one of the two another name (name in the [sync] table of config.toml)\n",
         );
     assert_eq!(
         namesake.json(&["peer", "list", "--json"]),

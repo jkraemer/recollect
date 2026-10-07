@@ -296,7 +296,7 @@ mod tests {
         );
         assert_eq!(
             err.to_string(),
-            "a peer named \"twelve\" already exists; remove it first with: recollect peer remove twelve"
+            "a peer named \"twelve\" already exists; remove it first with: recollect peer remove twelve, or, if it is a different machine, give one of the two another name (name in the [sync] table of config.toml)"
         );
         let err = db.add_peer("laptop", "SHA256:t", "x:1", T0).unwrap_err();
         assert!(

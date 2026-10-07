@@ -49,7 +49,9 @@ pub enum Error {
     RubyData { path: PathBuf, message: String },
     #[error("no peer named {0:?}")]
     UnknownPeer(String),
-    #[error("a peer named {0:?} already exists; remove it first with: recollect peer remove {0}")]
+    #[error(
+        "a peer named {0:?} already exists; remove it first with: recollect peer remove {0}, or, if it is a different machine, give one of the two another name (name in the [sync] table of config.toml)"
+    )]
     PeerExists(String),
     #[error(
         "this machine is already paired with that key, as peer {0:?}; to pair again, remove it first with: recollect peer remove {0}"
