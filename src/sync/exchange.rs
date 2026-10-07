@@ -86,10 +86,14 @@ fn invalid(global_id: &str, reason: &str) -> Error {
     Error::Sync(format!("invalid record {global_id:?}: {reason}"))
 }
 
+/// A global id is a UUID in its canonical spelling, lowercase with hyphens,
+/// as every local store writes it. Ids are compared as text, so the same
+/// UUID in another spelling would be a second memory on every machine.
 fn check_global_id(global_id: &str) -> Result<()> {
-    match uuid::Uuid::parse_str(global_id) {
-        Ok(_) => Ok(()),
-        Err(_) => Err(invalid(global_id, "its global id is not a UUID")),
+    if uuid::Uuid::parse_str(global_id).is_ok_and(|uuid| uuid.to_string() == global_id) {
+        Ok(())
+    } else {
+        Err(invalid(global_id, "its global id is not a UUID"))
     }
 }
 
@@ -281,6 +285,14 @@ mod tests {
 
     #[test]
     fn a_record_that_no_local_store_could_have_written_is_refused_with_the_reason() {
+        let other_spelling = |global_id: String| {
+            let expected = format!("invalid record {global_id:?}: its global id is not a UUID");
+            let record = SyncRecord {
+                global_id,
+                ..live(A)
+            };
+            (record, expected)
+        };
         let cases = [
             (
                 SyncRecord {
@@ -289,6 +301,12 @@ mod tests {
                 },
                 "invalid record \"x\": its global id is not a UUID".to_string(),
             ),
+            // A UUID has one spelling here: in a second one it would be a
+            // second memory on every machine.
+            other_spelling(A.replace('-', "")),
+            other_spelling(format!("{{{A}}}")),
+            other_spelling(format!("urn:uuid:{A}")),
+            other_spelling(A.to_uppercase()),
             (
                 SyncRecord {
                     created_at: "2026-10-07T10:00:00Z".into(),
