@@ -130,7 +130,8 @@ fn chunk_rows_are_skipped_and_tombstones_returned() {
         memories.tombstones,
         [Tombstone {
             global_id: "f-3".into(),
-            deleted_at: CREATED.into()
+            deleted_at: CREATED.into(),
+            deleted_by_peer: None,
         }]
     );
     assert_eq!(memories.chunks_skipped, 2);
@@ -150,7 +151,8 @@ fn tombstones_keep_their_normalized_deletion_time() {
         read(&dir).unwrap().tombstones,
         [Tombstone {
             global_id: "g-1".into(),
-            deleted_at: "2026-03-02T10:00:00.000Z".into()
+            deleted_at: "2026-03-02T10:00:00.000Z".into(),
+            deleted_by_peer: None,
         }]
     );
 }

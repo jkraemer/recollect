@@ -38,13 +38,13 @@ fn tags_json(tags: &[String]) -> String {
 }
 
 /// Inserts one memory row; `import` appends a conflict clause.
-const INSERT_MEMORY: &str =
+pub(super) const INSERT_MEMORY: &str =
     "INSERT INTO memories (global_id, project, memory_type, content, tags, origin_peer, created_at)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
 
 /// Runs `sql`, `INSERT_MEMORY` with or without a conflict clause, for
 /// `record`; returns how many rows it inserted.
-fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Result<usize> {
+pub(super) fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Result<usize> {
     Ok(conn.prepare_cached(sql)?.execute(params![
         record.global_id,
         record.project,
@@ -100,16 +100,7 @@ impl Database {
             counts.inserted += insert_row(&tx, &sql, record)?;
         }
         for tombstone in tombstones {
-            let id: Option<i64> = tx
-                .query_row(
-                    "SELECT id FROM memories WHERE global_id = ?1",
-                    [&tombstone.global_id],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if let Some(id) = id
-                && tombstone_memory(&tx, id, &tombstone.deleted_at)?
-            {
+            if apply_tombstone(&tx, tombstone)? {
                 counts.deleted += 1;
             }
         }
@@ -133,7 +124,7 @@ impl Database {
     /// stays so sync can propagate the delete.
     pub fn delete(&mut self, id: i64, deleted_at: &str) -> Result<()> {
         let tx = self.write_transaction()?;
-        if !tombstone_memory(&tx, id, deleted_at)? {
+        if !tombstone_memory(&tx, id, deleted_at, None)? {
             return Err(Error::NotFound(id));
         }
         tx.commit()?;
@@ -141,16 +132,43 @@ impl Database {
     }
 }
 
-/// Tombstones the memory `id` as of `deleted_at`: drops its chunks, blanks
-/// its text and leaves the row. Returns whether the memory was live.
-fn tombstone_memory(conn: &Connection, id: i64, deleted_at: &str) -> Result<bool> {
+/// Tombstones the memory `id` as of `deleted_at`, deleted by `deleted_by_peer`
+/// where a peer is known: drops its chunks, blanks its text and leaves the
+/// row. Returns whether the memory was live.
+fn tombstone_memory(
+    conn: &Connection,
+    id: i64,
+    deleted_at: &str,
+    deleted_by_peer: Option<&str>,
+) -> Result<bool> {
     conn.execute("DELETE FROM chunks WHERE memory_id = ?1", [id])?;
     let changed = conn.execute(
-        "UPDATE memories SET deleted_at = ?2, deleted_by_peer = NULL, content = '', tags = '[]'
+        "UPDATE memories SET deleted_at = ?2, deleted_by_peer = ?3, content = '', tags = '[]'
          WHERE id = ?1 AND deleted_at IS NULL",
-        params![id, deleted_at],
+        params![id, deleted_at, deleted_by_peer],
     )?;
     Ok(changed > 0)
+}
+
+/// Tombstones the live memory `tombstone` names. Returns whether there was
+/// one; unknown and already deleted memories are left as they are.
+pub(super) fn apply_tombstone(conn: &Connection, tombstone: &Tombstone) -> Result<bool> {
+    let id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM memories WHERE global_id = ?1",
+            [&tombstone.global_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match id {
+        Some(id) => tombstone_memory(
+            conn,
+            id,
+            &tombstone.deleted_at,
+            tombstone.deleted_by_peer.as_deref(),
+        ),
+        None => Ok(false),
+    }
 }
 
 #[cfg(test)]
@@ -193,6 +211,7 @@ mod tests {
         Tombstone {
             global_id: format!("test-{content}"),
             deleted_at: deleted_at.to_string(),
+            deleted_by_peer: None,
         }
     }
 
@@ -536,6 +555,7 @@ mod tests {
                     Tombstone {
                         global_id: "unknown".into(),
                         deleted_at: LATER.into(),
+                        deleted_by_peer: None,
                     },
                 ],
             )
@@ -563,6 +583,26 @@ mod tests {
         );
         assert_eq!(db.get(kept).unwrap().content, "zanzibar trip");
         assert_eq!(memory_count(&db), 2, "unknown tombstones are not stored");
+    }
+
+    #[test]
+    fn a_tombstone_keeps_who_deleted_the_memory() {
+        let mut db = Database::open_in_memory().unwrap();
+        let id = db.insert_memory(&record("x", None, T0), None).unwrap();
+        let by_peer = Tombstone {
+            deleted_by_peer: Some("SHA256:peer".into()),
+            ..tombstone("x", LATER)
+        };
+        db.import(&[], &[by_peer]).unwrap();
+        let deleted_by: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT deleted_by_peer FROM memories WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(deleted_by.as_deref(), Some("SHA256:peer"));
     }
 
     #[test]

@@ -559,10 +559,12 @@ fn import_deletes_memories_deleted_in_the_other_installation() {
         Tombstone {
             global_id: "ruby-1".into(),
             deleted_at: "2026-02-01T00:00:00.000Z".into(),
+            deleted_by_peer: None,
         },
         Tombstone {
             global_id: "ruby-never-imported".into(),
             deleted_at: "2026-02-01T00:00:00.000Z".into(),
+            deleted_by_peer: None,
         },
     ];
     assert_eq!(
@@ -630,6 +632,7 @@ fn import_does_not_embed_a_pending_memory_the_other_installation_deleted() {
     let tombstone = Tombstone {
         global_id: "ruby-1".into(),
         deleted_at: "2026-02-01T00:00:00.000Z".into(),
+        deleted_by_peer: None,
     };
     let outcome = app.import(&[], &[tombstone]).unwrap();
     assert_eq!((outcome.deleted, outcome.embedded), (1, 0));
