@@ -51,6 +51,7 @@ working doc). It is excluded from the gem.
 cargo test                                   # all tests; the first run downloads the model to .model-cache/
 cargo test --test cli                        # end-to-end tests of the binary
 cargo test --test plugin                     # the Claude Code plugin's manifests, hooks and skills
+cargo test --test sync                       # sync end to end: daemons and CLI on local sockets
 evals/run.sh --model opus                    # the plugin's behaviour evals (claude plugin eval; paid model calls)
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
@@ -64,6 +65,12 @@ Data lives in `$RECOLLECT_DATA_DIR/memories.db` (default `~/.recollect`); the
 embedding model is cached in `$RECOLLECT_MODEL_DIR` (default
 `<data dir>/models`). fastembed lets `HF_HOME` override the model directory, so
 keep `HF_HOME` unset: the tests expect it to be.
+
+A development build run by hand needs `RECOLLECT_DATA_DIR` set to a scratch
+directory on the same command line (`RECOLLECT_DATA_DIR="$(mktemp -d)" cargo
+run -- …`). Without it the build opens `~/.recollect` and migrates the real
+database to its own schema version, which an older installed `recollect` then
+refuses to open.
 
 The Claude Code plugin's hooks (`hooks/hooks.json`) run `recollect hook
 session-start` and `recollect hook post-compact` with Claude Code's hook
@@ -86,6 +93,20 @@ version, builds and smoke-tests the Linux x86_64/aarch64 and Apple Silicon
 binaries, publishes the GitHub Release and installs it with `install.sh` on
 each platform; started by hand it only builds and checks. `install.sh` is
 tested by `tests/install.rs` against a fake release.
+
+Sync between machines is `src/sync/`: `identity` (the machine's key,
+`identity.key` in the data directory), `protocol` (the JSON messages and
+their framing), `exchange` (manifest, diff, validation, batching),
+`transport` (TLS with pinned key fingerprints), `round` (one round),
+`pairing` (invites) and `daemon` (`recollect serve`); peers and invites are
+tables in `memories.db` (`src/db/peers.rs`), the rows a round moves go
+through `src/db/sync.rs`. Embeddings and local ids never travel. Whenever a
+change alters what goes over the wire (a message, a record field, a value a
+field may take, such as a new memory type), bump `PROTOCOL_VERSION` in
+`src/sync/protocol.rs` and update the fixtures in its tests, which pin the
+exact JSON; releases and schema migrations that leave the wire alone do not
+touch it. `cargo test --test sync` runs the end-to-end tests: the real
+binary on several data directories, talking over local sockets.
 
 The data directory also holds `memories.db.lock`. Every process that opens the
 database (the CLI, a sync daemon) must take a blocking `flock` on it around the

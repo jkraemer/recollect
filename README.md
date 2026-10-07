@@ -138,6 +138,61 @@ RECOLLECT_RECENCY_AGING_FACTOR=0.5 RECOLLECT_RECENCY_HALF_LIFE_DAYS=30 recollect
 With `aging_factor=0.5` and `half_life_days=30`, a 30-day-old memory keeps 75% of its
 relevance score, while a brand-new memory keeps 100%.
 
+## Syncing between machines
+
+Machines that run the Rust binary can share their memories directly with
+each other: no server in between, and any network on which one machine can
+reach the other will do (a LAN, a VPN, a forwarded port). The traffic is
+encrypted, and each machine only talks to the machines it was paired with.
+
+On each machine, run the sync daemon. As a systemd user service:
+
+```bash
+mkdir -p ~/.config/systemd/user
+curl -fsSL -o ~/.config/systemd/user/recollect-serve.service \
+  https://raw.githubusercontent.com/jkraemer/recollect/master/docs/systemd/recollect-serve.service
+systemctl --user daemon-reload
+systemctl --user enable --now recollect-serve
+```
+
+It listens on port 7327. If a firewall blocks incoming connections (Fedora's
+does by default), open the port on at least one of the two machines, for
+example `sudo firewall-cmd --permanent --add-port=7327/tcp && sudo firewall-cmd --reload`.
+
+Pair two machines once. On the first:
+
+```bash
+recollect pair
+```
+
+This prints a `recollect join …` command. Run it on the second machine
+within ten minutes. From then on the two are equals: each knows the other's
+name, key and address, each syncs with the other when it starts and every
+five minutes, and one working direction is enough. `recollect sync` runs a
+round right away, and `recollect peer list` shows every peer with its last
+sync and, if this machine's own last round with it failed, why. A machine
+that cannot reach a peer keeps showing that failure there, even while the
+peer's own rounds keep the two in sync.
+
+`recollect pair` and `recollect join` assume a machine is reached under its
+host name; where that does not resolve on the other machine, pass
+`--address <host-or-ip>:7327` to both, or correct a peer later with
+`recollect peer address <name> <host:port>`. Two machines with the same host
+name need different names: set one in `~/.recollect/config.toml`.
+
+```toml
+[sync]
+name = "laptop"            # default: the host name up to its first dot
+listen = "0.0.0.0:7327"    # address and port recollect serve listens on
+interval_seconds = 300     # time between the daemon's rounds
+```
+
+Memories never change once stored, so sync cannot conflict: after a round
+both machines hold every memory and every deletion of both. Embeddings are
+not sent; each machine computes them for what it receives. Machines must run
+releases that speak the same sync protocol; if they do not, `recollect peer
+list` says which side to upgrade.
+
 ## Usage
 
 ### Start the Server
