@@ -8,6 +8,7 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 use std::time::Duration;
 
+use rustls::client::Resumption;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{CryptoProvider, WebPkiSupportedAlgorithms, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
@@ -147,11 +148,15 @@ fn client_config(
         expected: expected_fingerprint.to_string(),
         algorithms: provider.signature_verification_algorithms,
     };
-    ClientConfig::builder_with_provider(provider)
+    let mut config = ClientConfig::builder_with_provider(provider)
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(verifier))
-        .with_client_auth_cert(vec![identity.certificate()], identity.private_key())
+        .with_client_auth_cert(vec![identity.certificate()], identity.private_key())?;
+    // No session is kept or resumed: every connection proves its key in a
+    // full handshake.
+    config.resumption = Resumption::disabled();
+    Ok(config)
 }
 
 fn server_config(identity: &Identity) -> std::result::Result<ServerConfig, rustls::Error> {
@@ -159,10 +164,14 @@ fn server_config(identity: &Identity) -> std::result::Result<ServerConfig, rustl
     let verifier = AnyKey {
         algorithms: provider.signature_verification_algorithms,
     };
-    ServerConfig::builder_with_provider(provider)
+    let mut config = ServerConfig::builder_with_provider(provider)
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .with_client_cert_verifier(Arc::new(verifier))
-        .with_single_cert(vec![identity.certificate()], identity.private_key())
+        .with_single_cert(vec![identity.certificate()], identity.private_key())?;
+    // No ticket to resume a session with is handed out: every connection
+    // proves its key in a full handshake.
+    config.send_tls13_tickets = 0;
+    Ok(config)
 }
 
 const NO_TLS_12: &str = "only TLS 1.3 is spoken";
