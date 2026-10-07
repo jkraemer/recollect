@@ -67,7 +67,7 @@ Install the Rust binary with the install script. It picks the build for the
 machine (Linux x86_64 or aarch64 with glibc 2.38 or newer, or macOS on Apple
 Silicon), verifies its checksum and puts it in `~/.local/bin`, where it should
 come before the gem's `recollect` command on PATH, which it replaces. Run it
-again to upgrade:
+again to upgrade, or use recollect update (below):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.sh | sh
@@ -76,6 +76,24 @@ curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.s
 `RECOLLECT_VERSION=v0.1.0` pins a release and `RECOLLECT_INSTALL_DIR` picks
 another directory. Other platforms are not supported for now: building
 recollect from source there needs an ONNX Runtime built for the platform.
+
+Once installed, recollect upgrades itself:
+
+```bash
+recollect update           # install the latest release over the running binary
+recollect update --check   # only say whether there is a newer one
+```
+
+When a session starts, recollect looks up the latest release (at most once a
+day, giving up after two seconds) and, if there is a newer one, tells the
+agent to mention it. The agent is told not to run the update: that stays
+your decision. To switch the lookup and the notice off, put this into
+`~/.recollect/config.toml`:
+
+```toml
+[update]
+check = false
+```
 
 Then, in Claude Code:
 

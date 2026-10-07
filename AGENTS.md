@@ -52,6 +52,7 @@ cargo test                                   # all tests; the first run download
 cargo test --test cli                        # end-to-end tests of the binary
 cargo test --test plugin                     # the Claude Code plugin's manifests, hooks and skills
 cargo test --test sync                       # sync end to end: daemons and CLI on local sockets
+cargo test --test update                     # the update notice and `recollect update` against a fake release site
 evals/run.sh --model opus                    # the plugin's behaviour evals (claude plugin eval; paid model calls)
 cargo fmt --check && cargo clippy --all-targets -- -D warnings
 cargo llvm-cov --fail-under-lines 80         # coverage floor enforced in CI
@@ -96,6 +97,17 @@ version, builds and smoke-tests the Linux x86_64/aarch64 and Apple Silicon
 binaries, publishes the GitHub Release and installs it with `install.sh` on
 each platform; started by hand it only builds and checks. `install.sh` is
 tested by `tests/install.rs` against a fake release.
+
+Updates are `src/update.rs`: the lookup of the latest release (`<base>/latest`
+redirects to the tag page; the redirect is read, not followed), the check
+remembered in `update-check.json` in the data directory, the notice that
+`hook session-start` appends, and `recollect update`, which pipes the
+`install.sh` embedded in the binary to `sh`. Old binaries install new
+releases with the script they were built with, so the release files keep
+their names and layout (`recollect-<target>.tar.gz`, `SHA256SUMS`,
+`download/<tag>/`). A development build looks up and installs releases only
+from `RECOLLECT_DOWNLOAD_BASE`; the tests point it at
+`tests/common/release.rs`'s server and never reach GitHub.
 
 Sync between machines is `src/sync/`: `identity` (the machine's key,
 `identity.key` in the data directory), `protocol` (the JSON messages and

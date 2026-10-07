@@ -4,11 +4,14 @@
 mod common;
 
 use std::net::TcpListener;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Command as StdCommand;
 use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
-use common::release::ReleaseServer;
+use common::release::{self, ReleaseServer};
+use predicates::prelude::*;
 use recollect::time::now_timestamp;
 use recollect::update::CHECK_FILE;
 use serde_json::{Value, json};
@@ -198,4 +201,297 @@ fn a_lookup_without_an_answer_leaves_the_session_start_as_it_is() {
         );
         assert!(session.remembered()["latest"].is_null(), "{base}");
     }
+}
+
+/// Where curl, tar, sha256sum or shasum and uname live on Linux and macOS.
+const SYSTEM_PATH: &str = "/usr/bin:/bin";
+
+const AFTER_AN_UPDATE: &str = "A running `recollect serve` switches to the new version by itself.\nIf sync with another machine stops, update recollect there too.\n";
+
+/// The binary under test, installed as `bin/<name>` in a directory of its
+/// own, with a data directory beside it.
+struct Installation {
+    dir: TempDir,
+    name: &'static str,
+}
+
+impl Installation {
+    fn new() -> Self {
+        Self::named("recollect")
+    }
+
+    fn named(name: &'static str) -> Self {
+        let dir = common::target_tempdir();
+        std::fs::create_dir(dir.path().join("bin")).unwrap();
+        std::fs::create_dir(dir.path().join("data")).unwrap();
+        common::install_binary(&dir.path().join("bin").join(name));
+        Self { dir, name }
+    }
+
+    /// The directory the binary is installed in, as the binary itself sees it.
+    fn bin(&self) -> PathBuf {
+        self.dir.path().join("bin").canonicalize().unwrap()
+    }
+
+    fn binary(&self) -> PathBuf {
+        self.bin().join(self.name)
+    }
+
+    fn data(&self) -> PathBuf {
+        self.dir.path().join("data")
+    }
+
+    /// The installed binary, started as `program`, with releases at `base`
+    /// and its own directory first on PATH, as on a set-up machine.
+    fn run(&self, program: &Path, base: &str) -> Command {
+        let mut command = Command::new(program);
+        command
+            .env("RECOLLECT_DATA_DIR", self.data())
+            .env("RECOLLECT_DOWNLOAD_BASE", base)
+            .env("PATH", format!("{}:{SYSTEM_PATH}", self.bin().display()));
+        command
+    }
+
+    fn update(&self, base: &str) -> Command {
+        let mut command = self.run(&self.binary(), base);
+        command.arg("update");
+        command
+    }
+
+    /// What the installed binary says its version is.
+    fn version(&self) -> String {
+        let output = StdCommand::new(self.binary())
+            .arg("--version")
+            .output()
+            .unwrap();
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    fn remembered(&self) -> Value {
+        serde_json::from_str(&std::fs::read_to_string(self.data().join(CHECK_FILE)).unwrap())
+            .unwrap()
+    }
+}
+
+/// A release site whose latest release is 99.0.0, a stub that says so.
+fn site_with_release_99() -> (TempDir, ReleaseServer) {
+    let root = tempfile::tempdir().unwrap();
+    release::publish(&root.path().join("download/v99.0.0"), |_| {
+        "echo \"recollect 99.0.0\"".to_string()
+    });
+    let server = ReleaseServer::start(root.path(), Some("v99.0.0"));
+    (root, server)
+}
+
+#[test]
+fn update_installs_the_latest_release_over_the_running_binary() {
+    let installation = Installation::new();
+    let (_root, site) = site_with_release_99();
+    installation
+        .update(&site.base)
+        .assert()
+        .success()
+        .stdout(format!(
+            "installed recollect 99.0.0 to {}\n{AFTER_AN_UPDATE}",
+            installation.binary().display()
+        ))
+        .stderr("");
+    assert_eq!(installation.version(), "recollect 99.0.0\n");
+    let requests = site.requests();
+    assert_eq!(requests.len(), 3, "{requests:?}");
+    assert_eq!(requests[0], "/latest");
+    assert!(
+        requests[1].starts_with("/download/v99.0.0/recollect-"),
+        "{requests:?}"
+    );
+    assert_eq!(requests[2], "/download/v99.0.0/SHA256SUMS");
+    assert_eq!(installation.remembered()["latest"], "99.0.0");
+    let left: Vec<_> = std::fs::read_dir(installation.bin())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(left, ["recollect"], "nothing but the binary is left");
+}
+
+#[test]
+fn update_works_through_a_symlink_to_the_binary() {
+    let installation = Installation::new();
+    let (_root, site) = site_with_release_99();
+    let link = installation.dir.path().join("rc");
+    std::os::unix::fs::symlink(installation.binary(), &link).unwrap();
+    installation
+        .run(&link, &site.base)
+        .arg("update")
+        .assert()
+        .success()
+        .stderr("");
+    assert_eq!(installation.version(), "recollect 99.0.0\n");
+}
+
+#[test]
+fn update_with_nothing_newer_downloads_nothing() {
+    for tag in [format!("v{INSTALLED}"), "v0.0.1".to_string()] {
+        let installation = Installation::new();
+        let (_root, site) = site_with_latest(&tag);
+        installation
+            .update(&site.base)
+            .assert()
+            .success()
+            .stdout(format!("recollect {INSTALLED} is the latest release\n"))
+            .stderr("");
+        assert_eq!(site.requests(), ["/latest"], "{tag}");
+        assert_eq!(installation.version(), format!("recollect {INSTALLED}\n"));
+    }
+}
+
+#[test]
+fn update_check_says_whether_there_is_a_newer_release_and_installs_nothing() {
+    let installation = Installation::new();
+    let (_root, site) = site_with_release_99();
+    installation
+        .update(&site.base)
+        .arg("--check")
+        .assert()
+        .success()
+        .stdout(format!(
+            "recollect 99.0.0 is available (installed: {INSTALLED})\n"
+        ))
+        .stderr("");
+    assert_eq!(site.requests(), ["/latest"]);
+    assert_eq!(installation.version(), format!("recollect {INSTALLED}\n"));
+    assert_eq!(installation.remembered()["latest"], "99.0.0");
+
+    let (_root, current) = site_with_latest(&format!("v{INSTALLED}"));
+    installation
+        .update(&current.base)
+        .arg("--check")
+        .assert()
+        .success()
+        .stdout(format!("recollect {INSTALLED} is the latest release\n"))
+        .stderr("");
+}
+
+#[test]
+fn update_check_ignores_the_switch_for_the_session_notice() {
+    let installation = Installation::new();
+    let (_root, site) = site_with_release_99();
+    std::fs::write(
+        installation.data().join("config.toml"),
+        "[update]\ncheck = false\n",
+    )
+    .unwrap();
+    installation
+        .update(&site.base)
+        .arg("--check")
+        .assert()
+        .success()
+        .stdout(format!(
+            "recollect 99.0.0 is available (installed: {INSTALLED})\n"
+        ));
+}
+
+#[test]
+fn update_does_not_need_the_database() {
+    let installation = Installation::new();
+    let (_root, site) = site_with_release_99();
+    std::fs::write(installation.data().join("memories.db"), "not a database").unwrap();
+    installation
+        .update(&site.base)
+        .assert()
+        .success()
+        .stderr("");
+    assert_eq!(installation.version(), "recollect 99.0.0\n");
+}
+
+#[test]
+fn update_without_an_answer_fails_and_says_why() {
+    let installation = Installation::new();
+    let empty = tempfile::tempdir().unwrap();
+    let site = ReleaseServer::start(empty.path(), None);
+    for args in [&["update"][..], &["update", "--check"]] {
+        installation
+            .run(&installation.binary(), &site.base)
+            .args(args)
+            .assert()
+            .code(1)
+            .stdout("")
+            .stderr(format!(
+                "error: could not look up the latest release at {}/latest: no release in the answer (HTTP 404)\n",
+                site.base
+            ));
+    }
+    assert!(!installation.data().join(CHECK_FILE).exists());
+}
+
+#[test]
+fn a_development_build_updates_only_from_a_named_release_site() {
+    let data = tempfile::tempdir().unwrap();
+    for args in [&["update"][..], &["update", "--check"]] {
+        recollect(data.path())
+            .args(args)
+            .assert()
+            .code(1)
+            .stdout("")
+            .stderr(
+                "error: this is a development build; set RECOLLECT_DOWNLOAD_BASE to the releases it may look up and install\n",
+            );
+    }
+}
+
+#[test]
+fn update_refuses_a_binary_that_is_not_named_recollect() {
+    let installation = Installation::named("recollect-dev");
+    let (_root, site) = site_with_release_99();
+    installation
+        .update(&site.base)
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(format!(
+            "error: {} is not named recollect, so the installer would not replace it; install with install.sh instead\n",
+            installation.binary().display()
+        ));
+    assert_eq!(site.requests(), ["/latest"], "nothing was downloaded");
+}
+
+#[test]
+fn update_refuses_a_directory_it_cannot_write_to() {
+    let installation = Installation::new();
+    let (_root, site) = site_with_release_99();
+    let read_only = std::fs::Permissions::from_mode(0o555);
+    std::fs::set_permissions(installation.bin(), read_only).unwrap();
+    let outcome = installation.update(&site.base).assert();
+    // Writable again before anything can fail, so the directory can be removed.
+    std::fs::set_permissions(installation.bin(), std::fs::Permissions::from_mode(0o755)).unwrap();
+    outcome
+        .code(1)
+        .stdout("")
+        .stderr(predicate::str::starts_with(format!(
+            "error: cannot write to {}: ",
+            installation.bin().display()
+        )));
+    assert_eq!(site.requests(), ["/latest"], "nothing was downloaded");
+    assert_eq!(installation.version(), format!("recollect {INSTALLED}\n"));
+}
+
+#[test]
+fn a_failed_install_keeps_the_running_binary_and_passes_the_status_on() {
+    let installation = Installation::new();
+    let (root, site) = site_with_release_99();
+    let sums = root.path().join("download/v99.0.0/SHA256SUMS");
+    let wrong: String = std::fs::read_to_string(&sums)
+        .unwrap()
+        .lines()
+        .map(|line| format!("{}  {}\n", "0".repeat(64), line.split_once("  ").unwrap().1))
+        .collect();
+    std::fs::write(&sums, wrong).unwrap();
+    installation
+        .update(&site.base)
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(
+            predicate::str::is_match("^error: checksum mismatch for recollect-[^\n]+\n$").unwrap(),
+        );
+    assert_eq!(installation.version(), format!("recollect {INSTALLED}\n"));
 }

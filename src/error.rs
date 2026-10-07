@@ -79,6 +79,10 @@ pub enum Error {
         theirs: u32,
         ours: u32,
     },
+    /// A failure of `recollect update` that needs no variant of its own; the
+    /// text is the whole message.
+    #[error("{0}")]
+    Update(String),
     /// A sync failure that needs no variant of its own; the text is the whole message.
     #[error("{0}")]
     Sync(String),

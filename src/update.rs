@@ -1,8 +1,11 @@
 //! Newer releases: looking up the latest one, remembering the answer between
 //! sessions, and the notice a session starts with.
 
+use std::ffi::OsStr;
 use std::fmt;
-use std::path::Path;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -230,6 +233,64 @@ pub fn session_notice(
     check
         .newer_than(installed)
         .map(|latest| notice(latest, installed))
+}
+
+/// install.sh as it was when this binary was built. An old binary installs
+/// newer releases with it, so the names and layout of the release files
+/// must not change.
+const INSTALL_SCRIPT: &str = include_str!("../install.sh");
+
+/// The directory `recollect update` installs into: the one that holds the
+/// running executable, symlinks resolved.
+pub fn install_dir() -> Result<PathBuf> {
+    let executable = std::env::current_exe()
+        .and_then(|path| path.canonicalize())
+        .map_err(|err| Error::Update(format!("cannot find the running recollect: {err}")))?;
+    install_dir_of(&executable)
+}
+
+/// The directory of `executable`, refused when the installer could not
+/// replace `executable` there: it installs a file named `recollect` and
+/// must be able to write to the directory.
+fn install_dir_of(executable: &Path) -> Result<PathBuf> {
+    if executable.file_name() != Some(OsStr::new("recollect")) {
+        return Err(Error::Update(format!(
+            "{} is not named recollect, so the installer would not replace it; install with install.sh instead",
+            executable.display()
+        )));
+    }
+    let dir = executable
+        .parent()
+        .expect("a file is in a directory")
+        .to_path_buf();
+    // Tried by creating a file: permission bits do not tell about read-only
+    // mounts and access lists.
+    let probe = dir.join(format!(".recollect.writable.{}", std::process::id()));
+    std::fs::File::create(&probe)
+        .map_err(|err| Error::Update(format!("cannot write to {}: {err}", dir.display())))?;
+    let _ = std::fs::remove_file(&probe);
+    Ok(dir)
+}
+
+/// Installs release `version` into `install_dir` with the embedded
+/// install.sh, whose output goes where this process's output goes. Returns
+/// the script's exit status; a script that fails has said why and has
+/// replaced nothing.
+pub fn install(version: Version, install_dir: &Path) -> Result<ExitStatus> {
+    let cannot_run =
+        |err: std::io::Error| Error::Update(format!("cannot run the installer with sh: {err}"));
+    let mut installer = Command::new("sh")
+        .arg("-s")
+        .env("RECOLLECT_VERSION", format!("v{version}"))
+        .env("RECOLLECT_INSTALL_DIR", install_dir)
+        .stdin(Stdio::piped())
+        .spawn()
+        .map_err(cannot_run)?;
+    let mut script = installer.stdin.take().expect("stdin is piped");
+    // A script that ends early closes the pipe; its exit status tells.
+    let _ = script.write_all(INSTALL_SCRIPT.as_bytes());
+    drop(script);
+    installer.wait().map_err(cannot_run)
 }
 
 #[cfg(test)]
@@ -539,5 +600,47 @@ mod tests {
             Some(version("0.3.0"))
         });
         assert_eq!(said, Some(notice(version("0.3.0"), version("0.2.0"))));
+    }
+
+    #[test]
+    fn the_install_directory_is_the_one_holding_recollect() {
+        let dir = tempfile::tempdir().unwrap();
+        let binary = dir.path().join("recollect");
+        std::fs::write(&binary, "").unwrap();
+        assert_eq!(install_dir_of(&binary).unwrap(), dir.path());
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["recollect"], "the write test leaves nothing behind");
+    }
+
+    #[test]
+    fn a_binary_with_another_name_has_no_install_directory() {
+        let err = install_dir_of(Path::new("/opt/tools/recollect-dev")).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "/opt/tools/recollect-dev is not named recollect, so the installer would not replace it; install with install.sh instead"
+        );
+    }
+
+    #[test]
+    fn a_directory_that_cannot_be_written_to_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("gone").join("recollect");
+        let err = install_dir_of(&missing).unwrap_err().to_string();
+        assert!(
+            err.starts_with(&format!(
+                "cannot write to {}: ",
+                dir.path().join("gone").display()
+            )),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn the_installer_is_the_install_script_of_this_checkout() {
+        assert!(INSTALL_SCRIPT.starts_with("#!/bin/sh\n"));
+        assert!(INSTALL_SCRIPT.contains("RECOLLECT_INSTALL_DIR"));
     }
 }

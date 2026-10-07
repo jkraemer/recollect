@@ -21,7 +21,7 @@ use recollect::sync;
 use recollect::sync::SyncReport;
 use recollect::sync::pairing::INVITE_VALID_MINUTES;
 use recollect::time::{parse_since, parse_until};
-use recollect::update::{self, Releases, Version};
+use recollect::update::{self, Check, Releases, Version};
 
 /// Persistent, searchable memory for coding agents.
 #[derive(Parser)]
@@ -71,6 +71,12 @@ enum Command {
     Status {
         #[command(flatten)]
         output: OutputArgs,
+    },
+    /// Install the latest release over this recollect
+    Update {
+        /// Only say whether there is a newer release
+        #[arg(long)]
+        check: bool,
     },
     /// Copy the memories of a Ruby recollect installation into this database
     MigrateFromRuby {
@@ -295,6 +301,7 @@ fn run(command: Command) -> anyhow::Result<()> {
         } => return migrate_from_ruby(ruby_data_dir, rename),
         Command::Serve => return serve(),
         Command::Id { output } => return print_machine(output),
+        Command::Update { check } => return update_recollect(*check),
         _ => {}
     }
     let mut app = open_app()?;
@@ -435,7 +442,10 @@ fn run(command: Command) -> anyhow::Result<()> {
             app.remove_peer(&name)?;
             print_text(&format!("removed {name}"))?;
         }
-        Command::MigrateFromRuby { .. } | Command::Serve | Command::Id { .. } => {
+        Command::MigrateFromRuby { .. }
+        | Command::Serve
+        | Command::Id { .. }
+        | Command::Update { .. } => {
             unreachable!("handled before the database opened")
         }
     }
@@ -478,6 +488,33 @@ fn print_machine(output: &OutputArgs) -> anyhow::Result<()> {
     } else {
         print_text(&output::machine_text(&machine))?;
     }
+    Ok(())
+}
+
+/// Looks up the latest release and installs it over the running recollect,
+/// or only says whether there is one. Works without the database, so that
+/// it also helps when the database is what is broken.
+fn update_recollect(check_only: bool) -> anyhow::Result<()> {
+    let config = Config::load()?;
+    let installed = Version::installed();
+    let latest = Releases::from_env()?.latest()?;
+    Check::read(&config.data_dir).record(&config.data_dir, Utc::now(), Some(latest));
+    if latest <= installed {
+        print_text(&format!("recollect {installed} is the latest release"))?;
+        return Ok(());
+    }
+    if check_only {
+        print_text(&update::available(latest, installed))?;
+        return Ok(());
+    }
+    let install_dir = update::install_dir()?;
+    let status = update::install(latest, &install_dir)?;
+    if !status.success() {
+        // The installer has said why; its status is this command's.
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    print_text("A running `recollect serve` switches to the new version by itself.")?;
+    print_text("If sync with another machine stops, update recollect there too.")?;
     Ok(())
 }
 
