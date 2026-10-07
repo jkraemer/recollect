@@ -17,6 +17,8 @@ use recollect::migrate::{Rename, read_ruby_data};
 use recollect::output;
 use recollect::service::{Recollect, StoreInput};
 use recollect::sync;
+use recollect::sync::SyncReport;
+use recollect::sync::pairing::INVITE_VALID_MINUTES;
 use recollect::time::{parse_since, parse_until};
 
 /// Persistent, searchable memory for coding agents.
@@ -81,6 +83,25 @@ enum Command {
     Hook(HookEvent),
     /// Run the sync daemon: answer this machine's peers and sync with them on a timer
     Serve,
+    /// Sync with every peer now, or with the named ones
+    Sync {
+        /// Peer names; none means every peer
+        peers: Vec<String>,
+    },
+    /// Print an invite that pairs one other machine with this one
+    Pair {
+        /// Where the other machine reaches this one; default: the host name and the listen port
+        #[arg(long, value_name = "HOST:PORT")]
+        address: Option<String>,
+    },
+    /// Pair with the machine that made the invite, then sync with it
+    Join {
+        /// The invite `recollect pair` printed on the other machine
+        invite: String,
+        /// Where the other machine reaches this one; default: the host name and the listen port
+        #[arg(long, value_name = "HOST:PORT")]
+        address: Option<String>,
+    },
     /// This machine's sync name, key fingerprint and listen address
     Id {
         #[command(flatten)]
@@ -374,6 +395,27 @@ fn run(command: Command) -> anyhow::Result<()> {
             }
         }
         Command::Hook(event) => run_hook(event, &mut app)?,
+        Command::Sync { peers } => {
+            let reports = sync::sync_now(&mut app, &peers)?;
+            if reports.is_empty() {
+                print_text(
+                    "no peers to sync with; pair one with recollect pair and recollect join",
+                )?;
+            }
+            finish_sync(&mut app, &reports)?;
+        }
+        Command::Pair { address } => {
+            let invite = sync::invite(&mut app, address.as_deref())?;
+            print_text(&format!("recollect join {invite}"))?;
+            print_text(&format!(
+                "Run this on the other machine within {INVITE_VALID_MINUTES} minutes; recollect serve must be running here."
+            ))?;
+        }
+        Command::Join { invite, address } => {
+            let report = sync::join(&mut app, &invite, address.as_deref())?;
+            print_text(&format!("paired with {}", report.peer))?;
+            finish_sync(&mut app, &[report])?;
+        }
         Command::Peer(PeerCommand::List { output }) => {
             let peers = app.peers()?;
             if output.json {
@@ -432,6 +474,26 @@ fn print_machine(output: &OutputArgs) -> anyhow::Result<()> {
         print_json(&machine)?;
     } else {
         print_text(&output::machine_text(&machine))?;
+    }
+    Ok(())
+}
+
+/// Prints one line per round, embeds what the rounds brought, also when a
+/// round failed after storing it, and fails if a round failed.
+fn finish_sync(app: &mut Recollect, reports: &[SyncReport]) -> anyhow::Result<()> {
+    for report in reports {
+        print_text(&output::round_line(&report.peer, &report.result))?;
+    }
+    let received = |report: &SyncReport| sync::round::received_memories(&report.result) > 0;
+    if reports.iter().any(received) {
+        warn(app.embed_received()?.as_deref());
+    }
+    let failed = reports
+        .iter()
+        .filter(|report| report.result.is_err())
+        .count();
+    if failed > 0 {
+        anyhow::bail!("sync failed for {failed} of {} peers", reports.len());
     }
     Ok(())
 }

@@ -9,13 +9,15 @@ pub mod protocol;
 pub mod round;
 pub mod transport;
 
+use chrono::Utc;
 use serde::Serialize;
 
 use crate::config::Config;
 use crate::db::{Database, Peer};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::service::Recollect;
-use crate::sync::identity::{Identity, local_name};
+use crate::sync::identity::{Identity, default_address, local_name};
+use crate::sync::pairing::Invite;
 use crate::sync::round::RoundOutcome;
 use crate::sync::transport::Timeouts;
 use crate::time::now_timestamp;
@@ -110,6 +112,68 @@ pub fn local_machine(config: &Config) -> Result<LocalMachine> {
             .to_string(),
         listen: config.sync.listen.to_string(),
     })
+}
+
+/// Makes an invite that pairs one other machine with this one. `address` is
+/// where the other machine reaches this one; unset, it is this machine's host
+/// name and listen port.
+pub fn invite(app: &mut Recollect, address: Option<&str>) -> Result<Invite> {
+    let config = app.config().clone();
+    let identity = Identity::load_or_create(&config.data_dir)?;
+    let address = own_address(&config, address)?;
+    pairing::create_invite(
+        app.db_mut(),
+        &identity,
+        &local_name(&config)?,
+        &address,
+        Utc::now(),
+    )
+}
+
+/// Pairs with the machine that made the invite `text`, then runs a first
+/// round with it. `address` is where that machine reaches this one, as for
+/// `invite`.
+pub fn join(app: &mut Recollect, text: &str, address: Option<&str>) -> Result<SyncReport> {
+    let config = app.config().clone();
+    let identity = Identity::load_or_create(&config.data_dir)?;
+    let invite = Invite::parse(text)?;
+    let address = own_address(&config, address)?;
+    let peer = pairing::join(
+        app.db_mut(),
+        &identity,
+        &invite,
+        &local_name(&config)?,
+        &address,
+        Timeouts::default(),
+    )?;
+    sync_with(app, &identity, &peer, Timeouts::default())
+}
+
+/// Runs one round with every peer, or with the named ones.
+pub fn sync_now(app: &mut Recollect, names: &[String]) -> Result<Vec<SyncReport>> {
+    let identity = Identity::load_or_create(&app.config().data_dir)?;
+    let peers = if names.is_empty() {
+        app.db().peers()?
+    } else {
+        names
+            .iter()
+            .map(|name| app.db().peer_named(name))
+            .collect::<Result<Vec<_>>>()?
+    };
+    peers
+        .iter()
+        .map(|peer| sync_with(app, &identity, peer, Timeouts::default()))
+        .collect()
+}
+
+/// Where other machines reach this one: `given`, else the default address.
+fn own_address(config: &Config, given: Option<&str>) -> Result<String> {
+    let address = given.map_or_else(|| default_address(config), String::from);
+    if is_valid_address(&address) {
+        Ok(address)
+    } else {
+        Err(Error::InvalidAddress(address))
+    }
 }
 
 #[cfg(test)]
@@ -246,5 +310,23 @@ mod tests {
 
         let second = sync_with(&mut app, &a.identity, &peer, Timeouts::default()).unwrap();
         assert_eq!(second.previous_error.as_deref(), Some(reason.as_str()));
+    }
+
+    #[test]
+    fn an_invite_made_without_an_address_names_the_host_and_the_listen_port() {
+        let a = Machine::new();
+        std::fs::write(
+            a.dir.path().join("config.toml"),
+            "[sync]\nname = \"a\"\nlisten = \"0.0.0.0:9000\"\n",
+        )
+        .unwrap();
+        let mut app = a.app();
+
+        let invite = invite(&mut app, None).unwrap();
+
+        assert_eq!(invite.name, "a");
+        assert_eq!(invite.address, default_address(app.config()));
+        assert!(invite.address.ends_with(":9000"), "{}", invite.address);
+        assert_eq!(invite.fingerprint, a.identity.fingerprint());
     }
 }

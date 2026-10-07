@@ -365,6 +365,10 @@ impl Recollect {
         &mut self.db
     }
 
+    pub(crate) fn config(&self) -> &Config {
+        &self.config
+    }
+
     /// Embeds the live memories that have no vectors, one at a time; returns
     /// how many it embedded. Callers check the stored vectors against the model first.
     fn embed_pending(&mut self) -> Result<usize> {
