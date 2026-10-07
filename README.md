@@ -157,15 +157,18 @@ systemctl --user enable --now recollect-serve
 
 It listens on port 7327. If a firewall blocks incoming connections (Fedora's
 does by default), open the port on at least one of the two machines, for
-example `sudo firewall-cmd --permanent --add-port=7327/tcp && sudo firewall-cmd --reload`.
+example `sudo firewall-cmd --permanent --add-port=7327/tcp && sudo firewall-cmd --reload`,
+or put the network interface the machines share (a VPN's, for example) into a
+trusted zone.
 
-Pair two machines once. On the first:
+Pair two machines once. On a machine the other one can reach (one whose port
+is open):
 
 ```bash
 recollect pair
 ```
 
-This prints a `recollect join …` command. Run it on the second machine
+This prints a `recollect join …` command. Run it on the other machine
 within ten minutes. From then on the two are equals: each knows the other's
 name, key and address, each syncs with the other when it starts and every
 five minutes, and one working direction is enough. `recollect sync` runs a

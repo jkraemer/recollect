@@ -67,10 +67,11 @@ embedding model is cached in `$RECOLLECT_MODEL_DIR` (default
 keep `HF_HOME` unset: the tests expect it to be.
 
 A development build run by hand needs `RECOLLECT_DATA_DIR` set to a scratch
-directory on the same command line (`RECOLLECT_DATA_DIR="$(mktemp -d)" cargo
-run -- …`). Without it the build opens `~/.recollect` and migrates the real
-database to its own schema version, which an older installed `recollect` then
-refuses to open.
+directory on the same command line, and `RECOLLECT_MODEL_DIR` pointed at the
+model the tests already downloaded (`RECOLLECT_DATA_DIR="$(mktemp -d)"
+RECOLLECT_MODEL_DIR="$PWD/.model-cache" cargo run -- …`). Without it the build
+opens `~/.recollect` and migrates the real database to its own schema version,
+which an older installed `recollect` then refuses to open.
 
 The Claude Code plugin's hooks (`hooks/hooks.json`) run `recollect hook
 session-start` and `recollect hook post-compact` with Claude Code's hook
