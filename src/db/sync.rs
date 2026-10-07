@@ -288,13 +288,27 @@ mod tests {
         assert_eq!(db.sync_records(&ids(&["gone"])).unwrap(), [deleted("gone")]);
         assert_eq!(db.live_count().unwrap(), 0);
         assert_eq!(db.pending_embedding_count().unwrap(), 0);
-        // Fails if the text index holds anything the (blank) row does not.
-        db.conn
-            .execute(
-                "INSERT INTO memories_fts(memories_fts) VALUES ('integrity-check')",
-                [],
-            )
-            .unwrap();
+    }
+
+    #[test]
+    fn a_deleted_record_that_still_carries_text_is_stored_blank_and_unindexed() {
+        let mut db = Database::open_in_memory().unwrap();
+        let with_text = SyncRecord {
+            deleted_at: Some(LATER.into()),
+            deleted_by_peer: Some("SHA256:deleter".into()),
+            ..live("gone")
+        };
+        let applied = db.apply_sync(&[with_text], &[]).unwrap();
+        assert_eq!(
+            applied,
+            SyncApplied {
+                memories: 0,
+                deletions: 1
+            }
+        );
+        assert_eq!(fts_hits(&db, "gone"), 0);
+        assert_eq!(fts_hits(&db, "tagged"), 0);
+        assert_eq!(db.sync_records(&ids(&["gone"])).unwrap(), [deleted("gone")]);
     }
 
     #[test]
