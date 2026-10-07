@@ -3,6 +3,7 @@
 
 pub mod exchange;
 pub mod identity;
+pub mod pairing;
 pub mod protocol;
 pub mod round;
 pub mod transport;
