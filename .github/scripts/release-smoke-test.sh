@@ -41,7 +41,7 @@ fi
 # start without the variable.
 status="$(unset RECOLLECT_DATA_DIR && HOME="$home" "$binary" status --json)" ||
   fail "status failed without RECOLLECT_DATA_DIR"
-echo "$status" | grep -qF "\"data_dir\":\"$home/.recollect\"" ||
+printf '%s\n' "$status" | grep -qF "\"data_dir\":\"$home/.recollect\"" ||
   fail "without RECOLLECT_DATA_DIR the data directory is not ~/.recollect: $status"
 
 echo "smoke test passed: $version"
