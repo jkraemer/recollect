@@ -351,6 +351,42 @@ mod tests {
     }
 
     #[test]
+    fn the_initiator_ends_the_round_at_a_hello_with_its_own_manifest_hash() {
+        let mut a = database();
+        store(&mut a, "shared");
+        let same_hello = Holdings::of(&a).unwrap().hello();
+        let (connecting, answering) = socket_pair();
+        let result = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                // A peer that holds the same says so and hangs up.
+                let mut peer = scripted(answering);
+                peer.receive(MESSAGE_LIMIT).unwrap();
+                peer.send(&same_hello).unwrap();
+            });
+            initiate(&mut Channel::new(connecting), &mut a, "b")
+        });
+        assert_eq!(result.unwrap(), RoundOutcome::default());
+    }
+
+    #[test]
+    fn the_responder_ends_the_round_at_a_hello_with_its_own_manifest_hash() {
+        let mut b = database();
+        store(&mut b, "shared");
+        let same_hello = Holdings::of(&b).unwrap().hello();
+        let (connecting, answering) = socket_pair();
+        let result = std::thread::scope(|scope| {
+            let responder = scope.spawn(|| respond(&mut Channel::new(answering), &mut b, "a"));
+            // A peer that holds the same says so, hears the answer and hangs up.
+            let mut peer = scripted(connecting);
+            peer.send(&same_hello).unwrap();
+            assert_eq!(peer.receive(MESSAGE_LIMIT).unwrap(), same_hello);
+            drop(peer);
+            responder.join().unwrap()
+        });
+        assert_eq!(result.unwrap(), RoundOutcome::default());
+    }
+
+    #[test]
     fn deletions_travel_in_both_directions() {
         let (mut a, mut b) = (database(), database());
         let on_a = store(&mut a, "deleted on a");

@@ -279,7 +279,9 @@ impl ClientCertVerifier for AnyKey {
 mod tests {
     use std::net::TcpListener;
 
+    use rustls::SupportedProtocolVersion;
     use rustls::client::ResolvesClientCert;
+    use rustls::crypto::verify_tls12_signature;
     use rustls::server::{ClientHello, ResolvesServerCert};
     use rustls::sign::CertifiedKey;
 
@@ -339,7 +341,7 @@ mod tests {
     }
 
     /// A hostile client does not care whom it talks to: it accepts any
-    /// listener's certificate.
+    /// listener's certificate, in either TLS version.
     #[derive(Debug)]
     struct TrustsAnyListener(WebPkiSupportedAlgorithms);
 
@@ -357,11 +359,11 @@ mod tests {
 
         fn verify_tls12_signature(
             &self,
-            _message: &[u8],
-            _cert: &CertificateDer<'_>,
-            _dss: &DigitallySignedStruct,
+            message: &[u8],
+            cert: &CertificateDer<'_>,
+            dss: &DigitallySignedStruct,
         ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
-            Err(rustls::Error::General(NO_TLS_12.to_string()))
+            verify_tls12_signature(message, cert, dss, &self.0)
         }
 
         fn verify_tls13_signature(
@@ -381,10 +383,17 @@ mod tests {
     /// A client made from rustls alone, to be given the certificate it
     /// presents (or none) by the test.
     fn hostile_client() -> rustls::ConfigBuilder<ClientConfig, rustls::client::WantsClientCert> {
+        hostile_client_offering(&rustls::version::TLS13)
+    }
+
+    /// A hostile client that offers only `version`.
+    fn hostile_client_offering(
+        version: &'static SupportedProtocolVersion,
+    ) -> rustls::ConfigBuilder<ClientConfig, rustls::client::WantsClientCert> {
         let provider = provider();
         let algorithms = provider.signature_verification_algorithms;
         ClientConfig::builder_with_provider(provider)
-            .with_protocol_versions(&[&rustls::version::TLS13])
+            .with_protocol_versions(&[version])
             .unwrap()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(TrustsAnyListener(algorithms)))
@@ -597,5 +606,38 @@ mod tests {
             let err = answering.join().unwrap().expect("the handshake must fail");
             assert!(err.starts_with("handshake failed: "), "{err}");
         });
+    }
+
+    /// Why `accept` refuses a client that holds a key and offers only
+    /// `version`; `None` if it lets the client in.
+    fn refusal_of_a_client_offering(version: &'static SupportedProtocolVersion) -> Option<String> {
+        let (_listening_dir, listening) = identity();
+        let (_client_dir, client) = identity();
+        let (listener, address) = listener();
+        std::thread::scope(|scope| {
+            let answering = scope.spawn(|| {
+                let (socket, _) = listener.accept().unwrap();
+                accept(&listening, socket, Timeouts::default())
+                    .err()
+                    .map(|err| err.to_string())
+            });
+            let config = hostile_client_offering(version)
+                .with_client_auth_cert(vec![client.certificate()], client.private_key())
+                .unwrap();
+            run_hostile_client(config, &address);
+            answering.join().unwrap()
+        })
+    }
+
+    #[test]
+    fn a_client_that_offers_only_tls_1_2_gets_no_connection() {
+        assert_eq!(
+            refusal_of_a_client_offering(&rustls::version::TLS13),
+            None,
+            "the same client is let in when it offers TLS 1.3"
+        );
+        let err =
+            refusal_of_a_client_offering(&rustls::version::TLS12).expect("the handshake must fail");
+        assert!(err.starts_with("handshake failed: "), "{err}");
     }
 }
