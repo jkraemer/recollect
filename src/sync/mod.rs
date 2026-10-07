@@ -1,6 +1,8 @@
 //! Sync between machines: paired peers exchange their memories and deletions
 //! directly, with no server in between.
 
+pub mod identity;
+
 /// Whether `name` can label a machine: 1 to 64 ASCII letters, digits, `.`,
 /// `_` or `-`.
 pub fn is_valid_peer_name(name: &str) -> bool {
