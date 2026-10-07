@@ -222,6 +222,10 @@ mod tests {
     fn a_release_build_without_a_home_directory_has_no_data_directory() {
         let err = data_dir(None, no_home, false).unwrap_err();
         assert!(matches!(err, Error::NoDataDir), "{err}");
+        assert_eq!(
+            err.to_string(),
+            "HOME is not set; set RECOLLECT_DATA_DIR to choose the data directory"
+        );
     }
 
     #[test]
