@@ -2,72 +2,41 @@
 
 [![CI](https://github.com/jkraemer/recollect/actions/workflows/ci.yml/badge.svg)](https://github.com/jkraemer/recollect/actions/workflows/ci.yml)
 
-A Ruby-based MCP (Model Context Protocol) server for persistent memory
-management across Claude Code sessions.
+Persistent, searchable memory for coding agents: one binary that keeps
+decisions, learnings, solved bugs and session logs in a local SQLite database
+and finds them again by words and by meaning.
 
 ## Overview
 
-Recollect stores decisions, patterns, bugs, and learnings in SQLite databases
-with FTS5 full-text search. It exposes memories via the MCP protocol over HTTP,
-enabling AI coding assistants to maintain context across sessions.
+Recollect is a command-line tool. An agent, or you, stores a memory with
+`recollect store` and finds it again with `recollect search`: in a later
+session, in another project or on another machine. There is no server to run
+and no account to create. The database is one file in `~/.recollect`, and the
+embedding model runs inside the binary.
 
 ## Features
 
-- **MCP Protocol Support**: Standard MCP tools for storing and retrieving memories
-- **Hybrid Search**: Combines BM25 full-text search with vector semantic search using **Reciprocal Rank Fusion (RRF)** for superior relevance
-- **Smart Markdown Chunking**: Automatically splits large documents into semantic chunks (~700 words) with overlap for precise vector matching
-- **Parent-Child Retrieval**: Transparently resolves chunk-level search matches back to the full original document
-- **Recency Ranking**: Optional time-decay scoring to prefer newer memories
-- **LLM-Powered (Optional)**: Query expansion and re-ranking using Anthropic Claude models
-- **Project Isolation**: Separate database per project, plus a global database
-- **REST API**: HTTP endpoints for the Web UI and CLI
-- **Web Interface**: Browse and search memories in your browser
-- **CLI Tool**: Command-line interface for quick memory operations
-
-## Requirements
-
-- Ruby >= 3.4.0
-- SQLite3
-
-### Optional: Vector Search
-
-For semantic vector search (hybrid FTS5 + vector similarity):
-
-- Python >= 3.8
-- sqlite-vec extension (e.g., `pacman -S sqlite-vec` on Arch Linux)
-
-### Optional: LLM Integration (Expansion & Re-ranking)
-
-Recollect can use a remote LLM (like Anthropic's Claude 3 Haiku) to improve search quality through:
-- **Query Expansion**: Generating alternative search terms to find conceptually related memories
-- **Semantic Re-ranking**: Re-ordering the top results based on actual semantic relevance to your query
-
-This is particularly powerful on slim hardware where running a large local embedding model isn't feasible.
-
-```bash
-export RECOLLECT_LLM_PROVIDER=anthropic
-export ANTHROPIC_API_KEY=your_key_here
-export RECOLLECT_ANTHROPIC_MODEL=claude-3-haiku-20240307
-```
+- **One binary**: SQLite with FTS5, the sqlite-vec extension and the embedding runtime are compiled in; there is nothing else to install
+- **Hybrid search**: BM25 full-text search and vector similarity, merged with reciprocal rank fusion
+- **Local embeddings**: computed in-process with `bge-small-en-v1.5` (English); no memory is sent to an embedding service
+- **Projects**: a memory belongs to a project or to none (global), and a search covers one project or all of them
+- **Immutable memories**: a memory is stored and at most deleted, never edited, so sync cannot conflict
+- **Sync between machines**: directly from machine to machine, encrypted, without a server in between
+- **Claude Code plugin**: hooks that put a project's memory into each session, and skills that make the agent search and store
+- **Made for agents**: content from stdin, `--json` output, one-line errors and a non-zero exit status on failure
+- **Recency ranking**: optional time decay that prefers newer memories
 
 ## Installation
 
-Recollect ships through three channels: the gem carries the Ruby server and its
-CLI (MCP tools, REST API, web UI), the Claude Code plugin carries the
-agent-facing parts (skills, including `/recollect:session-log`, and hooks), and
-GitHub Releases carry the Rust `recollect` binary. The plugin works through
-that binary, which is replacing the Ruby server and needs no server running.
+Recollect ships through two channels: GitHub Releases carry the `recollect`
+binary, and the Claude Code plugin carries the agent-facing parts (skills,
+including `/recollect:session-log`, and hooks). The plugin works through the
+binary.
 
-```bash
-gem install recollect
-recollect-server
-```
-
-Install the Rust binary with the install script. It picks the build for the
+Install the binary with the install script. It picks the build for the
 machine (Linux x86_64 or aarch64 with glibc 2.38 or newer, or macOS on Apple
-Silicon), verifies its checksum and puts it in `~/.local/bin`, where it should
-come before the gem's `recollect` command on PATH, which it replaces. Run it
-again to upgrade, or use recollect update (below):
+Silicon), verifies its checksum and puts it in `~/.local/bin`. Run it again
+to upgrade, or use recollect update (below):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jkraemer/recollect/master/install.sh | sh
@@ -83,6 +52,11 @@ Pentium and Celeron models do not. A virtual machine has to pass AVX2 through
 to the guest: choose the CPU type `host` in QEMU or Proxmox, or the mode
 `host-passthrough` in libvirt. Generic types such as `qemu64`, `kvm64` or
 `x86-64-v2-AES` hide it, and recollect stops with `Illegal instruction` there.
+
+The first `store` or `search` downloads the embedding model (about 65 MB)
+from Hugging Face into `~/.recollect/models`. If that fails, the memory is
+stored all the same and search matches words only; `recollect reindex` embeds
+what is pending once the model is there.
 
 Once installed, recollect upgrades itself:
 
@@ -102,7 +76,9 @@ your decision. To switch the lookup and the notice off, put this into
 check = false
 ```
 
-Then, in Claude Code:
+### Claude Code plugin
+
+In Claude Code:
 
 ```
 /plugin marketplace add jkraemer/recollect
@@ -123,49 +99,103 @@ time, add
 
 To run from a checkout instead, see [Development](#development).
 
-### Optional: Set Up Vector Search
+### Skill
 
-Semantic vector search needs Python with `sentence-transformers`:
+Memory only helps if the agent reaches for it. The `using-long-term-memory`
+skill enforces three disciplines, through the `recollect` CLI:
 
-```bash
-python3 -m venv ~/.recollect/venv
-~/.recollect/venv/bin/pip install sentence-transformers
-```
+1. **Search before asking** - When encountering problems or unfamiliar situations,
+   search memory before asking the user or investigating the codebase
+2. **Store before moving on** - When decisions are made, lessons learned, or bugs
+   solved, store them immediately with appropriate tags
+3. **One place per fact** - How to work with the user and repository conventions
+   go to Claude Code's auto memory; decisions, learnings, solved bugs and session
+   logs go to recollect
 
-Then start the server with vectors enabled:
-
-```bash
-RECOLLECT_ENABLE_VECTORS=true RECOLLECT_PYTHON=~/.recollect/venv/bin/python3 recollect-server
-```
-
-From a checkout, a `.venv` in the project root is picked up automatically and
-`RECOLLECT_PYTHON` is not needed:
-
-```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-RECOLLECT_ENABLE_VECTORS=true ./bin/server
-```
-
-### Optional: Enable Recency Ranking
-
-Recency ranking applies time-decay scoring to search results, preferring newer memories
-over older ones with similar relevance. This is useful when recent context is more
-valuable than historical information.
+The plugin installs it. Agents other than Claude Code can pick it up from
+[skills/using-long-term-memory/SKILL.md](skills/using-long-term-memory/SKILL.md),
+which follows the [Agent Skills](https://agentskills.io) `skills/*/SKILL.md`
+convention:
 
 ```bash
-RECOLLECT_RECENCY_AGING_FACTOR=0.5 RECOLLECT_RECENCY_HALF_LIFE_DAYS=30 recollect-server
+npx skills add jkraemer/recollect
+# or
+gh skill install jkraemer/recollect
 ```
 
-- **Aging Factor** (0.0-1.0): How much recency affects ranking. 0=disabled, 1=full effect.
-- **Half-Life Days**: Days until a memory's recency score decays to 50%.
+## Usage
 
-With `aging_factor=0.5` and `half_life_days=30`, a 30-day-old memory keeps 75% of its
-relevance score, while a brand-new memory keeps 100%.
+```bash
+# Store: the content is the argument, or comes from stdin
+recollect store "The staging server runs Debian 13" -p myproject
+recollect store -p myproject -T decision,sessions <<'EOF'
+Sessions expire after 8 hours of inactivity instead of 24: the security
+review asked for it, and the refresh token covers longer work.
+EOF
+
+# Find
+recollect search "session expiry" -p myproject   # by words and meaning
+recollect search "session expiry"                # in all projects
+recollect list -p myproject -T decision --since 2026-01-01
+recollect show 42                                # one memory in full
+recollect context -p myproject                   # the last session, recent notes and todos
+
+# Look around
+recollect projects
+recollect tags -p myproject
+recollect status                                 # storage location, counts, vector health
+
+# Remove
+recollect delete 42
+```
+
+`store`, `search`, `list`, `show`, `context`, `projects`, `tags` and `status`
+print JSON with `--json`. `search` and `list` take filters: `-t` for memory
+types, `-T` for tags a memory must carry (all of them), and `--since` and
+`--until` for the time it was stored. `recollect <command> --help` lists
+every option.
+
+### Projects
+
+`-p` names the project. `store` without `-p`, or with `-p global`, stores a
+memory that belongs to no project. `search`, `list` and `tags` without `-p`
+cover every project, and `-p global` selects the memories without one.
+
+With the Claude Code plugin, the session-start hook names the project (see
+[Claude Code plugin](#claude-code-plugin)) and the agent passes that name on.
+For other agents, keep the name the same across sessions with a line in the
+project's agent instructions (AGENTS.md):
+
+> When storing or recalling memories, refer to this project as "myproject"
+
+Without it, sessions may pick different names (the directory, the repository)
+and split one project's memories between them.
+
+### Memory Types
+
+- `note` (default) - General information, facts, context
+- `todo` - Action items, tasks, reminders
+- `session` - Session summaries and handoff notes
+
+For semantic categorization (decisions, patterns, bugs, learnings), use **tags** instead of memory types. This provides more flexible filtering and allows memories to have multiple categories.
+
+### Search
+
+A search runs two queries and merges their rankings: one over the words
+(SQLite FTS5; common English words such as "the" or "how" are left out unless
+they are quoted) and one over the meaning (the query's embedding against the
+memories' embeddings). Long memories are embedded in several chunks and found
+as a whole. Memories that have no vectors yet are still found by their words.
+
+### Deleting
+
+Memories never change once stored. `recollect delete` removes a memory's
+text and tags and keeps an empty record of the deletion, so that sync can
+pass the deletion on to the other machines.
 
 ## Syncing between machines
 
-Machines that run the Rust binary can share their memories directly with
+Machines can share their memories directly with
 each other: no server in between, and any network on which one machine can
 reach the other will do (a LAN, a VPN, a forwarded port). The traffic is
 encrypted, and each machine only talks to the machines it was paired with.
@@ -235,242 +265,89 @@ not sent; each machine computes them for what it receives. Machines must run
 releases that speak the same sync protocol; if they do not, `recollect peer
 list` says which side to upgrade.
 
-## Usage
-
-### Start the Server
-
-```bash
-recollect-server
-```
-
-The server runs at `http://localhost:7326` by default. To keep it running across
-reboots, see [Running as a systemd Service](#running-as-a-systemd-service).
-
-### Configure Claude Code
-
-The plugin does not use the server. To give Claude the Ruby server's MCP tools,
-add to your MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "recollect": {
-      "type": "http",
-      "url": "http://localhost:7326/mcp"
-    }
-  }
-}
-```
-
-### Project Naming
-
-Recollect stores memories per-project. With the Claude Code plugin, the
-session-start hook names the project (see [Installation](#installation)) and
-the agent passes that name on. For the MCP tools and other agents, ensure
-consistent naming across sessions by adding an instruction to your project's
-agent instructions (AGENTS.md, CLAUDE.md):
-
-> When storing or recalling memories, refer to this project as "myproject"
-
-Without this, different sessions might use inconsistent names (directory basename,
-repo name, etc.) which fragments memories across separate databases.
-
-### Claude Code Skill
-
-Memory only helps if the agent reaches for it. The `using-long-term-memory`
-skill enforces three disciplines, through the `recollect` CLI:
-
-1. **Search before asking** - When encountering problems or unfamiliar situations,
-   search memory before asking the user or investigating the codebase
-2. **Store before moving on** - When decisions are made, lessons learned, or bugs
-   solved, store them immediately with appropriate tags
-3. **One place per fact** - How to work with the user and repository conventions
-   go to Claude Code's auto memory; decisions, learnings, solved bugs and session
-   logs go to recollect
-
-The plugin installs it. Agents other than Claude Code can pick it up from
-[skills/using-long-term-memory/SKILL.md](skills/using-long-term-memory/SKILL.md),
-which follows the [Agent Skills](https://agentskills.io) `skills/*/SKILL.md`
-convention:
-
-```bash
-npx skills add jkraemer/recollect
-# or
-gh skill install jkraemer/recollect
-```
-
-### CLI Commands
-
-```bash
-# Check server status
-recollect status
-
-# Store a memory
-recollect store "We decided to use Puma for threading" -p myproject -t decision
-
-# Search memories
-recollect search "threading"
-
-# List recent memories
-recollect list -p myproject
-
-# List all projects
-recollect projects
-```
-
-### Web UI
-
-Open `http://localhost:7326` in your browser to browse and search memories.
-
-## MCP Tools
-
-| Tool | Description |
-|------|-------------|
-| `store_memory` | Store a memory with content, type, tags, and project |
-| `search_memory` | Full-text search across memories |
-| `get_context` | Get comprehensive context for a project |
-| `list_projects` | List all projects with stored memories |
-| `delete_memory` | Delete a specific memory by ID |
-
-All tools declare an `outputSchema` and return `structuredContent` alongside
-the JSON text content, so typed clients get validated results while text-only
-clients keep working.
-
-### Memory Types
-
-- `note` (default) - General information, facts, context
-- `todo` - Action items, tasks, reminders
-- `session` - Session summaries and handoff notes
-
-For semantic categorization (decisions, patterns, bugs, learnings), use **tags** instead of memory types. This provides more flexible filtering and allows memories to have multiple categories.
-
-## MCP Resources
-
-Project memory is browsable as resources with markdown bodies:
-
-| URI | Contents |
-|-----|----------|
-| `recollect://project/{name}` | Listable, one per project (plus `global`): last session log and recent notes/todos |
-| `recollect://project/{project}/memory/{id}` | Template: a single memory by project and id |
-
-## MCP Prompts
-
-Prompts are reusable templates that guide AI assistants through common workflows.
-
-| Prompt | Description |
-|--------|-------------|
-| `session_log` | Create a structured session summary and store it for future retrieval |
-| `resume_session` | Resume work using the last session log and recent memories |
-
-### Session Workflow
-
-At the end of a session, use `session_log` to capture what was worked on, decisions made,
-problems solved, and next steps. This creates a "session" memory type.
-
-When starting a new session, use `resume_session` to retrieve the last session log and
-recent memories, providing context for continuing where you left off.
-
-#### resume_session Details
-
-The `resume_session` prompt takes an optional `project` argument:
-
-- **With project**: Retrieves the last session log and 10 most recent memories (notes/todos)
-  for that project, then asks the AI to summarize and propose next steps
-- **Without project**: Provides guidance for the AI to determine the project from context
-  (working directory, conversation, or by calling `get_context` without parameters)
-
-This makes it easy to pick up where you left off, even if you don't remember the exact
-project name or what you were working on.
-
 ## Configuration
+
+Everything is optional. Recollect reads `config.toml` in its data directory;
+a key it does not know is an error. The `[sync]` and `[update]` tables are
+described above, these two tune search:
+
+```toml
+[search]
+max_vector_distance = 0.375   # cosine distance (0 to 2) up to which a memory matches by meaning
+
+[recency]
+aging_factor = 0.0            # 0 switches recency ranking off, 1 applies the full decay
+half_life_days = 30.0         # the age at which the decay has reached one half
+```
+
+Recency ranking scales each result's score by its memory's age, so that of
+two similarly relevant memories the newer one comes first. With
+`aging_factor = 0.5` and `half_life_days = 30`, a 30-day-old memory keeps 75%
+of its score and a new one keeps all of it.
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `RECOLLECT_DATA_DIR` | `~/.recollect` | Data storage directory |
-| `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
-| `RECOLLECT_PORT` | `7326` | Server port |
-| `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
-| `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
-| `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
-| `RECOLLECT_PYTHON` | `.venv/bin/python3`, else `python3` | Python interpreter running the embedding model |
-| `RECOLLECT_SQLITE_VEC_PATH` | (auto-detect) | Path to the sqlite-vec extension, checked before built-in locations |
-| `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
-| `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
-| `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |
-| `RECOLLECT_LLM_PROVIDER` | `none` | LLM provider (`none`, `anthropic`) |
-| `ANTHROPIC_API_KEY` | | API key for Anthropic provider |
-| `RECOLLECT_ANTHROPIC_MODEL` | `claude-3-haiku-20240307` | Model to use for Anthropic |
-| `WEB_CONCURRENCY` | `1` | Puma worker processes |
-| `PUMA_MAX_THREADS` | `5` | Threads per worker |
+| `RECOLLECT_DATA_DIR` | `~/.recollect` | Data directory: the database, `config.toml` and this machine's sync key |
+| `RECOLLECT_MODEL_DIR` | `<data dir>/models` | Where the embedding model is kept |
 
-## Running as a systemd Service
+## Coming from the Ruby server
 
-See [docs/systemd/README.md](docs/systemd/README.md) for setup instructions to run Recollect as a user systemd service.
+Recollect began as a Ruby MCP server with a web UI. That version is retired;
+its code is in this repository up to the tag `v0.3.0`. To bring its memories
+over, point `migrate-from-ruby` at the Ruby server's data directory, the one
+that holds `global.db` and `projects/` (`~/.recollect` by default):
+
+```bash
+recollect migrate-from-ruby ~/.recollect
+recollect migrate-from-ruby ~/.recollect --rename my_proj=my-proj   # merge two spellings of one project
+```
+
+The Ruby files are only read. The command can be run again: it skips the
+memories that are already there and deletes those the Ruby server has deleted
+since. Both versions can use `~/.recollect`, their files have different
+names.
 
 ## Development
 
 ```bash
 git clone https://github.com/jkraemer/recollect.git
 cd recollect
-bundle install
 
-# Run the server and CLI from the working copy
-./bin/server
-./bin/recollect status
+# Run the tests; the first run downloads the embedding model to .model-cache/
+cargo test
 
-# Run tests
-bundle exec rake test
+# Format and lint
+cargo fmt --check && cargo clippy --all-targets -- -D warnings
 
-# Run single test file
-bundle exec ruby -Itest test/recollect/database_test.rb
-
-# Lint
-bundle exec rubocop
+# Run the CLI from the working copy
+cargo run -- store -p myproject -T decision "Memory content"
+cargo run -- search "query" --json
 ```
 
-`bin/server` and `bin/recollect` are thin wrappers that load the same code the
-gem installs as `recollect-server` and `recollect`.
+`rust-toolchain.toml` pins the toolchain. `cargo run` and `cargo test` keep
+their data in `target/test-data`, never in `~/.recollect`, and a development
+build started directly (`target/debug/recollect`) refuses to run without
+`RECOLLECT_DATA_DIR`.
 
 ### Packaging layout
 
-The repository is a gem, a Claude Code plugin marketplace and the source of the recollect binary:
+The repository is the source of the recollect binary and a Claude Code plugin marketplace:
 
 | Path | Channel | Contents |
 |------|---------|----------|
-| `recollect.gemspec`, `exe/`, `lib/`, `config/`, `public/` | gem | server and CLI |
+| `Cargo.toml`, `src/`, `install.sh` | binary (GitHub Releases) | the `recollect` CLI and its installer |
 | `.claude-plugin/plugin.json` | plugin | plugin manifest |
 | `.claude-plugin/marketplace.json` | plugin | catalog, so this repo can be added as a marketplace |
 | `skills/`, `hooks/` | plugin | skills (memory discipline, `/recollect:session-log`), hooks running the `recollect` binary |
-| `Cargo.toml`, `src/`, `install.sh` | binary (GitHub Releases) | the Rust `recollect` CLI and its installer |
 
 The plugin carries its own version: `tests/plugin.rs` checks its manifests,
-hooks and skills, `test/packaging_test.rb` checks the gem. To try the
+hooks and skills. To try the
 plugin without publishing, load the checkout for one session with
 `claude --plugin-dir /path/to/recollect`, or add it as a local marketplace:
 
 ```
 /plugin marketplace add /path/to/recollect
 /plugin install recollect@recollect
-```
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Sinatra/Puma Server                   │
-├─────────────────────────────────────────────────────────┤
-│  POST /mcp         → MCP protocol endpoint              │
-│  GET/POST /api/*   → REST API                           │
-│  GET /             → Web UI                             │
-└─────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────┐
-│              SQLite + FTS5 (per-project)                │
-├─────────────────────────────────────────────────────────┤
-│  ~/.recollect/global.db        → Cross-project memories │
-│  ~/.recollect/projects/*.db    → Project-specific       │
-└─────────────────────────────────────────────────────────┘
 ```
 
 ## License
