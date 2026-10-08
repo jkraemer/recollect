@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use assert_cmd::Command;
 use serde_json::{Value, json};
 
-const PLUGIN_VERSION: &str = "0.2.1";
+const PLUGIN_VERSION: &str = "0.2.2";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -62,6 +62,13 @@ fn the_manifests_name_the_plugin_and_agree_on_its_version() {
 #[test]
 fn the_plugin_has_no_mcp_server() {
     assert!(!root().join(".mcp.json").exists());
+}
+
+/// Claude Code puts a plugin's `bin/` on PATH, and the plugin is this whole
+/// repository: an executable there would answer to its name in every session.
+#[test]
+fn the_plugin_puts_nothing_on_path() {
+    assert!(!root().join("bin").exists());
 }
 
 #[test]

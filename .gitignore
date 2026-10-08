@@ -1,9 +1,5 @@
-/test/tmp
-/coverage
 /.claude
-/.venv
 /.worktrees
-/bin/start-service
 /target
 /.model-cache
 /evals/results
