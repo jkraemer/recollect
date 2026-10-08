@@ -17,36 +17,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.4"
-          bundler-cache: true
-      - run: bundle exec rake rubocop
-
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        # 3.5 is intentionally absent: setup-ruby resolves "3.5" to the
-        # 3.5.0-preview1 build, and sqlite3 currently caps itself at
-        # "< 3.5.dev", so bundler fails to resolve and the leg can never
-        # pass. Re-add once sqlite3 ships Ruby 3.5 support.
-        ruby: ["3.4"]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true
-      - run: bundle exec rake test
-
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 30

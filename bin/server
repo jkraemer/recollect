@@ -1,6 +1,0 @@
-#!/usr/bin/env ruby
-# frozen_string_literal: true
-
-# Runs the packaged server against this working copy.
-require "bundler/setup"
-load File.expand_path("../exe/recollect-server", __dir__)

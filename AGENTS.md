@@ -7,50 +7,22 @@ When storing or recalling memories, refer to this project as "recollect".
 
 ## Project Overview
 
-**Recollect** is a Ruby-based HTTP MCP (Model Context Protocol) server for persistent memory management. It stores memories in SQLite databases with FTS5 full-text search, accessible via MCP protocol over HTTP.
+**Recollect** is a local-first command-line tool that gives coding agents a
+persistent memory: one Rust binary that keeps memories in a single SQLite
+database with FTS5 full-text search and vector search, and can sync them
+between machines. The crate is at the repository root (`Cargo.toml`, `src/`,
+`tests/`). The repository is also the Claude Code plugin (`skills/`, `hooks/`)
+and its own marketplace (`.claude-plugin/marketplace.json`). There is no MCP
+server: agents run the CLI, and the only daemon is `recollect serve`, for
+sync.
 
 ## Commands
-
-```bash
-# Run tests
-bundle exec rake test
-
-# Run a single test file
-bundle exec ruby -Itest test/recollect/database_test.rb
-
-# Run specific test method
-bundle exec ruby -Itest test/recollect/database_test.rb -n test_store_returns_id
-
-# Lint
-bundle exec rubocop
-
-# Start server (development)
-./bin/server
-# Or: bundle exec puma -C config/puma.rb
-
-# Build the gem / check its packaging
-gem build recollect.gemspec
-bundle exec ruby -Itest test/packaging_test.rb
-
-# CLI commands (requires running server)
-./bin/recollect status
-./bin/recollect store "content" -p project -t decision
-./bin/recollect search "query"
-./bin/recollect list
-./bin/recollect projects
-```
-
-### Rust rewrite (in progress)
-
-The Rust crate at the repository root (`Cargo.toml`, `src/`, `tests/`) is the
-local-first CLI replacing the Ruby server; see
-`docs/superpowers/specs/2026-09-29-rust-core-cli-design.md` (untracked
-working doc). It is excluded from the gem.
 
 ```bash
 cargo test                                   # all tests; the first run downloads the model to .model-cache/
 cargo test --test cli                        # end-to-end tests of the binary
 cargo test --test plugin                     # the Claude Code plugin's manifests, hooks and skills
+cargo test --test ci                         # the guards of .github/workflows/ci.yml
 cargo test --test sync                       # sync end to end: daemons and CLI on local sockets
 cargo test --test update                     # the update notice and `recollect update` against a fake release site
 evals/run.sh --model opus                    # the plugin's behaviour evals (claude plugin eval; paid model calls)
@@ -76,11 +48,25 @@ directly (`target/debug/recollect …`) does not get that default and refuses
 to start without `RECOLLECT_DATA_DIR`; only a release build falls back to
 `~/.recollect`. The embedding model comes from `.model-cache` the same way.
 
+Run `cargo test` without `RECOLLECT_DATA_DIR` set: the test of that default
+fails otherwise, by design. `target/test-data` may be deleted at any time, and
+has to be after a checkout with a newer schema has used it.
+
+`recollect migrate-from-ruby` (`src/migrate.rs`) copies the memories of the
+retired Ruby server's data directory (`global.db`, `projects/*.db`) into the
+database. It stays for installations that are not migrated yet; its tests
+build Ruby-shaped data directories with `tests/common/ruby.rs`. The Ruby
+server itself is in git up to the tag `v0.3.0`.
+
 The Claude Code plugin's hooks (`hooks/hooks.json`) run `recollect hook
 session-start` and `recollect hook post-compact` with Claude Code's hook
 input on stdin; that corner of the CLI is `src/hook.rs`, with project
 detection (a `.recollect-project` file, else the git repository's directory
-name) in `src/detect.rs`.
+name) in `src/detect.rs`. The plugin is this whole repository, and Claude Code
+puts a plugin's `bin/` on PATH, so the repository has no `bin/` directory. The
+plugin has its own version, in `.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json` and `tests/plugin.rs`; raise it when the
+files the plugin ships change.
 
 `evals/` holds `claude plugin eval` cases for the skill: whether an agent
 searches recollect before answering, stores decisions in the right project,
@@ -135,96 +121,74 @@ switch.
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Sinatra/Puma Server                   │
-├─────────────────────────────────────────────────────────┤
-│  POST /mcp         → MCP::Server#handle_json(body)      │
-│  GET/POST /api/*   → REST endpoints for Web UI + CLI    │
-│  GET /             → Static Web UI files                │
-└─────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────┐
-│              SQLite + FTS5 (per-project)                │
-├─────────────────────────────────────────────────────────┤
-│  ~/.recollect/global.db        → Cross-project memories │
-│  ~/.recollect/projects/*.db    → Project-specific       │
-└─────────────────────────────────────────────────────────┘
+main.rs      the clap CLI: parses a command, prints its result
+service.rs   one method per command, combining storage, embeddings and search
+db/          SQLite: schema migrations, memories, chunks, queries, peers
+embed/       the chunker and the in-process model behind the Embedder trait
+search/      the FTS5 query, reciprocal rank fusion, recency decay
+sync/        sync between machines (see above)
+hook.rs      the Claude Code hooks, with detect.rs
+update.rs    the update check and recollect update
+migrate.rs   reading a Ruby installation's data
+output.rs    text rendering; --json goes through serde
+config.rs    the data directory, config.toml and their defaults
+memory.rs    the domain types and the rules for content, tags and project names
+filter.rs    the filters list, search and tags share
+time.rs      the stored timestamp format, --since and --until
+error.rs     the error type; the CLI prints each variant as one line
 ```
-
-### Key Components
-
-- **HTTPServer** (`lib/recollect/http_server.rb`): Sinatra app handling MCP endpoint, REST API, and static files
-- **MCPServer** (`lib/recollect/mcp_server.rb`): Factory building MCP::Server with all tools
-- **DatabaseManager** (`lib/recollect/database_manager.rb`): Multi-database coordination with lazy initialization
-- **Database** (`lib/recollect/database.rb`): SQLite wrapper with FTS5 search
-- **Tools** (`lib/recollect/tools/`): MCP tool implementations (store, search, get_context, list_projects, delete)
-- **Resources** (`lib/recollect/resources/`): MCP resources - per-project markdown context (`Projects`) and the single-memory template (`Memory`), rendered by `MemoryMarkdown`
 
 ### Design Decisions
 
-- **HTTP-only transport**: No stdio; single Puma server simplifies SQLite concurrency
-- **MCP via handle_json**: MCP protocol exposed at `/mcp` endpoint
-- **Project isolation**: Separate database per project, plus global database
-- **Vector search**: Optional hybrid FTS5 + vector similarity search via sqlite-vec extension
-- **Three distribution channels**: the gem ships the server and CLI (`exe/`), the Claude Code
-  plugin ships the agent-facing parts (`skills/`, `hooks/`, all working through
-  the Rust `recollect` binary), catalogued by `.claude-plugin/marketplace.json` so this
-  repository is its own marketplace, and GitHub Releases ship the Rust `recollect`
-  binary (`install.sh`)
+- **CLI only**: no MCP, and no server for storing or searching; the plugin's
+  hooks and skills run the binary, and `recollect serve` exists for sync alone
+- **One database**: `memories.db` holds every project in a `project` column
+  (NULL means global); the CLI and the sync daemon open the same file
+- **Immutable memories**: a memory is stored and at most tombstoned, never
+  edited, which is what lets sync take the union of two machines
+- **Embeddings in-process**: `bge-small-en-v1.5`, quantized, run by fastembed;
+  a memory whose embedding fails is stored without vectors and embedded later
+- **Hybrid search**: FTS5 and sqlite-vec candidates, merged by reciprocal rank
+  fusion
+- **Two distribution channels**: GitHub Releases ship the binary
+  (`install.sh`), and the Claude Code plugin ships the agent-facing parts
+  (`skills/`, `hooks/`), catalogued by `.claude-plugin/marketplace.json` so
+  this repository is its own marketplace
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RECOLLECT_DATA_DIR` | `~/.recollect` | Data storage directory |
-| `RECOLLECT_HOST` | `127.0.0.1` | Server bind address |
-| `RECOLLECT_PORT` | `7326` | Server port |
-| `RECOLLECT_URL` | `http://localhost:7326` | CLI base URL |
-| `RECOLLECT_ENABLE_VECTORS` | `false` | Enable vector search |
-| `RECOLLECT_MAX_VECTOR_DISTANCE` | `1.0` | Max cosine distance (0-2) for vector results |
-| `RECOLLECT_SQLITE_VEC_PATH` | (auto-detect) | Path to the sqlite-vec extension, checked before built-in locations |
-| `RECOLLECT_PYTHON` | `.venv/bin/python3`, else `python3` | Python interpreter running the embedding model |
-| `RECOLLECT_LOG_WIREDUMPS` | `false` | Enable debug logging |
-| `RECOLLECT_RECENCY_AGING_FACTOR` | `0.0` | Recency ranking strength (0.0-1.0, 0=disabled) |
-| `RECOLLECT_RECENCY_HALF_LIFE_DAYS` | `30.0` | Days until memory relevance decays to 50% |
+| `RECOLLECT_DATA_DIR` | `~/.recollect` | Data directory; a development build has no default |
+| `RECOLLECT_MODEL_DIR` | `<data dir>/models` | Embedding model cache |
+| `RECOLLECT_DOWNLOAD_BASE` | GitHub Releases | Where `recollect update` and `install.sh` find releases; the only source a development build uses |
+| `RECOLLECT_VERSION` | latest | Release tag `install.sh` installs |
+| `RECOLLECT_INSTALL_DIR` | `~/.local/bin` | Where `install.sh` puts the binary |
+| `RECOLLECT_CPUINFO` | `/proc/cpuinfo` | The file `install.sh` reads the CPU's features from; the tests name a CPU without AVX2 with it |
+
+Search, recency ranking, sync and the update check are tuned in
+`config.toml` in the data directory (`src/config.rs`).
 
 ## Before Committing
 
-Run rubocop to detect and fix any style offenses:
-
 ```bash
-bundle exec rake rubocop
+cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+shellcheck install.sh .github/scripts/release-smoke-test.sh   # when either changed; CI runs it
 ```
 
 Run test coverage and ensure it hasn't degraded:
 
 ```bash
-bundle exec rake coverage
+cargo llvm-cov --fail-under-lines 80
 ```
 
 Degrading test coverage is strongly discouraged. If coverage drops, add tests for uncovered code before committing.
 
-For Rust changes, also run:
-
-```bash
-cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
-```
-
 ## Testing
 
-Tests use `test/tmp/test_data` for isolated database files (cleaned between tests). Test helper sets `RACK_ENV=test` and provides `Recollect::TestCase` base class with Rack::Test methods.
-
-## MCP Configuration for Claude Code
-
-```json
-{
-  "mcpServers": {
-    "recollect": {
-      "type": "http",
-      "url": "http://localhost:7326/mcp"
-    }
-  }
-}
-```
-
+Unit tests sit in their modules under `src/`. The integration tests in
+`tests/` run the library and the real binary on temporary data directories;
+`tests/common/` holds what they share (the embedding model loaded once, a
+fake release site, Ruby-shaped data). `tests/plugin.rs` and `tests/ci.rs`
+check files instead of code: the plugin's manifests, hooks and skills, and
+the CI workflow.
