@@ -12,8 +12,9 @@ persistent memory: one Rust binary that keeps memories in a single SQLite
 database with FTS5 full-text search and vector search, and can sync them
 between machines. The crate is at the repository root (`Cargo.toml`, `src/`,
 `tests/`). The repository is also the Claude Code plugin (`skills/`, `hooks/`)
-and its own marketplace (`.claude-plugin/marketplace.json`). There is no
-server and no MCP: agents run the CLI.
+and its own marketplace (`.claude-plugin/marketplace.json`). There is no MCP
+server: agents run the CLI, and the only daemon is `recollect serve`, for
+sync.
 
 ## Commands
 
@@ -21,6 +22,7 @@ server and no MCP: agents run the CLI.
 cargo test                                   # all tests; the first run downloads the model to .model-cache/
 cargo test --test cli                        # end-to-end tests of the binary
 cargo test --test plugin                     # the Claude Code plugin's manifests, hooks and skills
+cargo test --test ci                         # the guards of .github/workflows/ci.yml
 cargo test --test sync                       # sync end to end: daemons and CLI on local sockets
 cargo test --test update                     # the update notice and `recollect update` against a fake release site
 evals/run.sh --model opus                    # the plugin's behaviour evals (claude plugin eval; paid model calls)
@@ -60,7 +62,11 @@ The Claude Code plugin's hooks (`hooks/hooks.json`) run `recollect hook
 session-start` and `recollect hook post-compact` with Claude Code's hook
 input on stdin; that corner of the CLI is `src/hook.rs`, with project
 detection (a `.recollect-project` file, else the git repository's directory
-name) in `src/detect.rs`.
+name) in `src/detect.rs`. The plugin is this whole repository, and Claude Code
+puts a plugin's `bin/` on PATH, so the repository has no `bin/` directory. The
+plugin has its own version, in `.claude-plugin/plugin.json`,
+`.claude-plugin/marketplace.json` and `tests/plugin.rs`; raise it when the
+files the plugin ships change.
 
 `evals/` holds `claude plugin eval` cases for the skill: whether an agent
 searches recollect before answering, stores decisions in the right project,
@@ -125,11 +131,17 @@ hook.rs      the Claude Code hooks, with detect.rs
 update.rs    the update check and recollect update
 migrate.rs   reading a Ruby installation's data
 output.rs    text rendering; --json goes through serde
+config.rs    the data directory, config.toml and their defaults
+memory.rs    the domain types and the rules for content, tags and project names
+filter.rs    the filters list, search and tags share
+time.rs      the stored timestamp format, --since and --until
+error.rs     the error type; the CLI prints each variant as one line
 ```
 
 ### Design Decisions
 
-- **CLI only**: no server, no MCP; the plugin's hooks and skills run the binary
+- **CLI only**: no MCP, and no server for storing or searching; the plugin's
+  hooks and skills run the binary, and `recollect serve` exists for sync alone
 - **One database**: `memories.db` holds every project in a `project` column
   (NULL means global); the CLI and the sync daemon open the same file
 - **Immutable memories**: a memory is stored and at most tombstoned, never
@@ -152,6 +164,7 @@ output.rs    text rendering; --json goes through serde
 | `RECOLLECT_DOWNLOAD_BASE` | GitHub Releases | Where `recollect update` and `install.sh` find releases; the only source a development build uses |
 | `RECOLLECT_VERSION` | latest | Release tag `install.sh` installs |
 | `RECOLLECT_INSTALL_DIR` | `~/.local/bin` | Where `install.sh` puts the binary |
+| `RECOLLECT_CPUINFO` | `/proc/cpuinfo` | The file `install.sh` reads the CPU's features from; the tests name a CPU without AVX2 with it |
 
 Search, recency ranking, sync and the update check are tuned in
 `config.toml` in the data directory (`src/config.rs`).
@@ -160,6 +173,7 @@ Search, recency ranking, sync and the update check are tuned in
 
 ```bash
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+shellcheck install.sh .github/scripts/release-smoke-test.sh   # when either changed; CI runs it
 ```
 
 Run test coverage and ensure it hasn't degraded:
@@ -175,4 +189,6 @@ Degrading test coverage is strongly discouraged. If coverage drops, add tests fo
 Unit tests sit in their modules under `src/`. The integration tests in
 `tests/` run the library and the real binary on temporary data directories;
 `tests/common/` holds what they share (the embedding model loaded once, a
-fake release site, Ruby-shaped data).
+fake release site, Ruby-shaped data). `tests/plugin.rs` and `tests/ci.rs`
+check files instead of code: the plugin's manifests, hooks and skills, and
+the CI workflow.

@@ -10,13 +10,14 @@ and finds them again by words and by meaning.
 
 Recollect is a command-line tool. An agent, or you, stores a memory with
 `recollect store` and finds it again with `recollect search`: in a later
-session, in another project or on another machine. There is no server to run
-and no account to create. The database is one file in `~/.recollect`, and the
-embedding model runs inside the binary.
+session, in another project or on another machine. Storing and searching
+need no server and no account: the database is one file,
+`~/.recollect/memories.db`, and the embedding model runs on your machine, in
+the same process.
 
 ## Features
 
-- **One binary**: SQLite with FTS5, the sqlite-vec extension and the embedding runtime are compiled in; there is nothing else to install
+- **One binary**: SQLite with FTS5, the sqlite-vec extension and the embedding runtime are compiled in; the one further download is the embedding model, on first use
 - **Hybrid search**: BM25 full-text search and vector similarity, merged with reciprocal rank fusion
 - **Local embeddings**: computed in-process with `bge-small-en-v1.5` (English); no memory is sent to an embedding service
 - **Projects**: a memory belongs to a project or to none (global), and a search covers one project or all of them
@@ -54,9 +55,10 @@ to the guest: choose the CPU type `host` in QEMU or Proxmox, or the mode
 `x86-64-v2-AES` hide it, and recollect stops with `Illegal instruction` there.
 
 The first `store` or `search` downloads the embedding model (about 65 MB)
-from Hugging Face into `~/.recollect/models`. If that fails, the memory is
-stored all the same and search matches words only; `recollect reindex` embeds
-what is pending once the model is there.
+from Hugging Face into `~/.recollect/models` (into `$HF_HOME` instead, where
+that variable is set). If that fails, the memory is stored all the same and
+search matches words only; `recollect reindex` embeds what is pending once
+the model is there.
 
 Once installed, recollect upgrades itself:
 
@@ -144,22 +146,25 @@ recollect context -p myproject                   # the last session, recent note
 recollect projects
 recollect tags -p myproject
 recollect status                                 # storage location, counts, vector health
+recollect reindex                                # embed the memories that have no vectors yet
 
 # Remove
 recollect delete 42
 ```
 
-`store`, `search`, `list`, `show`, `context`, `projects`, `tags` and `status`
-print JSON with `--json`. `search` and `list` take filters: `-t` for memory
-types, `-T` for tags a memory must carry (all of them), and `--since` and
-`--until` for the time it was stored. `recollect <command> --help` lists
-every option.
+`store`, `search`, `list`, `show`, `context`, `projects`, `tags`, `status`,
+`id` and `peer list` print JSON with `--json`. `search` and `list` take
+filters: `-t` for memory types, `-T` for tags a memory must carry (all of
+them), and `--since` and `--until` for the time it was stored.
+`recollect <command> --help` lists every option.
 
 ### Projects
 
 `-p` names the project. `store` without `-p`, or with `-p global`, stores a
 memory that belongs to no project. `search`, `list` and `tags` without `-p`
 cover every project, and `-p global` selects the memories without one.
+Project names are lowercased and consist of letters, digits, `.`, `_` and
+`-`; tags are lowercased too.
 
 With the Claude Code plugin, the session-start hook names the project (see
 [Claude Code plugin](#claude-code-plugin)) and the agent passes that name on.
@@ -181,17 +186,22 @@ For semantic categorization (decisions, patterns, bugs, learnings), use **tags**
 
 ### Search
 
-A search runs two queries and merges their rankings: one over the words
-(SQLite FTS5; common English words such as "the" or "how" are left out unless
-they are quoted) and one over the meaning (the query's embedding against the
-memories' embeddings). Long memories are embedded in several chunks and found
-as a whole. Memories that have no vectors yet are still found by their words.
+A search runs two queries and merges their rankings. One is over the words
+of the content and the tags (SQLite FTS5). It compares whole words without
+stemming, so "expire" and "expires" are different words to it; a memory that
+has more of the query's words ranks higher; and common English words such as
+"the" or "how" are ignored unless they stand in a phrase in double quotes, as
+in `recollect search '"how to" deploy'`. The other query is over the meaning:
+the query's embedding against the memories' embeddings, which also finds a
+memory that says the same in other words. Long memories are embedded in
+several chunks and found as a whole. Memories that have no vectors yet are
+still found by their words.
 
 ### Deleting
 
-Memories never change once stored. `recollect delete` removes a memory's
-text and tags and keeps an empty record of the deletion, so that sync can
-pass the deletion on to the other machines.
+`recollect delete` removes a memory's text and tags. What stays is the
+record that it was deleted, with its project, type and dates, so that sync
+can pass the deletion on to the other machines.
 
 ## Syncing between machines
 
@@ -269,7 +279,7 @@ list` says which side to upgrade.
 
 Everything is optional. Recollect reads `config.toml` in its data directory;
 a key it does not know is an error. The `[sync]` and `[update]` tables are
-described above, these two tune search:
+described above; these two tune search, shown with their defaults:
 
 ```toml
 [search]
@@ -287,8 +297,8 @@ of its score and a new one keeps all of it.
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `RECOLLECT_DATA_DIR` | `~/.recollect` | Data directory: the database, `config.toml` and this machine's sync key |
-| `RECOLLECT_MODEL_DIR` | `<data dir>/models` | Where the embedding model is kept |
+| `RECOLLECT_DATA_DIR` | `~/.recollect` | Data directory: the database (`memories.db`), `config.toml` and this machine's sync key |
+| `RECOLLECT_MODEL_DIR` | `<data dir>/models` | Where the embedding model is kept; a set `HF_HOME` takes its place |
 
 ## Coming from the Ruby server
 
@@ -307,6 +317,22 @@ memories that are already there and deletes those the Ruby server has deleted
 since. Both versions can use `~/.recollect`, their files have different
 names.
 
+The command copies everything or nothing. It stops at the first memory it
+cannot take, names the file and the memory, and has written nothing by then.
+Two things the Ruby version allowed make it stop:
+
+- A memory type other than `note`, `todo` or `session`; the Ruby CLI accepted
+  any. Change the type in the named file with `sqlite3`, or make it a tag.
+- A database the Ruby server has not opened since May 2026, when it began to
+  give every memory a `global_id`. The Ruby server at `v0.3.0` adds the ids
+  to each database it opens: start it once and search across all projects.
+
+Afterwards, remove what is left of the Ruby server: its systemd unit
+(`systemctl --user disable --now recollect`), the `recollect` entry under
+`mcpServers` in the MCP configuration, and its `recollect` executable where
+that comes before `~/.local/bin` on PATH (the install script warns about
+that).
+
 ## Development
 
 ```bash
@@ -324,10 +350,10 @@ cargo run -- store -p myproject -T decision "Memory content"
 cargo run -- search "query" --json
 ```
 
-`rust-toolchain.toml` pins the toolchain. `cargo run` and `cargo test` keep
-their data in `target/test-data`, never in `~/.recollect`, and a development
-build started directly (`target/debug/recollect`) refuses to run without
-`RECOLLECT_DATA_DIR`.
+`rust-toolchain.toml` selects the toolchain and its components. `cargo run`
+and `cargo test` keep their data in `target/test-data` unless
+`RECOLLECT_DATA_DIR` is set, and a development build started directly
+(`target/debug/recollect`) refuses to run without that variable.
 
 ### Packaging layout
 
