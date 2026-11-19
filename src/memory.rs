@@ -180,7 +180,7 @@ pub struct Tombstone {
 }
 
 /// A memory row as sync sends it: every column but the local id; vectors
-/// never travel. A deleted memory has blank content and no tags.
+/// never travel. A deleted memory has blank content, no tags and supersedes nothing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncRecord {
@@ -189,6 +189,9 @@ pub struct SyncRecord {
     pub memory_type: MemoryType,
     pub content: String,
     pub tags: Vec<String>,
+    /// The global ids of the memories this one supersedes, sorted; fixed at
+    /// creation, so a deleted memory carries none.
+    pub supersedes: Vec<String>,
     pub origin_peer: Option<String>,
     pub created_at: String,
     pub deleted_at: Option<String>,
@@ -207,7 +210,7 @@ impl SyncRecord {
             tags: self.tags.clone(),
             origin_peer: self.origin_peer.clone(),
             created_at: self.created_at.clone(),
-            supersedes: Vec::new(),
+            supersedes: self.supersedes.clone(),
         }
     }
 

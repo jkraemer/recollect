@@ -494,7 +494,30 @@ mod tests {
             );
             assert_eq!(
                 responder.join().unwrap().unwrap_err().to_string(),
-                "peer a speaks sync protocol 2, this recollect speaks 1; upgrade the older one"
+                "peer a speaks sync protocol 3, this recollect speaks 2; upgrade this machine"
+            );
+        });
+    }
+
+    #[test]
+    fn a_peer_with_an_older_protocol_version_is_the_one_to_upgrade() {
+        let mut a = database();
+        let (connecting, answering) = socket_pair();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let mut older = Channel::new(answering);
+                older.receive(MESSAGE_LIMIT).unwrap();
+                older
+                    .send(&Message::Hello {
+                        protocol: PROTOCOL_VERSION - 1,
+                        manifest_hash: "whatever".into(),
+                    })
+                    .unwrap();
+            });
+            let result = initiate(&mut Channel::new(connecting), &mut a, "b");
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "peer b speaks sync protocol 1, this recollect speaks 2; upgrade peer b"
             );
         });
     }
@@ -518,7 +541,7 @@ mod tests {
             assert_eq!(received_memories(&result), 0);
             assert_eq!(
                 result.unwrap_err().to_string(),
-                "peer b speaks sync protocol 2, this recollect speaks 1; upgrade the older one"
+                "peer b speaks sync protocol 3, this recollect speaks 2; upgrade this machine"
             );
         });
     }

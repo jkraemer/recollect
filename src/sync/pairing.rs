@@ -713,7 +713,7 @@ mod tests {
         let (reply, answered, inviter) =
             send_unpaired(pair_message(PROTOCOL_VERSION + 1, "twelve", "twelve:7327"));
         let mismatch =
-            "peer twelve speaks sync protocol 2, this recollect speaks 1; upgrade the older one";
+            "peer twelve speaks sync protocol 3, this recollect speaks 2; upgrade this machine";
         assert_eq!(
             reply,
             Message::Error {

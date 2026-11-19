@@ -4,7 +4,8 @@ use rusqlite::Row;
 
 use super::Database;
 use super::memories::{
-    INSERT_MEMORY, UNLESS_STORED, apply_tombstone, insert_row, json_array, memory_type_at, tags_at,
+    INSERT_MEMORY, UNLESS_STORED, apply_tombstone, insert_row, json_array, memory_type_at,
+    supersedes_of_memory, tags_at,
 };
 use crate::error::Result;
 use crate::memory::{SyncRecord, Tombstone};
@@ -19,7 +20,11 @@ pub struct SyncApplied {
 }
 
 /// The columns `sync_record_from_row` reads.
-const SYNC_COLUMNS: &str = "global_id, project, memory_type, content, tags, origin_peer, created_at, deleted_at, deleted_by_peer";
+const SYNC_COLUMNS: &str = concat!(
+    "m.global_id, m.project, m.memory_type, m.content, m.tags, ",
+    supersedes_of_memory!(),
+    ", m.origin_peer, m.created_at, m.deleted_at, m.deleted_by_peer"
+);
 
 fn sync_record_from_row(row: &Row<'_>) -> rusqlite::Result<SyncRecord> {
     Ok(SyncRecord {
@@ -28,10 +33,11 @@ fn sync_record_from_row(row: &Row<'_>) -> rusqlite::Result<SyncRecord> {
         memory_type: memory_type_at(row, 2)?,
         content: row.get(3)?,
         tags: tags_at(row, 4)?,
-        origin_peer: row.get(5)?,
-        created_at: row.get(6)?,
-        deleted_at: row.get(7)?,
-        deleted_by_peer: row.get(8)?,
+        supersedes: tags_at(row, 5)?,
+        origin_peer: row.get(6)?,
+        created_at: row.get(7)?,
+        deleted_at: row.get(8)?,
+        deleted_by_peer: row.get(9)?,
     })
 }
 
@@ -50,8 +56,8 @@ impl Database {
     /// ordered by global id. Unknown ids are skipped.
     pub fn sync_records(&self, global_ids: &[String]) -> Result<Vec<SyncRecord>> {
         let mut statement = self.conn.prepare(&format!(
-            "SELECT {SYNC_COLUMNS} FROM memories
-             WHERE global_id IN (SELECT value FROM json_each(?1)) ORDER BY global_id"
+            "SELECT {SYNC_COLUMNS} FROM memories m
+             WHERE m.global_id IN (SELECT value FROM json_each(?1)) ORDER BY m.global_id"
         ))?;
         let rows = statement.query_map([json_array(global_ids)], sync_record_from_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -126,6 +132,7 @@ mod tests {
             memory_type: MemoryType::Todo,
             content: content.into(),
             tags: vec!["tagged".into()],
+            supersedes: Vec::new(),
             origin_peer: Some("SHA256:origin".into()),
             created_at: T0.into(),
             deleted_at: None,
@@ -195,6 +202,7 @@ mod tests {
                     memory_type: MemoryType::Note,
                     content: String::new(),
                     tags: Vec::new(),
+                    supersedes: Vec::new(),
                     origin_peer: None,
                     created_at: T0.into(),
                     deleted_at: Some(LATER.into()),
@@ -202,6 +210,57 @@ mod tests {
                 },
                 live("kept"),
             ]
+        );
+    }
+
+    #[test]
+    fn sync_records_carry_the_supersedes_list() {
+        let mut db = Database::open_in_memory().unwrap();
+        let superseding = NewRecord {
+            supersedes: vec!["test-z".into(), "test-a".into()],
+            ..record("new", None, T0)
+        };
+        let id = db.insert_memory(&superseding, None).unwrap();
+        assert_eq!(
+            db.sync_records(&ids(&["new"])).unwrap()[0].supersedes,
+            ["test-a", "test-z"]
+        );
+        db.delete(id, LATER).unwrap();
+        assert!(
+            db.sync_records(&ids(&["new"])).unwrap()[0]
+                .supersedes
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn apply_sync_stores_the_supersedes_list_of_a_new_memory() {
+        let mut db = Database::open_in_memory().unwrap();
+        let superseding = SyncRecord {
+            supersedes: vec!["test-a".into(), "test-z".into()],
+            ..live("new")
+        };
+        db.apply_sync(std::slice::from_ref(&superseding), &[])
+            .unwrap();
+        assert_eq!(db.sync_records(&ids(&["new"])).unwrap(), [superseding]);
+    }
+
+    #[test]
+    fn a_record_that_is_already_stored_keeps_its_own_supersedes_list() {
+        let mut db = Database::open_in_memory().unwrap();
+        let own = NewRecord {
+            supersedes: vec!["test-own".into()],
+            ..record("x", None, T0)
+        };
+        db.insert_memory(&own, None).unwrap();
+        let theirs = SyncRecord {
+            supersedes: vec!["test-theirs".into()],
+            ..live("x")
+        };
+        db.apply_sync(&[theirs], &[]).unwrap();
+        assert_eq!(
+            db.sync_records(&ids(&["x"])).unwrap()[0].supersedes,
+            ["test-own"]
         );
     }
 

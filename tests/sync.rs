@@ -196,7 +196,7 @@ const NOT_PAIRED: &str =
     "this machine does not know your key; pair again with recollect pair and recollect join";
 
 const OTHER_PROTOCOL: &str =
-    "peer gamma speaks sync protocol 2, this recollect speaks 1; upgrade the older one";
+    "peer gamma speaks sync protocol 3, this recollect speaks 2; upgrade this machine";
 
 impl Machine {
     /// Makes an invite on this machine, which other machines reach at `address`.
@@ -889,6 +889,7 @@ fn sync_embeds_what_a_round_stored_before_it_failed() {
         memory_type: MemoryType::Note,
         content: about_storage.into(),
         tags: Vec::new(),
+        supersedes: Vec::new(),
         origin_peer: None,
         created_at: "2026-10-07T10:00:00.000Z".into(),
         deleted_at: None,

@@ -16,6 +16,7 @@ macro_rules! supersedes_of_memory {
            FROM supersessions WHERE memory_id = m.id)"
     };
 }
+pub(super) use supersedes_of_memory;
 
 /// The columns `memory_from_row` reads, from the `memories` table aliased
 /// `m`: the last two are the global ids of what the memory supersedes and of

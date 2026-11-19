@@ -708,6 +708,7 @@ fn received(config: &Config, content: &str) {
         memory_type: MemoryType::Note,
         content: content.to_string(),
         tags: Vec::new(),
+        supersedes: Vec::new(),
         origin_peer: None,
         created_at: "2026-10-07T10:00:00.000Z".to_string(),
         deleted_at: None,

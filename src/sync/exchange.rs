@@ -2,7 +2,7 @@
 //! what each side owes the other, what a peer may send, and how memories
 //! are cut into messages.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::error::{Error, Result};
 use crate::memory::{ProjectRef, SyncRecord, Tombstone, normalize_content, normalize_tags};
@@ -34,7 +34,9 @@ pub fn manifest(rows: Vec<(String, bool)>) -> Vec<ManifestEntry> {
 
 /// Identifies what a machine holds: the SHA-256 over the sorted lines
 /// `<global_id> live|deleted`. Two machines with the same hash hold the same
-/// memories and deletions.
+/// memories and deletions. The supersedes lists are not covered: a list is
+/// fixed when the memory is created and travels with its record, and a
+/// deletion already shows in the state.
 pub fn manifest_hash(entries: &[ManifestEntry]) -> String {
     let mut lines: Vec<String> = entries
         .iter()
@@ -97,6 +99,30 @@ fn check_global_id(global_id: &str) -> Result<()> {
     }
 }
 
+/// A memory supersedes other memories, each named once by its canonical
+/// global id; superseding itself would hide it from every read.
+fn check_supersedes(global_id: &str, supersedes: &[String]) -> Result<()> {
+    let mut seen = HashSet::new();
+    for target in supersedes {
+        if check_global_id(target).is_err() {
+            return Err(invalid(
+                global_id,
+                &format!("it supersedes {target:?}, which is not a global id"),
+            ));
+        }
+        if target == global_id {
+            return Err(invalid(global_id, "it supersedes itself"));
+        }
+        if !seen.insert(target) {
+            return Err(invalid(
+                global_id,
+                &format!("it supersedes {target:?} twice"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn check_timestamp(global_id: &str, field: &str, value: &str) -> Result<()> {
     if parse_timestamp(value).is_ok_and(|stored| stored == value) {
         Ok(())
@@ -126,10 +152,13 @@ pub fn validate(records: &[SyncRecord], tombstones: &[Tombstone]) -> Result<()> 
         match &record.deleted_at {
             Some(deleted_at) => {
                 check_timestamp(id, "deleted_at", deleted_at)?;
-                if !record.content.is_empty() || !record.tags.is_empty() {
+                if !record.content.is_empty()
+                    || !record.tags.is_empty()
+                    || !record.supersedes.is_empty()
+                {
                     return Err(invalid(
                         id,
-                        "a deleted memory must not carry content or tags",
+                        "a deleted memory must not carry content, tags or supersessions",
                     ));
                 }
             }
@@ -145,6 +174,7 @@ pub fn validate(records: &[SyncRecord], tombstones: &[Tombstone]) -> Result<()> 
                 if !normalize_tags(&record.tags).is_ok_and(|tags| tags == record.tags) {
                     return Err(invalid(id, "its tags are not normalized"));
                 }
+                check_supersedes(id, &record.supersedes)?;
             }
         }
     }
@@ -207,6 +237,7 @@ mod tests {
             memory_type: MemoryType::Note,
             content: "A note".into(),
             tags: vec!["sync".into()],
+            supersedes: Vec::new(),
             origin_peer: None,
             created_at: T0.into(),
             deleted_at: None,
@@ -281,7 +312,11 @@ mod tests {
             tags: Vec::new(),
             ..live(B)
         };
-        validate(&[live(A), global, deleted(C)], &[tombstone(D)]).unwrap();
+        let superseding = SyncRecord {
+            supersedes: vec![C.into(), D.into()],
+            ..live(A)
+        };
+        validate(&[superseding, global, deleted(C)], &[tombstone(D)]).unwrap();
         validate(&[], &[]).unwrap();
     }
 
@@ -365,7 +400,51 @@ mod tests {
                     content: "still here".into(),
                     ..deleted(A)
                 },
-                format!("invalid record {A:?}: a deleted memory must not carry content or tags"),
+                format!(
+                    "invalid record {A:?}: a deleted memory must not carry content, tags or supersessions"
+                ),
+            ),
+            (
+                SyncRecord {
+                    supersedes: vec![B.into()],
+                    ..deleted(A)
+                },
+                format!(
+                    "invalid record {A:?}: a deleted memory must not carry content, tags or supersessions"
+                ),
+            ),
+            (
+                SyncRecord {
+                    supersedes: vec!["not-a-uuid".into()],
+                    ..live(A)
+                },
+                format!(
+                    "invalid record {A:?}: it supersedes \"not-a-uuid\", which is not a global id"
+                ),
+            ),
+            (
+                SyncRecord {
+                    supersedes: vec![B.to_uppercase()],
+                    ..live(A)
+                },
+                format!(
+                    "invalid record {A:?}: it supersedes {:?}, which is not a global id",
+                    B.to_uppercase()
+                ),
+            ),
+            (
+                SyncRecord {
+                    supersedes: vec![A.into()],
+                    ..live(A)
+                },
+                format!("invalid record {A:?}: it supersedes itself"),
+            ),
+            (
+                SyncRecord {
+                    supersedes: vec![B.into(), B.into()],
+                    ..live(A)
+                },
+                format!("invalid record {A:?}: it supersedes {B:?} twice"),
             ),
             (
                 SyncRecord {
