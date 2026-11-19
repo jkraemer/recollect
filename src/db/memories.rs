@@ -12,9 +12,8 @@ use crate::memory::{Embedded, Memory, MemoryType, NewRecord, Tombstone};
 /// empty. A macro so that `concat!` can build `MEMORY_COLUMNS` from it.
 macro_rules! supersedes_of_memory {
     () => {
-        "(SELECT json_group_array(supersedes_global_id)
-           FROM (SELECT supersedes_global_id FROM supersessions
-                 WHERE memory_id = m.id ORDER BY supersedes_global_id))"
+        "(SELECT json_group_array(supersedes_global_id ORDER BY supersedes_global_id)
+           FROM supersessions WHERE memory_id = m.id)"
     };
 }
 
@@ -24,10 +23,9 @@ macro_rules! supersedes_of_memory {
 pub(super) const MEMORY_COLUMNS: &str = concat!(
     "m.id, m.global_id, m.project, m.memory_type, m.content, m.tags, m.created_at, ",
     supersedes_of_memory!(),
-    ", (SELECT json_group_array(global_id)
-         FROM (SELECT s.global_id FROM supersessions
-               JOIN memories s ON s.id = supersessions.memory_id
-               WHERE supersedes_global_id = m.global_id ORDER BY s.global_id))"
+    ", (SELECT json_group_array(s.global_id ORDER BY s.global_id)
+         FROM supersessions JOIN memories s ON s.id = supersessions.memory_id
+         WHERE supersedes_global_id = m.global_id)"
 );
 
 pub(super) fn memory_from_row(row: &Row<'_>) -> rusqlite::Result<Memory> {
@@ -743,5 +741,29 @@ mod tests {
         };
         db.import(&[again], &[]).unwrap();
         assert_eq!(db.get(new_id).unwrap().supersedes, vec!["test-old"]);
+    }
+
+    #[test]
+    fn supersession_lists_come_back_sorted_whatever_the_insert_order() {
+        let mut db = Database::open_in_memory().unwrap();
+        let target = db.insert_memory(&record("m", None, T0), None).unwrap();
+        let both = NewRecord {
+            supersedes: vec!["test-z".into(), "test-a".into()],
+            ..record("both", None, T0)
+        };
+        let both = db.insert_memory(&both, None).unwrap();
+        for name in ["test-z-new", "test-a-new"] {
+            let superseder = NewRecord {
+                global_id: name.into(),
+                supersedes: vec!["test-m".into()],
+                ..record(name, None, T0)
+            };
+            db.insert_memory(&superseder, None).unwrap();
+        }
+        assert_eq!(db.get(both).unwrap().supersedes, vec!["test-a", "test-z"]);
+        assert_eq!(
+            db.get(target).unwrap().superseded_by,
+            vec!["test-a-new", "test-z-new"]
+        );
     }
 }
