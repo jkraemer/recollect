@@ -2,13 +2,14 @@
 
 use std::collections::HashMap;
 
-use rusqlite::params_from_iter;
+use rusqlite::types::Value;
+use rusqlite::{OptionalExtension, params_from_iter};
 
 use super::memories::{MEMORY_COLUMNS, memory_from_row};
 use super::{Database, sql_limit};
 use crate::error::Result;
 use crate::filter::Filter;
-use crate::memory::Memory;
+use crate::memory::{Fork, Memory, MemoryRef, Reference};
 
 impl Database {
     /// Live memories matching `filter`, newest first.
@@ -48,11 +49,101 @@ impl Database {
         Ok(count as usize)
     }
 
-    /// Live-memory counts per project, the global bucket named `global`, by name.
+    /// How many live memories no other live memory supersedes.
+    pub fn current_count(&self) -> Result<usize> {
+        self.count_live(false)
+    }
+
+    /// How many live memories a live memory supersedes.
+    pub fn superseded_count(&self) -> Result<usize> {
+        self.count_live(true)
+    }
+
+    fn count_live(&self, superseded: bool) -> Result<usize> {
+        let negation = if superseded { "" } else { "NOT " };
+        let count: i64 = self.conn.query_row(
+            &format!(
+                "SELECT count(*) FROM memories m WHERE m.deleted_at IS NULL AND {negation}EXISTS
+                 (SELECT 1 FROM supersessions s WHERE s.supersedes_global_id = m.global_id)"
+            ),
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
+    /// The memory `reference` names, live or deleted; `None` when this machine
+    /// does not have it.
+    pub fn find(&self, reference: &MemoryRef) -> Result<Option<Reference>> {
+        let (condition, value) = match reference {
+            MemoryRef::Local(id) => ("id = ?1", Value::Integer(*id)),
+            MemoryRef::Global(global_id) => ("global_id = ?1", Value::Text(global_id.clone())),
+        };
+        let sql =
+            format!("SELECT global_id, id, deleted_at IS NOT NULL FROM memories WHERE {condition}");
+        let found = self
+            .conn
+            .query_row(&sql, [value], |row| {
+                Ok(Reference {
+                    global_id: row.get(0)?,
+                    id: Some(row.get(1)?),
+                    deleted: row.get(2)?,
+                })
+            })
+            .optional()?;
+        Ok(found)
+    }
+
+    /// `find` by global id, or the reference of a memory not on this machine.
+    pub fn reference(&self, global_id: &str) -> Result<Reference> {
+        Ok(self
+            .find(&MemoryRef::Global(global_id.to_string()))?
+            .unwrap_or_else(|| Reference {
+                global_id: global_id.to_string(),
+                id: None,
+                deleted: false,
+            }))
+    }
+
+    /// Every global id that two or more rows supersede, by global id. Live
+    /// memories only: a deleted memory has no supersession rows.
+    pub fn forks(&self) -> Result<Vec<Fork>> {
+        let mut statement = self.conn.prepare(
+            "SELECT supersedes_global_id FROM supersessions
+             GROUP BY supersedes_global_id HAVING count(*) >= 2
+             ORDER BY supersedes_global_id",
+        )?;
+        let targets = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut superseders = self.conn.prepare(
+            "SELECT m.global_id FROM supersessions s JOIN memories m ON m.id = s.memory_id
+             WHERE s.supersedes_global_id = ?1 ORDER BY m.global_id",
+        )?;
+        targets
+            .into_iter()
+            .map(|target| {
+                let ids = superseders
+                    .query_map([&target], |row| row.get::<_, String>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(Fork {
+                    target: self.reference(&target)?,
+                    superseded_by: ids
+                        .iter()
+                        .map(|id| self.reference(id))
+                        .collect::<Result<_>>()?,
+                })
+            })
+            .collect()
+    }
+
+    /// Current-memory counts per project, the global bucket named `global`, by name.
     pub fn project_counts(&self) -> Result<Vec<(String, usize)>> {
         let mut statement = self.conn.prepare(
-            "SELECT COALESCE(project, 'global') AS name, count(*) FROM memories
-             WHERE deleted_at IS NULL GROUP BY project ORDER BY name",
+            "SELECT COALESCE(m.project, 'global') AS name, count(*) FROM memories m
+             WHERE m.deleted_at IS NULL AND NOT EXISTS
+               (SELECT 1 FROM supersessions s WHERE s.supersedes_global_id = m.global_id)
+             GROUP BY m.project ORDER BY name",
         )?;
         let rows = statement.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
@@ -81,7 +172,7 @@ mod tests {
     use crate::db::Database;
     use crate::db::test_support::record;
     use crate::filter::Filter;
-    use crate::memory::{MemoryType, NewRecord, ProjectRef};
+    use crate::memory::{MemoryRef, MemoryType, NewRecord, ProjectRef, Reference};
 
     fn day(n: u32) -> String {
         format!("2026-09-{n:02}T10:00:00.000Z")
@@ -244,5 +335,141 @@ mod tests {
             ..Filter::default()
         };
         assert_eq!(db.tag_counts(&session, 20).unwrap(), [("b".to_string(), 1)]);
+    }
+
+    fn superseding(content: &str, project: Option<&str>, target: &str, at: &str) -> NewRecord {
+        NewRecord {
+            supersedes: vec![format!("test-{target}")],
+            ..record(content, project, at)
+        }
+    }
+
+    fn include_superseded() -> Filter {
+        Filter {
+            include_superseded: true,
+            ..Filter::default()
+        }
+    }
+
+    #[test]
+    fn list_hides_superseded_memories_unless_asked() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("old", None, &day(1)), None)
+            .unwrap();
+        db.insert_memory(&superseding("new", None, "old", &day(2)), None)
+            .unwrap();
+        assert_eq!(contents(&db, &Filter::default()), ["new"]);
+        assert_eq!(contents(&db, &include_superseded()), ["new", "old"]);
+    }
+
+    #[test]
+    fn only_the_end_of_a_chain_is_current() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("a", None, &day(1)), None).unwrap();
+        db.insert_memory(&superseding("b", None, "a", &day(2)), None)
+            .unwrap();
+        db.insert_memory(&superseding("c", None, "b", &day(3)), None)
+            .unwrap();
+        assert_eq!(contents(&db, &Filter::default()), ["c"]);
+    }
+
+    #[test]
+    fn a_deleted_superseder_hides_nothing() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("old", None, &day(1)), None)
+            .unwrap();
+        let new = db
+            .insert_memory(&superseding("new", None, "old", &day(2)), None)
+            .unwrap();
+        db.delete(new, &day(3)).unwrap();
+        assert_eq!(contents(&db, &Filter::default()), ["old"]);
+    }
+
+    #[test]
+    fn superseding_works_across_projects() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("old", Some("p"), &day(1)), None)
+            .unwrap();
+        db.insert_memory(&superseding("new", None, "old", &day(2)), None)
+            .unwrap();
+        let in_p = Filter {
+            project: Some(ProjectRef::Named("p".into())),
+            ..Filter::default()
+        };
+        assert!(contents(&db, &in_p).is_empty());
+    }
+
+    #[test]
+    fn a_fork_names_its_target_and_both_superseders() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("a", None, &day(1)), None).unwrap();
+        db.insert_memory(&superseding("b", None, "a", &day(2)), None)
+            .unwrap();
+        db.insert_memory(&superseding("c", None, "a", &day(3)), None)
+            .unwrap();
+        db.insert_memory(&superseding("d", None, "unknown", &day(4)), None)
+            .unwrap();
+        let forks = db.forks().unwrap();
+        assert_eq!(forks.len(), 1);
+        assert_eq!(
+            forks[0].target,
+            Reference {
+                global_id: "test-a".into(),
+                id: Some(1),
+                deleted: false
+            }
+        );
+        let superseders: Vec<&str> = forks[0]
+            .superseded_by
+            .iter()
+            .map(|r| r.global_id.as_str())
+            .collect();
+        assert_eq!(superseders, ["test-b", "test-c"]);
+        assert_eq!(db.current_count().unwrap(), 3);
+        assert_eq!(db.superseded_count().unwrap(), 1);
+        assert_eq!(contents(&db, &Filter::default()), ["d", "c", "b"]);
+    }
+
+    #[test]
+    fn project_counts_skip_superseded_memories() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("old", Some("p"), &day(1)), None)
+            .unwrap();
+        db.insert_memory(&record("kept", Some("p"), &day(1)), None)
+            .unwrap();
+        db.insert_memory(&superseding("new", None, "old", &day(2)), None)
+            .unwrap();
+        assert_eq!(
+            db.project_counts().unwrap(),
+            [("global".to_string(), 1), ("p".to_string(), 1)]
+        );
+    }
+
+    #[test]
+    fn find_takes_local_and_global_ids_and_deleted_memories() {
+        let mut db = seeded();
+        db.delete(2, &day(5)).unwrap();
+        let live = Reference {
+            global_id: "test-one".into(),
+            id: Some(1),
+            deleted: false,
+        };
+        assert_eq!(db.find(&MemoryRef::Local(1)).unwrap(), Some(live.clone()));
+        assert_eq!(
+            db.find(&MemoryRef::Global("test-one".into())).unwrap(),
+            Some(live)
+        );
+        let gone = db.find(&MemoryRef::Local(2)).unwrap().unwrap();
+        assert!(gone.deleted);
+        assert_eq!(db.find(&MemoryRef::Local(99)).unwrap(), None);
+        assert_eq!(db.find(&MemoryRef::Global("nope".into())).unwrap(), None);
+        assert_eq!(
+            db.reference("nope").unwrap(),
+            Reference {
+                global_id: "nope".into(),
+                id: None,
+                deleted: false
+            }
+        );
     }
 }

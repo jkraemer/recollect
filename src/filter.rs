@@ -16,6 +16,8 @@ pub struct Filter {
     pub since: Option<String>,
     /// Inclusive upper bound on `created_at`, in stored timestamp format.
     pub until: Option<String>,
+    /// Superseded memories are left out unless this is set.
+    pub include_superseded: bool,
 }
 
 impl Filter {
@@ -54,6 +56,12 @@ impl Filter {
         if let Some(until) = &self.until {
             conditions.push("m.created_at <= ?".to_string());
             params.push(Value::Text(until.clone()));
+        }
+        if !self.include_superseded {
+            conditions.push(
+                "NOT EXISTS (SELECT 1 FROM supersessions s WHERE s.supersedes_global_id = m.global_id)"
+                    .to_string(),
+            );
         }
         (conditions.join(" AND "), params)
     }

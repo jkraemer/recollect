@@ -96,6 +96,45 @@ impl Memory {
     }
 }
 
+/// How a command names one memory: by the local id or by the global id that
+/// travels between machines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryRef {
+    Local(i64),
+    Global(String),
+}
+
+impl MemoryRef {
+    /// All digits is a local id; a UUID in any spelling is a global id,
+    /// canonicalized to lowercase hyphenated form.
+    pub fn parse(raw: &str) -> Result<Self> {
+        let invalid = || Error::InvalidReference(raw.to_string());
+        if !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()) {
+            return raw.parse().map(MemoryRef::Local).map_err(|_| invalid());
+        }
+        uuid::Uuid::parse_str(raw)
+            .map(|uuid| MemoryRef::Global(uuid.to_string()))
+            .map_err(|_| invalid())
+    }
+}
+
+/// A memory named by its global id, in whatever state it is on this machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reference {
+    pub global_id: String,
+    /// `None` when the memory is not on this machine.
+    pub id: Option<i64>,
+    pub deleted: bool,
+}
+
+/// A global id superseded by two or more live memories: the machines that
+/// wrote them did not know of each other.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Fork {
+    pub target: Reference,
+    pub superseded_by: Vec<Reference>,
+}
+
 /// A search result: the memory plus its final ranking score.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ScoredMemory {
@@ -209,6 +248,21 @@ pub fn normalize_tags(raw: &[String]) -> Result<Vec<String>> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn memory_ref_parses_ids_and_canonicalizes_uuids() {
+        assert_eq!(MemoryRef::parse("12").unwrap(), MemoryRef::Local(12));
+        assert_eq!(
+            MemoryRef::parse("0190F3A2-7B5C-7D1E-8A2B-3C4D5E6F7A8B").unwrap(),
+            MemoryRef::Global("0190f3a2-7b5c-7d1e-8a2b-3c4d5e6f7a8b".into())
+        );
+        for raw in ["12a", "", "99999999999999999999"] {
+            assert!(
+                matches!(MemoryRef::parse(raw), Err(Error::InvalidReference(r)) if r == raw),
+                "{raw:?}"
+            );
+        }
+    }
 
     #[test]
     fn project_names_are_trimmed_and_lowercased() {

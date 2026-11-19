@@ -12,6 +12,8 @@ pub enum Error {
     InvalidProject(String),
     #[error("invalid tag {0:?}: tags must not be empty")]
     InvalidTag(String),
+    #[error("{0:?} is neither a memory id nor a global id")]
+    InvalidReference(String),
     #[error("content must not be empty")]
     EmptyContent,
     #[error("search query must contain at least one term")]
