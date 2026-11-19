@@ -309,20 +309,29 @@ mod tests {
         assert_eq!(counts_text(&[]), "");
     }
 
-    #[test]
-    fn status_lists_every_field() {
-        let status = Status {
+    fn status() -> Status {
+        Status {
             data_dir: "/d".into(),
             database: "/d/memories.db".into(),
             memories: 3,
             projects: 2,
             embedding_model: "bge-small-en-v1.5-q".into(),
             stored_embedding_model: None,
+            vectors_usable: true,
+            vectors_reason: None,
+            pending_embeddings: 0,
+            superseded: 0,
+            forks: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn status_lists_every_field() {
+        let status = Status {
             vectors_usable: false,
             vectors_reason: Some("not downloaded".into()),
             pending_embeddings: 3,
-            superseded: 0,
-            forks: Vec::new(),
+            ..status()
         };
         assert_eq!(
             status_text(&status),
@@ -341,15 +350,6 @@ mod tests {
     #[test]
     fn status_lists_each_fork_on_a_row() {
         let status = Status {
-            data_dir: "/d".into(),
-            database: "/d/memories.db".into(),
-            memories: 3,
-            projects: 2,
-            embedding_model: "m".into(),
-            stored_embedding_model: None,
-            vectors_usable: true,
-            vectors_reason: None,
-            pending_embeddings: 0,
             superseded: 1,
             forks: vec![Fork {
                 target: reference("a", Some(1), false),
@@ -358,6 +358,7 @@ mod tests {
                     reference("c", Some(3), false),
                 ],
             }],
+            ..status()
         };
         assert!(
             status_text(&status).ends_with("\nfork:                #1 superseded by #2, #3"),

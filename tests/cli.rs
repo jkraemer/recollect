@@ -309,17 +309,42 @@ fn store_refuses_an_unknown_or_malformed_supersedes_target_and_stores_nothing() 
 
 #[test]
 fn a_deleted_memory_may_be_superseded() {
+    for by_global_id in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let a = store_json(dir.path(), "alpha old", &[]);
+        recollect(dir.path())
+            .args(["delete", &id_of(&a)])
+            .assert()
+            .success();
+        let target = if by_global_id {
+            global_id_of(&a).to_string()
+        } else {
+            id_of(&a)
+        };
+        let b = store_json(dir.path(), "beta", &["--supersedes", &target]);
+        let shown = json_of(recollect(dir.path()).args(["show", &id_of(&b), "--json"]));
+        assert_eq!(shown["supersedes"], json!([global_id_of(&a)]));
+    }
+}
+
+#[test]
+fn an_unknown_global_id_is_refused_in_its_canonical_form() {
     let dir = tempfile::tempdir().unwrap();
-    store(dir.path(), &["alpha old"]);
     recollect(dir.path())
-        .args(["delete", "1"])
+        .args([
+            "store",
+            "beta",
+            "--supersedes",
+            "0199A8C0-0000-7000-8000-0000000000FF",
+        ])
         .assert()
-        .success();
-    recollect(dir.path())
-        .args(["store", "beta", "--supersedes", "1"])
-        .assert()
-        .success()
-        .stderr("");
+        .code(1)
+        .stdout("")
+        .stderr(
+            "error: cannot supersede 0199a8c0-0000-7000-8000-0000000000ff: no such memory on this machine\n",
+        );
+    let listed = json_of(recollect(dir.path()).args(["list", "--include-superseded", "--json"]));
+    assert!(listed.as_array().unwrap().is_empty());
 }
 
 #[test]
@@ -367,10 +392,8 @@ fn search_and_context_hide_superseded_memories() {
         .output()
         .unwrap();
     let text = String::from_utf8(searched.stdout).unwrap();
-    assert!(
-        text.contains("alpha old") && text.contains("alpha new"),
-        "{text}"
-    );
+    assert!(text.contains(" · superseded\nalpha old"), "{text}");
+    assert!(text.contains("alpha new"), "{text}");
 }
 
 #[test]
