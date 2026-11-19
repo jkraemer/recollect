@@ -177,7 +177,10 @@ fn the_plugin_ships_skills_and_no_commands() {
 #[test]
 fn the_memory_skill_teaches_superseding() {
     let text = read("skills/using-long-term-memory/SKILL.md");
-    assert!(text.contains("--supersedes"));
+    assert!(
+        text.contains("--supersedes"),
+        "the memory skill does not teach --supersedes"
+    );
 }
 
 #[test]
