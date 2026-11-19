@@ -850,3 +850,27 @@ fn status_counts_current_and_superseded_memories_and_reports_forks() {
     assert_eq!(status.forks[0].target.global_id, old.global_id);
     assert_eq!(status.forks[0].superseded_by.len(), 2);
 }
+
+#[test]
+fn store_warns_once_for_each_target_that_is_superseded_already() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(&dir);
+    let a = app.store(note("a", ProjectRef::Global)).unwrap();
+    let b = app.store(note("b", ProjectRef::Global)).unwrap();
+    let supersede = |ids: &[i64]| StoreInput {
+        supersedes: ids.iter().map(|id| MemoryRef::Local(*id)).collect(),
+        ..note("replacement", ProjectRef::Global)
+    };
+    let c = app.store(supersede(&[a.id])).unwrap();
+    let d = app.store(supersede(&[b.id])).unwrap();
+    assert_eq!(c.warning, None);
+    let outcome = app.store(supersede(&[a.id, b.id])).unwrap();
+    assert_eq!(
+        outcome.warning,
+        Some(format!(
+            "#{} is already superseded by #{}; supersede #{} to replace it; \
+             #{} is already superseded by #{}; supersede #{} to replace it",
+            a.id, c.id, c.id, b.id, d.id, d.id
+        ))
+    );
+}

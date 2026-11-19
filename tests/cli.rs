@@ -301,6 +301,31 @@ fn store_warns_when_the_target_is_already_superseded() {
 }
 
 #[test]
+fn store_warns_with_the_current_end_of_a_chain_of_supersessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha", &[]);
+    let b = store_json(dir.path(), "beta", &["--supersedes", &id_of(&a)]);
+    store_json(dir.path(), "gamma", &["--supersedes", &id_of(&b)]);
+    recollect(dir.path())
+        .args(["store", "delta", "--supersedes", "1"])
+        .assert()
+        .success()
+        .stderr("warning: #1 is already superseded by #3; supersede #3 to replace it\n");
+}
+
+#[test]
+fn store_does_not_warn_when_the_superseder_is_a_target_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha", &[]);
+    store_json(dir.path(), "beta", &["--supersedes", &id_of(&a)]);
+    recollect(dir.path())
+        .args(["store", "gamma", "--supersedes", "1", "--supersedes", "2"])
+        .assert()
+        .success()
+        .stderr("");
+}
+
+#[test]
 fn store_refuses_an_unknown_or_malformed_supersedes_target_and_stores_nothing() {
     let dir = tempfile::tempdir().unwrap();
     store(dir.path(), &["alpha old"]);

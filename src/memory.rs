@@ -138,8 +138,7 @@ pub struct Reference {
 
 /// A global id superseded by two or more current memories (live, and not
 /// superseded themselves): they correct the same memory without knowing of
-/// each other, as two machines do, or because a memory that was superseded
-/// already got a second correction.
+/// each other, as two machines do.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Fork {
     pub target: Reference,

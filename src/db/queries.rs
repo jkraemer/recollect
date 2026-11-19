@@ -124,6 +124,31 @@ impl Database {
             .collect()
     }
 
+    /// The current memories at the ends of the chain of supersessions that
+    /// starts at `global_id`: what replaces it, however often it was replaced
+    /// since. The walk uses UNION so that a cycle, which only a faulty peer
+    /// can make, ends; without a current end the direct superseders are
+    /// returned, so a superseded memory never has an empty answer.
+    pub fn current_ends(&self, global_id: &str) -> Result<Vec<Reference>> {
+        let mut statement = self.conn.prepare(&format!(
+            "WITH RECURSIVE chain(global_id) AS (
+                 SELECT m.global_id FROM supersessions t JOIN memories m ON m.id = t.memory_id
+                 WHERE t.supersedes_global_id = ?1
+                 UNION
+                 SELECT m.global_id FROM chain c
+                 JOIN supersessions t ON t.supersedes_global_id = c.global_id
+                 JOIN memories m ON m.id = t.memory_id)
+             SELECT m.global_id FROM chain m WHERE NOT {IS_SUPERSEDED} ORDER BY m.global_id"
+        ))?;
+        let ids = statement
+            .query_map([global_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if ids.is_empty() {
+            return self.superseders(global_id, false);
+        }
+        ids.iter().map(|id| self.reference(id)).collect()
+    }
+
     /// The live memories that supersede `global_id`, by global id; with
     /// `only_current`, leaving out those that are superseded themselves.
     pub fn superseders(&self, global_id: &str, only_current: bool) -> Result<Vec<Reference>> {
@@ -553,6 +578,31 @@ mod tests {
             .map(|r| r.global_id.as_str())
             .collect();
         assert_eq!(superseders, ["test-c", "test-d"]);
+    }
+
+    #[test]
+    fn current_ends_follow_a_chain_and_survive_a_cycle() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("a", None, &day(1)), None).unwrap();
+        db.insert_memory(&superseding("b", None, "a", &day(2)), None)
+            .unwrap();
+        db.insert_memory(&superseding("c", None, "b", &day(3)), None)
+            .unwrap();
+        let ends = |db: &Database, target: &str| -> Vec<String> {
+            db.current_ends(target)
+                .unwrap()
+                .into_iter()
+                .map(|r| r.global_id)
+                .collect()
+        };
+        assert_eq!(ends(&db, "test-a"), ["test-c"]);
+        assert!(ends(&db, "test-c").is_empty());
+        // A faulty peer's records: x supersedes y, y supersedes x.
+        db.insert_memory(&superseding("x", None, "y", &day(4)), None)
+            .unwrap();
+        db.insert_memory(&superseding("y", None, "x", &day(5)), None)
+            .unwrap();
+        assert_eq!(ends(&db, "test-x"), ["test-y"]);
     }
 
     #[test]

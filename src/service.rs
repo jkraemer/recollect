@@ -485,18 +485,24 @@ impl Recollect {
     }
 
     /// A warning for each of `targets` that a live memory supersedes already:
-    /// superseding it again forks instead of replacing, so it names what to
-    /// supersede instead.
+    /// superseding it again forks instead of replacing, so it names the
+    /// current memories at the end of its chain to supersede instead. Ends
+    /// that this store supersedes too need no warning.
     fn already_superseded(&self, targets: &[String]) -> Result<Option<String>> {
         let mut warnings = Vec::new();
         for target in targets {
-            let superseders = self.db.superseders(target, false)?;
-            if superseders.is_empty() {
+            let ends: Vec<_> = self
+                .db
+                .current_ends(target)?
+                .into_iter()
+                .filter(|end| !targets.contains(&end.global_id))
+                .collect();
+            if ends.is_empty() {
                 continue;
             }
-            let ids = superseders
+            let ids = ends
                 .iter()
-                .filter_map(|superseder| superseder.id)
+                .filter_map(|end| end.id)
                 .map(|id| format!("#{id}"))
                 .collect::<Vec<_>>()
                 .join(", ");
