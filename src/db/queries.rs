@@ -8,7 +8,7 @@ use rusqlite::{OptionalExtension, params_from_iter};
 use super::memories::{MEMORY_COLUMNS, memory_from_row};
 use super::{Database, sql_limit};
 use crate::error::Result;
-use crate::filter::Filter;
+use crate::filter::{Filter, IS_SUPERSEDED};
 use crate::memory::{Fork, Memory, MemoryRef, Reference};
 
 impl Database {
@@ -51,24 +51,20 @@ impl Database {
 
     /// How many live memories no other live memory supersedes.
     pub fn current_count(&self) -> Result<usize> {
-        self.count_live(false)
+        self.count(&format!(
+            "SELECT count(*) FROM memories m WHERE m.deleted_at IS NULL AND NOT {IS_SUPERSEDED}"
+        ))
     }
 
     /// How many live memories a live memory supersedes.
     pub fn superseded_count(&self) -> Result<usize> {
-        self.count_live(true)
+        self.count(&format!(
+            "SELECT count(*) FROM memories m WHERE m.deleted_at IS NULL AND {IS_SUPERSEDED}"
+        ))
     }
 
-    fn count_live(&self, superseded: bool) -> Result<usize> {
-        let negation = if superseded { "" } else { "NOT " };
-        let count: i64 = self.conn.query_row(
-            &format!(
-                "SELECT count(*) FROM memories m WHERE m.deleted_at IS NULL AND {negation}EXISTS
-                 (SELECT 1 FROM supersessions s WHERE s.supersedes_global_id = m.global_id)"
-            ),
-            [],
-            |row| row.get(0),
-        )?;
+    fn count(&self, sql: &str) -> Result<usize> {
+        let count: i64 = self.conn.query_row(sql, [], |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -139,12 +135,11 @@ impl Database {
 
     /// Current-memory counts per project, the global bucket named `global`, by name.
     pub fn project_counts(&self) -> Result<Vec<(String, usize)>> {
-        let mut statement = self.conn.prepare(
+        let mut statement = self.conn.prepare(&format!(
             "SELECT COALESCE(m.project, 'global') AS name, count(*) FROM memories m
-             WHERE m.deleted_at IS NULL AND NOT EXISTS
-               (SELECT 1 FROM supersessions s WHERE s.supersedes_global_id = m.global_id)
-             GROUP BY m.project ORDER BY name",
-        )?;
+             WHERE m.deleted_at IS NULL AND NOT {IS_SUPERSEDED}
+             GROUP BY m.project ORDER BY name"
+        ))?;
         let rows = statement.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
         })?;
@@ -471,5 +466,67 @@ mod tests {
                 deleted: false
             }
         );
+    }
+
+    #[test]
+    fn tag_counts_leave_superseded_memories_out() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(
+            &NewRecord {
+                tags: vec!["old".into(), "shared".into()],
+                ..record("old", None, &day(1))
+            },
+            None,
+        )
+        .unwrap();
+        db.insert_memory(
+            &NewRecord {
+                tags: vec!["shared".into()],
+                ..superseding("new", None, "old", &day(2))
+            },
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            db.tag_counts(&Filter::default(), 20).unwrap(),
+            [("shared".to_string(), 1)]
+        );
+        assert_eq!(
+            db.tag_counts(&include_superseded(), 20).unwrap(),
+            [("shared".to_string(), 2), ("old".to_string(), 1)]
+        );
+    }
+
+    #[test]
+    fn a_deleted_superseder_dissolves_the_fork() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("a", None, &day(1)), None).unwrap();
+        db.insert_memory(&superseding("b", None, "a", &day(2)), None)
+            .unwrap();
+        let c = db
+            .insert_memory(&superseding("c", None, "a", &day(3)), None)
+            .unwrap();
+        assert_eq!(db.forks().unwrap().len(), 1);
+        db.delete(c, &day(4)).unwrap();
+        assert!(db.forks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_fork_reports_a_deleted_or_unknown_target() {
+        let mut db = Database::open_in_memory().unwrap();
+        let a = db.insert_memory(&record("a", None, &day(1)), None).unwrap();
+        for (content, target) in [("b", "a"), ("c", "a"), ("d", "gone"), ("e", "gone")] {
+            db.insert_memory(&superseding(content, None, target, &day(2)), None)
+                .unwrap();
+        }
+        db.delete(a, &day(3)).unwrap();
+        let forks = db.forks().unwrap();
+        assert_eq!(forks.len(), 2);
+        assert_eq!(forks[0].target.global_id, "test-a");
+        assert!(forks[0].target.deleted);
+        assert_eq!(forks[0].target.id, Some(a));
+        assert_eq!(forks[1].target.global_id, "test-gone");
+        assert_eq!(forks[1].target.id, None);
+        assert!(!forks[1].target.deleted);
     }
 }

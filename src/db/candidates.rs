@@ -298,4 +298,24 @@ mod tests {
             [near, far]
         );
     }
+
+    #[test]
+    fn deleting_the_superseder_brings_the_old_memory_back_into_full_text_search() {
+        let mut db = Database::open_in_memory().unwrap();
+        let old = db
+            .insert_memory(&record("wal notes", None, T0), None)
+            .unwrap();
+        let new = db
+            .insert_memory(
+                &NewRecord {
+                    supersedes: vec!["test-wal notes".into()],
+                    ..record("wal corrected", None, T0)
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(fts(&db, "wal", &Filter::default()), [new]);
+        db.delete(new, T0).unwrap();
+        assert_eq!(fts(&db, "wal", &Filter::default()), [old]);
+    }
 }

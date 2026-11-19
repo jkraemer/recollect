@@ -4,6 +4,11 @@ use rusqlite::types::Value;
 
 use crate::memory::{MemoryType, ProjectRef};
 
+/// Holds for a memory `m` that a live memory supersedes. Deleting a memory
+/// removes its supersession rows, so a deleted superseder hides nothing.
+pub(crate) const IS_SUPERSEDED: &str =
+    "EXISTS (SELECT 1 FROM supersessions s WHERE s.supersedes_global_id = m.global_id)";
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Filter {
     /// `None` means every project, including global.
@@ -58,10 +63,7 @@ impl Filter {
             params.push(Value::Text(until.clone()));
         }
         if !self.include_superseded {
-            conditions.push(
-                "NOT EXISTS (SELECT 1 FROM supersessions s WHERE s.supersedes_global_id = m.global_id)"
-                    .to_string(),
-            );
+            conditions.push(format!("NOT {IS_SUPERSEDED}"));
         }
         (conditions.join(" AND "), params)
     }
