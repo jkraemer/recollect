@@ -4,7 +4,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{Database, embedding_blob};
 use crate::error::{Error, Result};
-use crate::memory::Embedded;
+use crate::memory::{Embedded, MemoryRef};
 
 /// Live memories without vectors, over the `memories` table aliased `m`.
 const PENDING: &str =
@@ -75,7 +75,7 @@ impl Database {
                 Ok(true)
             }
             Some((true, false)) => Ok(false),
-            _ => Err(Error::NotFound(memory_id)),
+            _ => Err(Error::NotFound(MemoryRef::Local(memory_id))),
         }
     }
 
@@ -94,7 +94,7 @@ mod tests {
     use crate::db::Database;
     use crate::db::test_support::record;
     use crate::error::Error;
-    use crate::memory::Embedded;
+    use crate::memory::{Embedded, MemoryRef};
 
     const T0: &str = "2026-09-01T10:00:00.000Z";
 
@@ -170,11 +170,11 @@ mod tests {
         db.delete(id, T0).unwrap();
         assert!(matches!(
             db.add_embeddings(id, &embedded("m1")),
-            Err(Error::NotFound(missing)) if missing == id
+            Err(Error::NotFound(MemoryRef::Local(missing))) if missing == id
         ));
         assert!(matches!(
             db.add_embeddings(77, &embedded("m1")),
-            Err(Error::NotFound(77))
+            Err(Error::NotFound(MemoryRef::Local(77)))
         ));
     }
 

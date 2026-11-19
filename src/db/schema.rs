@@ -72,6 +72,18 @@ const MIGRATIONS: &[&str] = &[
       used_at     TEXT
     );
     "#,
+    // 3: which memories a memory supersedes. A side table rather than a JSON
+    // column, so "is superseded" is one indexed lookup on the target's global
+    // id; the target may be a memory this machine has not received yet, hence
+    // no foreign key on it.
+    r#"
+    CREATE TABLE supersessions (
+      memory_id            INTEGER NOT NULL REFERENCES memories(id),
+      supersedes_global_id TEXT NOT NULL,
+      PRIMARY KEY (memory_id, supersedes_global_id)
+    );
+    CREATE INDEX idx_supersessions_target ON supersessions(supersedes_global_id);
+    "#,
 ];
 
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
@@ -123,7 +135,7 @@ mod tests {
 
         migrate(&mut conn).unwrap();
 
-        assert_eq!(user_version(&conn).unwrap(), 2);
+        assert_eq!(user_version(&conn).unwrap(), SCHEMA_VERSION);
         let content: String = conn
             .query_row(
                 "SELECT content FROM memories WHERE global_id = 'g'",
@@ -140,5 +152,35 @@ mod tests {
                 .unwrap();
             assert_eq!(rows, 0, "{table}");
         }
+    }
+
+    #[test]
+    fn a_version_2_database_keeps_its_memories_and_gains_the_supersessions_table() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.execute_batch(MIGRATIONS[1]).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        conn.execute(
+            "INSERT INTO memories (global_id, memory_type, content, created_at)
+             VALUES ('g', 'note', 'kept', '2026-09-01T10:00:00.000Z')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        assert_eq!(user_version(&conn).unwrap(), 3);
+        let content: String = conn
+            .query_row(
+                "SELECT content FROM memories WHERE global_id = 'g'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(content, "kept");
+        let rows: i64 = conn
+            .query_row("SELECT count(*) FROM supersessions", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 0);
     }
 }

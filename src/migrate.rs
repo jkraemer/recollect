@@ -333,6 +333,7 @@ impl LiveRow {
             tags,
             origin_peer: None,
             created_at,
+            supersedes: Vec::new(),
         })
     }
 }

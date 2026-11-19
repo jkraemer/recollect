@@ -45,12 +45,22 @@ EOF
 
 Write each memory so it stands on its own months later. Use `-p global` only for knowledge that applies to every project. A decision counts when alternatives were weighed or the choice shapes later work; a rename without discussion does not.
 
+When the session shows that a stored memory is wrong or outdated, store the correction with `--supersedes <id>` instead of deleting the old memory; the id is in the block at session start, in `search` output and in `show`. Repeat the option for several memories. The old memory stays stored and drops out of search, list and context:
+
+```bash
+recollect store -p <project> -T learning,deploy --supersedes <id> <<'EOF'
+The deploy window is now Tuesday and Thursday, no longer Friday:
+Friday deploys left nobody around to fix a failed release.
+EOF
+```
+
 ## Other commands
 
 - `recollect list -p <project> --json`: recent memories; `-T decision,auth` keeps those carrying all the given tags
 - `recollect context -p <other>`: another project's last session and recent notes
 - `recollect projects`, `recollect tags`: what exists
-- `recollect delete <id>`: removes a memory
+- `recollect delete <id>`: removes a memory; to correct one, supersede it
+- `--include-superseded` on `search`, `list` and `context` also shows superseded memories
 - `-t todo` on `store` stores a todo (types: `note`, the default, `todo`, `session`)
 
 Where `jq` is installed it can filter `--json` output. Warnings go to stderr; a non-zero exit means the command failed.

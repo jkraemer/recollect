@@ -83,6 +83,10 @@ pub struct Memory {
     pub content: String,
     pub tags: Vec<String>,
     pub created_at: String,
+    /// Global ids of the memories this one supersedes, sorted.
+    pub supersedes: Vec<String>,
+    /// Global ids of the live memories that supersede this one, sorted.
+    pub superseded_by: Vec<String>,
 }
 
 impl Memory {
@@ -90,6 +94,55 @@ impl Memory {
     pub fn date(&self) -> &str {
         self.created_at.get(..10).unwrap_or(&self.created_at)
     }
+}
+
+/// How a command names one memory: by the local id or by the global id that
+/// travels between machines.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryRef {
+    Local(i64),
+    Global(String),
+}
+
+impl MemoryRef {
+    /// All digits is a local id; a UUID in any spelling is a global id,
+    /// canonicalized to lowercase hyphenated form.
+    pub fn parse(raw: &str) -> Result<Self> {
+        let invalid = || Error::InvalidReference(raw.to_string());
+        if !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()) {
+            return raw.parse().map(MemoryRef::Local).map_err(|_| invalid());
+        }
+        uuid::Uuid::parse_str(raw)
+            .map(|uuid| MemoryRef::Global(uuid.to_string()))
+            .map_err(|_| invalid())
+    }
+}
+
+impl std::fmt::Display for MemoryRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemoryRef::Local(id) => write!(f, "{id}"),
+            MemoryRef::Global(global_id) => f.write_str(global_id),
+        }
+    }
+}
+
+/// A memory named by its global id, in whatever state it is on this machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Reference {
+    pub global_id: String,
+    /// `None` when the memory is not on this machine.
+    pub id: Option<i64>,
+    pub deleted: bool,
+}
+
+/// A global id superseded by two or more current memories (live, and not
+/// superseded themselves): they correct the same memory without knowing of
+/// each other, as two machines do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Fork {
+    pub target: Reference,
+    pub superseded_by: Vec<Reference>,
 }
 
 /// A search result: the memory plus its final ranking score.
@@ -112,6 +165,8 @@ pub struct NewRecord {
     /// `None` means the memory was created on this machine.
     pub origin_peer: Option<String>,
     pub created_at: String,
+    /// Global ids of the memories this one supersedes; fixed at creation.
+    pub supersedes: Vec<String>,
 }
 
 /// The deletion of a memory, on this machine or another: its `global_id`,
@@ -126,7 +181,7 @@ pub struct Tombstone {
 }
 
 /// A memory row as sync sends it: every column but the local id; vectors
-/// never travel. A deleted memory has blank content and no tags.
+/// never travel. A deleted memory has blank content, no tags and supersedes nothing.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncRecord {
@@ -135,6 +190,11 @@ pub struct SyncRecord {
     pub memory_type: MemoryType,
     pub content: String,
     pub tags: Vec<String>,
+    /// The global ids of the memories this one supersedes; fixed at
+    /// creation, so a deleted memory carries none. The sender sends them
+    /// sorted and the receiver stores them as a set, so their order does not
+    /// matter on receipt.
+    pub supersedes: Vec<String>,
     pub origin_peer: Option<String>,
     pub created_at: String,
     pub deleted_at: Option<String>,
@@ -153,6 +213,7 @@ impl SyncRecord {
             tags: self.tags.clone(),
             origin_peer: self.origin_peer.clone(),
             created_at: self.created_at.clone(),
+            supersedes: self.supersedes.clone(),
         }
     }
 
@@ -202,6 +263,21 @@ pub fn normalize_tags(raw: &[String]) -> Result<Vec<String>> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn memory_ref_parses_ids_and_canonicalizes_uuids() {
+        assert_eq!(MemoryRef::parse("12").unwrap(), MemoryRef::Local(12));
+        assert_eq!(
+            MemoryRef::parse("0190F3A2-7B5C-7D1E-8A2B-3C4D5E6F7A8B").unwrap(),
+            MemoryRef::Global("0190f3a2-7b5c-7d1e-8a2b-3c4d5e6f7a8b".into())
+        );
+        for raw in ["12a", "", "99999999999999999999"] {
+            assert!(
+                matches!(MemoryRef::parse(raw), Err(Error::InvalidReference(r)) if r == raw),
+                "{raw:?}"
+            );
+        }
+    }
 
     #[test]
     fn project_names_are_trimmed_and_lowercased() {
@@ -273,12 +349,15 @@ mod tests {
             content: "c".into(),
             tags: vec!["a".into()],
             created_at: "2026-09-29T10:00:00.000Z".into(),
+            supersedes: vec!["a".into()],
+            superseded_by: Vec::new(),
         };
         assert_eq!(
             serde_json::to_value(&memory).unwrap(),
             json!({
                 "id": 7, "global_id": "g", "project": null, "memory_type": "todo",
-                "content": "c", "tags": ["a"], "created_at": "2026-09-29T10:00:00.000Z"
+                "content": "c", "tags": ["a"], "created_at": "2026-09-29T10:00:00.000Z",
+                "supersedes": ["a"], "superseded_by": []
             })
         );
         let scored = ScoredMemory { memory, score: 0.5 };

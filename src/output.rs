@@ -4,8 +4,8 @@ use std::io::Write;
 
 use crate::db::{Peer, SyncApplied};
 use crate::error::Result;
-use crate::memory::{GLOBAL, Memory};
-use crate::service::{Context, Status};
+use crate::memory::{GLOBAL, Memory, Reference};
+use crate::service::{Context, Shown, Status};
 use crate::sync::LocalMachine;
 use crate::sync::round::RoundOutcome;
 
@@ -15,8 +15,9 @@ pub fn print_diagnostic(line: &str) {
     let _ = writeln!(std::io::stderr().lock(), "{line}");
 }
 
-/// `#42 · project · type · date · tags` on one line, then the full content.
-pub fn memory_block(memory: &Memory) -> String {
+/// `#42 · project · type · date · tags`, and `· superseded` when a live
+/// memory supersedes it.
+fn memory_header(memory: &Memory) -> String {
     let mut header = format!(
         "#{} · {} · {} · {}",
         memory.id,
@@ -28,7 +29,41 @@ pub fn memory_block(memory: &Memory) -> String {
         header.push_str(" · ");
         header.push_str(&memory.tags.join(", "));
     }
-    format!("{header}\n{}", memory.content)
+    if !memory.superseded_by.is_empty() {
+        header.push_str(" · superseded");
+    }
+    header
+}
+
+/// The header on one line, then the full content.
+pub fn memory_block(memory: &Memory) -> String {
+    format!("{}\n{}", memory_header(memory), memory.content)
+}
+
+/// A memory block with the lines naming what it supersedes and what
+/// supersedes it between header and content.
+pub fn shown_text(shown: &Shown) -> String {
+    let mut lines = vec![memory_header(&shown.memory)];
+    for (label, references) in [
+        ("supersedes", &shown.supersedes),
+        ("superseded by", &shown.superseded_by),
+    ] {
+        if !references.is_empty() {
+            let refs: Vec<String> = references.iter().map(reference_text).collect();
+            lines.push(format!("{label} {}", refs.join(", ")));
+        }
+    }
+    lines.push(shown.memory.content.clone());
+    lines.join("\n")
+}
+
+/// `#12`, `#12 (deleted)`, or the global id of a memory this machine lacks.
+fn reference_text(reference: &Reference) -> String {
+    match (reference.id, reference.deleted) {
+        (Some(id), false) => format!("#{id}"),
+        (Some(id), true) => format!("#{id} (deleted)"),
+        (None, _) => format!("{} (not on this machine)", reference.global_id),
+    }
 }
 
 /// Memory blocks separated by a blank line; empty for no memories.
@@ -94,6 +129,7 @@ pub fn status_text(status: &Status) -> String {
         ("data dir", status.data_dir.clone()),
         ("database", status.database.clone()),
         ("memories", status.memories.to_string()),
+        ("superseded", status.superseded.to_string()),
         ("projects", status.projects.to_string()),
         ("embedding model", status.embedding_model.clone()),
         (
@@ -106,7 +142,18 @@ pub fn status_text(status: &Status) -> String {
         ("vectors", vectors),
         ("pending embeddings", status.pending_embeddings.to_string()),
     ];
-    labelled(&rows)
+    let forks = status.forks.iter().map(|fork| {
+        let superseders: Vec<String> = fork.superseded_by.iter().map(reference_text).collect();
+        (
+            "fork",
+            format!(
+                "{} superseded by {}",
+                reference_text(&fork.target),
+                superseders.join(", ")
+            ),
+        )
+    });
+    labelled(&rows.into_iter().chain(forks).collect::<Vec<_>>())
 }
 
 /// Rows of `label: value`, the values aligned.
@@ -192,7 +239,8 @@ mod tests {
     use super::*;
     use crate::db::{Peer, SyncApplied};
     use crate::error::Error;
-    use crate::memory::MemoryType;
+    use crate::memory::{Fork, MemoryType, Reference};
+    use crate::service::Shown;
     use crate::sync::LocalMachine;
     use crate::sync::round::RoundOutcome;
 
@@ -205,6 +253,8 @@ mod tests {
             content: "Single SQLite DB.\nSecond line.".into(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
             created_at: "2026-09-29T08:05:03.045Z".into(),
+            supersedes: Vec::new(),
+            superseded_by: Vec::new(),
         }
     }
 
@@ -259,30 +309,110 @@ mod tests {
         assert_eq!(counts_text(&[]), "");
     }
 
-    #[test]
-    fn status_lists_every_field() {
-        let status = Status {
+    fn status() -> Status {
+        Status {
             data_dir: "/d".into(),
             database: "/d/memories.db".into(),
             memories: 3,
             projects: 2,
             embedding_model: "bge-small-en-v1.5-q".into(),
             stored_embedding_model: None,
+            vectors_usable: true,
+            vectors_reason: None,
+            pending_embeddings: 0,
+            superseded: 0,
+            forks: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn status_lists_every_field() {
+        let status = Status {
             vectors_usable: false,
             vectors_reason: Some("not downloaded".into()),
             pending_embeddings: 3,
+            ..status()
         };
         assert_eq!(
             status_text(&status),
             "data dir:            /d\n\
              database:            /d/memories.db\n\
              memories:            3\n\
+             superseded:          0\n\
              projects:            2\n\
              embedding model:     bge-small-en-v1.5-q\n\
              stored vectors from: none\n\
              vectors:             unusable: not downloaded\n\
              pending embeddings:  3"
         );
+    }
+
+    #[test]
+    fn status_lists_each_fork_on_a_row() {
+        let status = Status {
+            superseded: 1,
+            forks: vec![Fork {
+                target: reference("a", Some(1), false),
+                superseded_by: vec![
+                    reference("b", Some(2), false),
+                    reference("c", Some(3), false),
+                ],
+            }],
+            ..status()
+        };
+        assert!(
+            status_text(&status).ends_with("\nfork:                #1 superseded by #2, #3"),
+            "{}",
+            status_text(&status)
+        );
+    }
+
+    fn reference(global_id: &str, id: Option<i64>, deleted: bool) -> Reference {
+        Reference {
+            global_id: global_id.into(),
+            id,
+            deleted,
+        }
+    }
+
+    #[test]
+    fn a_superseded_memory_says_so_after_its_tags() {
+        let mut superseded = memory(1, None, &["x"]);
+        superseded.superseded_by = vec!["g2".into()];
+        assert_eq!(
+            memory_block(&superseded),
+            "#1 · global · note · 2026-09-29 · x · superseded\nSingle SQLite DB.\nSecond line."
+        );
+        superseded.tags.clear();
+        assert!(
+            memory_block(&superseded).starts_with("#1 · global · note · 2026-09-29 · superseded\n")
+        );
+    }
+
+    #[test]
+    fn a_shown_memory_names_what_it_supersedes_and_what_supersedes_it() {
+        let shown = Shown {
+            memory: memory(5, None, &[]),
+            supersedes: vec![
+                reference("a", Some(1), false),
+                reference("b", Some(2), true),
+                reference("0199a8c0-0000-7000-8000-000000000001", None, false),
+            ],
+            superseded_by: vec![reference("c", Some(9), false)],
+        };
+        assert_eq!(
+            shown_text(&shown),
+            "#5 · global · note · 2026-09-29\n\
+             supersedes #1, #2 (deleted), 0199a8c0-0000-7000-8000-000000000001 (not on this machine)\n\
+             superseded by #9\n\
+             Single SQLite DB.\nSecond line."
+        );
+        let plain = Shown {
+            memory: memory(5, None, &[]),
+            supersedes: vec![],
+            superseded_by: vec![],
+        };
+        assert_eq!(shown_text(&plain), memory_block(&plain.memory));
     }
 
     fn outcome(

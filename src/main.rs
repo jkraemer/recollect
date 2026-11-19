@@ -13,7 +13,7 @@ use recollect::filter::Filter;
 use recollect::hook::{
     COMPACTION_TAG, HookInput, compaction_summary_body, session_header_text, session_start_text,
 };
-use recollect::memory::{MemoryType, ProjectRef, normalize_tags};
+use recollect::memory::{MemoryRef, MemoryType, ProjectRef, normalize_tags};
 use recollect::migrate::{Rename, read_ruby_data};
 use recollect::output;
 use recollect::service::{Recollect, StoreInput};
@@ -41,7 +41,8 @@ enum Command {
     List(ListArgs),
     /// Show one memory in full
     Show {
-        id: i64,
+        /// Memory id or global id
+        reference: String,
         #[command(flatten)]
         output: OutputArgs,
     },
@@ -51,6 +52,9 @@ enum Command {
     Context {
         #[command(flatten)]
         project: ProjectArg,
+        /// Include memories that newer memories supersede
+        #[arg(long)]
+        include_superseded: bool,
         #[command(flatten)]
         output: OutputArgs,
     },
@@ -173,6 +177,9 @@ struct StoreArgs {
     /// Tags, comma-separated
     #[arg(short = 'T', long, value_delimiter = ',')]
     tags: Vec<String>,
+    /// Memory this one replaces, by id or global id; repeatable
+    #[arg(long, value_name = "REF")]
+    supersedes: Vec<String>,
     #[command(flatten)]
     output: OutputArgs,
 }
@@ -223,6 +230,9 @@ struct FilterArgs {
     /// Created on or before (YYYY-MM-DD covers the whole day)
     #[arg(long)]
     until: Option<String>,
+    /// Include memories that newer memories supersede
+    #[arg(long)]
+    include_superseded: bool,
 }
 
 impl FilterArgs {
@@ -232,6 +242,7 @@ impl FilterArgs {
             tags: normalize_tags(&self.tags)?,
             since: self.since.as_deref().map(parse_since).transpose()?,
             until: self.until.as_deref().map(parse_until).transpose()?,
+            include_superseded: self.include_superseded,
             ..scope
         })
     }
@@ -320,6 +331,11 @@ fn run(command: Command) -> anyhow::Result<()> {
                 project,
                 memory_type: args.memory_type,
                 tags: args.tags,
+                supersedes: args
+                    .supersedes
+                    .iter()
+                    .map(|reference| MemoryRef::parse(reference))
+                    .collect::<recollect::Result<_>>()?,
             })?;
             warn(outcome.warning.as_deref());
             if args.output.json {
@@ -350,20 +366,24 @@ fn run(command: Command) -> anyhow::Result<()> {
                 print_text(&output::memory_blocks(&memories))?;
             }
         }
-        Command::Show { id, output } => {
-            let memory = app.show(id)?;
+        Command::Show { reference, output } => {
+            let shown = app.show(&MemoryRef::parse(&reference)?)?;
             if output.json {
-                print_json(&memory)?;
+                print_json(&shown.memory)?;
             } else {
-                print_text(&output::memory_block(&memory))?;
+                print_text(&output::shown_text(&shown))?;
             }
         }
         Command::Delete { id } => {
             app.delete(id)?;
             print_text(&format!("deleted #{id}"))?;
         }
-        Command::Context { project, output } => {
-            let context = app.context(project.parse()?.as_ref())?;
+        Command::Context {
+            project,
+            include_superseded,
+            output,
+        } => {
+            let context = app.context(project.parse()?.as_ref(), include_superseded)?;
             if output.json {
                 print_json(&context)?;
             } else {
@@ -553,7 +573,8 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
             let text = if after_compaction {
                 session_header_text(&detection)
             } else {
-                let text = session_start_text(&detection, &app.context(detection.project())?);
+                let text =
+                    session_start_text(&detection, &app.context(detection.project(), false)?);
                 // One short line on top of SESSION_START_BUDGET, which leaves
                 // room for it below Claude Code's limit.
                 match update_notice(app.config()) {
@@ -581,6 +602,7 @@ fn run_hook(event: HookEvent, app: &mut Recollect) -> anyhow::Result<()> {
                 project,
                 memory_type: MemoryType::Session,
                 tags: vec![COMPACTION_TAG.to_string()],
+                supersedes: Vec::new(),
             })?;
             warn(outcome.warning.as_deref());
         }

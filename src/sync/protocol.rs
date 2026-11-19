@@ -16,7 +16,7 @@ use crate::memory::{SyncRecord, Tombstone};
 /// open a round and a pairing and carry the version, which is how two
 /// machines find out that they differ, and `error` is how a machine that
 /// refuses a `pair` for its version says so.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// The largest message a peer may send.
 pub const MESSAGE_LIMIT: usize = 16 * 1024 * 1024;
@@ -196,22 +196,22 @@ mod tests {
     use super::*;
     use crate::memory::MemoryType;
 
-    /// The JSON in `fixtures` describes protocol 1. A change that alters it
+    /// The JSON in `fixtures` describes protocol 2. A change that alters it
     /// changes what travels between machines: bump `PROTOCOL_VERSION` and
     /// update the fixtures together, on purpose.
     #[test]
     fn the_fixtures_describe_the_current_protocol() {
-        assert_eq!(PROTOCOL_VERSION, 1);
+        assert_eq!(PROTOCOL_VERSION, 2);
     }
 
     fn fixtures() -> Vec<(Message, &'static str)> {
         vec![
             (
                 Message::Hello {
-                    protocol: 1,
+                    protocol: 2,
                     manifest_hash: "abc".into(),
                 },
-                r#"{"type":"hello","protocol":1,"manifest_hash":"abc"}"#,
+                r#"{"type":"hello","protocol":2,"manifest_hash":"abc"}"#,
             ),
             (
                 Message::Manifest {
@@ -236,13 +236,14 @@ mod tests {
                         memory_type: MemoryType::Todo,
                         content: "Ship sync".into(),
                         tags: vec!["sync".into()],
+                        supersedes: vec!["0199a8c0-0000-7000-8000-000000000002".into()],
                         origin_peer: None,
                         created_at: "2026-10-07T10:00:00.000Z".into(),
                         deleted_at: None,
                         deleted_by_peer: None,
                     }],
                 },
-                r#"{"type":"records","memories":[{"global_id":"0199a8c0-0000-7000-8000-000000000001","project":"recollect","memory_type":"todo","content":"Ship sync","tags":["sync"],"origin_peer":null,"created_at":"2026-10-07T10:00:00.000Z","deleted_at":null,"deleted_by_peer":null}]}"#,
+                r#"{"type":"records","memories":[{"global_id":"0199a8c0-0000-7000-8000-000000000001","project":"recollect","memory_type":"todo","content":"Ship sync","tags":["sync"],"supersedes":["0199a8c0-0000-7000-8000-000000000002"],"origin_peer":null,"created_at":"2026-10-07T10:00:00.000Z","deleted_at":null,"deleted_by_peer":null}]}"#,
             ),
             (
                 Message::Tombstones {
@@ -264,12 +265,12 @@ mod tests {
             ),
             (
                 Message::Pair {
-                    protocol: 1,
+                    protocol: 2,
                     secret: "c2VjcmV0".into(),
                     name: "twelve".into(),
                     address: "twelve:7327".into(),
                 },
-                r#"{"type":"pair","protocol":1,"secret":"c2VjcmV0","name":"twelve","address":"twelve:7327"}"#,
+                r#"{"type":"pair","protocol":2,"secret":"c2VjcmV0","name":"twelve","address":"twelve:7327"}"#,
             ),
             (Message::Paired {}, r#"{"type":"paired"}"#),
             (
@@ -302,14 +303,16 @@ mod tests {
     #[test]
     fn unknown_fields_messages_and_memory_types_are_refused() {
         for json in [
-            r#"{"type":"hello","protocol":1,"manifest_hash":"abc","extra":true}"#,
+            r#"{"type":"hello","protocol":2,"manifest_hash":"abc","extra":true}"#,
             r#"{"type":"end","extra":1}"#,
             r#"{"type":"paired","extra":1}"#,
-            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"note","content":"c","tags":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null,"extra":1}]}"#,
+            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"note","content":"c","tags":[],"supersedes":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null,"extra":1}]}"#,
             r#"{"type":"greeting"}"#,
-            r#"{"protocol":1,"manifest_hash":"abc"}"#,
+            r#"{"protocol":2,"manifest_hash":"abc"}"#,
             r#"{"type":"tombstones","entries":[{"global_id":"g","deleted_at":"t","deleted_by_peer":null,"why":"x"}]}"#,
-            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"decision","content":"c","tags":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null}]}"#,
+            // The protocol 1 shape: no supersedes list.
+            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"note","content":"c","tags":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null}]}"#,
+            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"decision","content":"c","tags":[],"supersedes":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null}]}"#,
         ] {
             assert!(serde_json::from_str::<Message>(json).is_err(), "{json}");
         }

@@ -47,6 +47,7 @@ fn record(
         tags: Vec::new(),
         origin_peer: None,
         created_at: CREATED.to_string(),
+        supersedes: Vec::new(),
     }
 }
 

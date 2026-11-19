@@ -135,6 +135,9 @@ Sessions expire after 8 hours of inactivity instead of 24: the security
 review asked for it, and the refresh token covers longer work.
 EOF
 
+# Correct: the new memory replaces the ones named
+recollect store -p myproject --supersedes 42 "Sessions expire after 4 hours"
+
 # Find
 recollect search "session expiry" -p myproject   # by words and meaning
 recollect search "session expiry"                # in all projects
@@ -155,7 +158,9 @@ recollect delete 42
 `store`, `search`, `list`, `show`, `context`, `projects`, `tags`, `status`,
 `id` and `peer list` print JSON with `--json`. `search` and `list` take
 filters: `-t` for memory types, `-T` for tags a memory must carry (all of
-them), and `--since` and `--until` for the time it was stored.
+them), and `--since` and `--until` for the time it was stored. `search`,
+`list` and `context` leave out superseded memories (see below);
+`--include-superseded` shows them.
 `recollect <command> --help` lists every option.
 
 ### Projects
@@ -202,6 +207,31 @@ still found by their words.
 `recollect delete` removes a memory's text and tags. What stays is the
 record that it was deleted, with its project, type and dates, so that sync
 can pass the deletion on to the other machines.
+
+### Superseding
+
+Memories are never edited. To correct one, store the new memory with
+`--supersedes <id>` (repeat the option for several). The id is a local id or
+a global id, and must exist on this machine; an unknown id is an error and
+nothing is stored. The named memory may be deleted already.
+
+The old memory stays stored, but `search`, `list`, `context`, `tags`,
+`projects` and the session-start hook leave it out. `--include-superseded`
+on `search`, `list` and `context` shows it, marked `superseded`, and
+`recollect show` lists what a memory supersedes and what supersedes it.
+Deleting the new memory brings the old one back.
+
+If two machines correct the same memory, both corrections stay visible and
+`recollect status` lists the memory as a fork: it lists a memory that two
+current memories name; delete one of the corrections, or supersede both with
+a third memory. Correcting a memory that is superseded already also leaves
+two competing corrections, but `store` warns about it and names the memory to
+supersede instead; `status` lists a fork only when two current memories name
+the same memory.
+
+Sync passes the supersessions on. Machines that sync must run versions with
+the same sync protocol: peers on different versions refuse each other and
+say which side to upgrade, so upgrade all machines together.
 
 ## Syncing between machines
 

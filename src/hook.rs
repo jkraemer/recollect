@@ -279,6 +279,8 @@ mod tests {
             content: content.to_string(),
             tags: tags.iter().map(|tag| tag.to_string()).collect(),
             created_at: "2026-05-02T10:00:00.000Z".into(),
+            supersedes: Vec::new(),
+            superseded_by: Vec::new(),
         }
     }
 

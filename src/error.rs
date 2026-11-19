@@ -4,14 +4,20 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::memory::MemoryRef;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("memory {0} not found")]
-    NotFound(i64),
+    NotFound(MemoryRef),
+    #[error("cannot supersede {0}: no such memory on this machine")]
+    UnknownSupersedes(String),
     #[error("invalid project name {0:?}: allowed are a-z 0-9 . _ -")]
     InvalidProject(String),
     #[error("invalid tag {0:?}: tags must not be empty")]
     InvalidTag(String),
+    #[error("{0:?} is neither a memory id nor a global id")]
+    InvalidReference(String),
     #[error("content must not be empty")]
     EmptyContent,
     #[error("search query must contain at least one term")]
@@ -72,7 +78,8 @@ pub enum Error {
     #[error("{}: {message}", path.display())]
     Identity { path: PathBuf, message: String },
     #[error(
-        "peer {peer} speaks sync protocol {theirs}, this recollect speaks {ours}; upgrade the older one"
+        "peer {peer} speaks sync protocol {theirs}, this recollect speaks {ours}; {}",
+        upgrade_advice(*.theirs, *.ours, .peer)
     )]
     ProtocolMismatch {
         peer: String,
@@ -95,6 +102,16 @@ pub enum Error {
     /// the failure itself.
     #[error("{source}")]
     RoundFailedAfterApply { received: usize, source: Box<Error> },
+}
+
+/// Which side of a protocol mismatch has to upgrade: the one that speaks the
+/// lower version.
+fn upgrade_advice(theirs: u32, ours: u32, peer: &str) -> String {
+    if theirs > ours {
+        "upgrade this machine".to_string()
+    } else {
+        format!("upgrade peer {peer}")
+    }
 }
 
 impl Error {

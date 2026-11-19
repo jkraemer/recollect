@@ -63,7 +63,7 @@ mod tests {
     use crate::db::Database;
     use crate::db::test_support::record;
     use crate::filter::Filter;
-    use crate::memory::{Embedded, ProjectRef};
+    use crate::memory::{Embedded, NewRecord, ProjectRef};
     use crate::search::fts_query::build_fts_query;
 
     const T0: &str = "2026-09-01T10:00:00.000Z";
@@ -243,5 +243,79 @@ mod tests {
                 .unwrap(),
             [named]
         );
+    }
+
+    #[test]
+    fn fts_candidates_skip_superseded_memories_and_keep_the_limit() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("wal wal wal", None, T0), None)
+            .unwrap();
+        let one = db
+            .insert_memory(&record("wal once", None, T0), None)
+            .unwrap();
+        let two = db
+            .insert_memory(&record("wal twice", None, T0), None)
+            .unwrap();
+        db.insert_memory(
+            &NewRecord {
+                supersedes: vec!["test-wal wal wal".into()],
+                ..record("unrelated correction", None, T0)
+            },
+            None,
+        )
+        .unwrap();
+        let query = build_fts_query("wal").unwrap();
+        let mut found = db.fts_candidates(&query, &Filter::default(), 2).unwrap();
+        found.sort();
+        assert_eq!(found, [one, two]);
+    }
+
+    #[test]
+    fn vector_candidates_skip_superseded_memories_and_keep_the_limit() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("old", None, T0), Some(&vectors(&[[1.0, 0.0, 0.0]])))
+            .unwrap();
+        let near = db
+            .insert_memory(
+                &record("near", None, T0),
+                Some(&vectors(&[[0.9, 0.1, 0.0]])),
+            )
+            .unwrap();
+        let far = db
+            .insert_memory(&record("far", None, T0), Some(&vectors(&[[0.5, 0.5, 0.0]])))
+            .unwrap();
+        db.insert_memory(
+            &NewRecord {
+                supersedes: vec!["test-old".into()],
+                ..record("new", None, T0)
+            },
+            Some(&vectors(&[[0.0, 0.0, -1.0]])),
+        )
+        .unwrap();
+        assert_eq!(
+            db.vector_candidates(&[1.0, 0.0, 0.0], &Filter::default(), 0.5, 2)
+                .unwrap(),
+            [near, far]
+        );
+    }
+
+    #[test]
+    fn deleting_the_superseder_brings_the_old_memory_back_into_full_text_search() {
+        let mut db = Database::open_in_memory().unwrap();
+        let old = db
+            .insert_memory(&record("wal notes", None, T0), None)
+            .unwrap();
+        let new = db
+            .insert_memory(
+                &NewRecord {
+                    supersedes: vec!["test-wal notes".into()],
+                    ..record("wal corrected", None, T0)
+                },
+                None,
+            )
+            .unwrap();
+        assert_eq!(fts(&db, "wal", &Filter::default()), [new]);
+        db.delete(new, T0).unwrap();
+        assert_eq!(fts(&db, "wal", &Filter::default()), [old]);
     }
 }

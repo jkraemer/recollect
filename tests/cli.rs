@@ -248,6 +248,258 @@ fn delete_hides_a_memory_and_unknown_ids_fail() {
         .stderr("error: memory 1 not found\n");
 }
 
+/// Stores `content` with `args` and returns its JSON: `id` and `global_id`.
+fn store_json(data_dir: &Path, content: &str, args: &[&str]) -> Value {
+    json_of(
+        recollect(data_dir)
+            .args(["store", content, "--json"])
+            .args(args),
+    )
+}
+
+fn id_of(stored: &Value) -> String {
+    stored["id"].to_string()
+}
+
+fn global_id_of(stored: &Value) -> &str {
+    stored["global_id"].as_str().unwrap()
+}
+
+#[test]
+fn store_supersedes_by_local_or_global_id_and_hides_the_old_memory() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha old", &[]);
+    let b = store_json(dir.path(), "beta new", &["--supersedes", &id_of(&a)]);
+    let listed = json_of(recollect(dir.path()).args(["list", "--json"]));
+    assert_eq!(contents(&listed), ["beta new"]);
+    let all = json_of(recollect(dir.path()).args(["list", "--include-superseded", "--json"]));
+    assert_eq!(contents(&all), ["beta new", "alpha old"]);
+    assert_eq!(all[1]["superseded_by"], json!([global_id_of(&b)]));
+    assert_eq!(all[0]["supersedes"], json!([global_id_of(&a)]));
+
+    let upper = global_id_of(&b).to_uppercase();
+    let c = store_json(
+        dir.path(),
+        "gamma newer",
+        &["--supersedes", &upper, "--supersedes", &id_of(&b)],
+    );
+    let shown = json_of(recollect(dir.path()).args(["show", &id_of(&c), "--json"]));
+    assert_eq!(shown["supersedes"], json!([global_id_of(&b)]));
+}
+
+#[test]
+fn store_warns_when_the_target_is_already_superseded() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha old", &[]);
+    store_json(dir.path(), "beta new", &["--supersedes", &id_of(&a)]);
+    recollect(dir.path())
+        .args(["store", "gamma rival", "--supersedes", "1"])
+        .assert()
+        .success()
+        .stdout("stored #3\n")
+        .stderr("warning: #1 is already superseded by #2; supersede #2 to replace it\n");
+}
+
+#[test]
+fn store_warns_with_the_current_end_of_a_chain_of_supersessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha", &[]);
+    let b = store_json(dir.path(), "beta", &["--supersedes", &id_of(&a)]);
+    store_json(dir.path(), "gamma", &["--supersedes", &id_of(&b)]);
+    recollect(dir.path())
+        .args(["store", "delta", "--supersedes", "1"])
+        .assert()
+        .success()
+        .stderr("warning: #1 is already superseded by #3; supersede #3 to replace it\n");
+}
+
+#[test]
+fn store_does_not_warn_when_the_superseder_is_a_target_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha", &[]);
+    store_json(dir.path(), "beta", &["--supersedes", &id_of(&a)]);
+    recollect(dir.path())
+        .args(["store", "gamma", "--supersedes", "1", "--supersedes", "2"])
+        .assert()
+        .success()
+        .stderr("");
+}
+
+#[test]
+fn store_refuses_an_unknown_or_malformed_supersedes_target_and_stores_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    store(dir.path(), &["alpha old"]);
+    recollect(dir.path())
+        .args(["store", "beta", "--supersedes", "999"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("error: cannot supersede 999: no such memory on this machine\n");
+    recollect(dir.path())
+        .args(["store", "beta", "--supersedes", "nope"])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr("error: \"nope\" is neither a memory id nor a global id\n");
+    let listed = json_of(recollect(dir.path()).args(["list", "--include-superseded", "--json"]));
+    assert_eq!(contents(&listed), ["alpha old"]);
+}
+
+#[test]
+fn a_deleted_memory_may_be_superseded() {
+    for by_global_id in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let a = store_json(dir.path(), "alpha old", &[]);
+        recollect(dir.path())
+            .args(["delete", &id_of(&a)])
+            .assert()
+            .success();
+        let target = if by_global_id {
+            global_id_of(&a).to_string()
+        } else {
+            id_of(&a)
+        };
+        let b = store_json(dir.path(), "beta", &["--supersedes", &target]);
+        let shown = json_of(recollect(dir.path()).args(["show", &id_of(&b), "--json"]));
+        assert_eq!(shown["supersedes"], json!([global_id_of(&a)]));
+    }
+}
+
+#[test]
+fn an_unknown_global_id_is_refused_in_its_canonical_form() {
+    let dir = tempfile::tempdir().unwrap();
+    recollect(dir.path())
+        .args([
+            "store",
+            "beta",
+            "--supersedes",
+            "0199A8C0-0000-7000-8000-0000000000FF",
+        ])
+        .assert()
+        .code(1)
+        .stdout("")
+        .stderr(
+            "error: cannot supersede 0199a8c0-0000-7000-8000-0000000000ff: no such memory on this machine\n",
+        );
+    let listed = json_of(recollect(dir.path()).args(["list", "--include-superseded", "--json"]));
+    assert!(listed.as_array().unwrap().is_empty());
+}
+
+#[test]
+fn delete_of_the_superseder_brings_the_old_memory_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha old", &[]);
+    let b = store_json(dir.path(), "alpha new", &["--supersedes", &id_of(&a)]);
+    let found = json_of(recollect(dir.path()).args(["search", "alpha", "--json"]));
+    assert_eq!(found.as_array().unwrap().len(), 1);
+    recollect(dir.path())
+        .args(["delete", &id_of(&b)])
+        .assert()
+        .success();
+    let listed = json_of(recollect(dir.path()).args(["list", "--json"]));
+    assert_eq!(contents(&listed), ["alpha old"]);
+    let found = json_of(recollect(dir.path()).args(["search", "alpha", "--json"]));
+    assert_eq!(found[0]["content"], "alpha old");
+}
+
+#[test]
+fn search_and_context_hide_superseded_memories() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha old", &["-p", "p"]);
+    store_json(
+        dir.path(),
+        "alpha new",
+        &["-p", "p", "--supersedes", &id_of(&a)],
+    );
+    let found = json_of(recollect(dir.path()).args(["search", "alpha", "--json"]));
+    assert_eq!(found.as_array().unwrap().len(), 1);
+    recollect(dir.path())
+        .args(["context", "-p", "p"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("alpha old").not());
+    let with = recollect(dir.path())
+        .args(["context", "-p", "p", "--include-superseded"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(with.stdout).unwrap();
+    assert!(text.contains(" · superseded\nalpha old"), "{text}");
+    assert!(!text.contains("alpha new · superseded"), "{text}");
+    let searched = recollect(dir.path())
+        .args(["search", "alpha", "--include-superseded"])
+        .output()
+        .unwrap();
+    let text = String::from_utf8(searched.stdout).unwrap();
+    assert!(text.contains(" · superseded\nalpha old"), "{text}");
+    assert!(text.contains("alpha new"), "{text}");
+}
+
+#[test]
+fn show_lists_both_directions() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha old", &[]);
+    let b = store_json(dir.path(), "beta new", &["--supersedes", &id_of(&a)]);
+    let show = |reference: &str| {
+        let output = recollect(dir.path())
+            .args(["show", reference])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let lines = |text: &str| text.lines().map(String::from).collect::<Vec<_>>();
+    let of_b = lines(&show("2"));
+    assert_eq!(of_b[1], "supersedes #1");
+    assert_eq!(of_b[2], "beta new");
+    let of_a = lines(&show("1"));
+    assert!(of_a[0].ends_with(" · superseded"), "{of_a:?}");
+    assert_eq!(of_a[1], "superseded by #2");
+    assert_eq!(show(global_id_of(&b)), show("2"));
+    assert_eq!(show(&global_id_of(&b).to_uppercase()), show("2"));
+
+    recollect(dir.path())
+        .args(["delete", "1"])
+        .assert()
+        .success();
+    assert_eq!(lines(&show("2"))[1], "supersedes #1 (deleted)");
+    recollect(dir.path())
+        .args(["show", global_id_of(&a)])
+        .assert()
+        .code(1)
+        .stderr(format!("error: memory {} not found\n", global_id_of(&a)));
+    recollect(dir.path())
+        .args(["show", "nope"])
+        .assert()
+        .code(1)
+        .stderr("error: \"nope\" is neither a memory id nor a global id\n");
+}
+
+#[test]
+fn status_counts_superseded_memories_and_lists_forks() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha", &[]);
+    store_json(dir.path(), "beta", &["--supersedes", &id_of(&a)]);
+    recollect(dir.path())
+        .args(["store", "gamma", "--supersedes", &id_of(&a)])
+        .assert()
+        .success()
+        .stderr("warning: #1 is already superseded by #2; supersede #2 to replace it\n");
+    let status = json_of(recollect(dir.path()).args(["status", "--json"]));
+    assert_eq!(status["memories"], 2);
+    assert_eq!(status["superseded"], 1);
+    let forks = status["forks"].as_array().unwrap();
+    assert_eq!(forks.len(), 1);
+    assert_eq!(forks[0]["target"]["global_id"], global_id_of(&a));
+    assert_eq!(forks[0]["superseded_by"][0]["id"], 2);
+    assert_eq!(forks[0]["superseded_by"][1]["id"], 3);
+    recollect(dir.path())
+        .arg("status")
+        .assert()
+        .success()
+        .stdout(predicate::str::is_match(r"(?m)^superseded:\s+1$").unwrap())
+        .stdout(predicate::str::is_match(r"(?m)^fork:\s+#1 superseded by #2, #3$").unwrap());
+}
+
 #[test]
 fn context_shows_the_latest_session_and_recent_notes() {
     let dir = tempfile::tempdir().unwrap();
@@ -557,6 +809,7 @@ fn insert_without_vectors(data_dir: &Path, global_id: &str, content: &str) {
                 tags: Vec::new(),
                 origin_peer: None,
                 created_at: "2026-01-01T00:00:00.000Z".to_string(),
+                supersedes: Vec::new(),
             },
             None,
         )
@@ -918,6 +1171,27 @@ fn hook_session_start_prints_the_memory_of_the_session_directory_project() {
         "{stdout}"
     );
     assert!(!stdout.contains("Unrelated note"), "{stdout}");
+}
+
+#[test]
+fn hook_session_start_leaves_superseded_memories_out() {
+    let data = tempfile::tempdir().unwrap();
+    let code = tempfile::tempdir().unwrap();
+    let repo = fake_repository(code.path(), "fera");
+    let old = store_json(data.path(), "Invoices are mutable.", &["-p", "fera"]);
+    store_json(
+        data.path(),
+        "Invoices are immutable once sent.",
+        &["-p", "fera", "--supersedes", &id_of(&old)],
+    );
+    let input = json!({ "cwd": repo, "hook_event_name": "SessionStart", "source": "startup" });
+    let output = hook(data.path(), "session-start", &input).output().unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("Invoices are immutable once sent."),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("Invoices are mutable."), "{stdout}");
 }
 
 #[test]

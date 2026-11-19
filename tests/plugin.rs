@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use assert_cmd::Command;
 use serde_json::{Value, json};
 
-const PLUGIN_VERSION: &str = "0.2.2";
+const PLUGIN_VERSION: &str = "0.2.3";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -172,6 +172,15 @@ fn the_skills_have_their_frontmatter() {
 #[test]
 fn the_plugin_ships_skills_and_no_commands() {
     assert!(!root().join("commands").exists());
+}
+
+#[test]
+fn the_memory_skill_teaches_superseding() {
+    let text = read("skills/using-long-term-memory/SKILL.md");
+    assert!(
+        text.contains("--supersedes"),
+        "the memory skill does not teach --supersedes"
+    );
 }
 
 #[test]
