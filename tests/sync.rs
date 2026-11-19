@@ -206,6 +206,22 @@ impl Machine {
     }
 }
 
+/// A live note as a peer sends it, superseding the memories in `supersedes`.
+fn record(global_id: &str, content: &str, supersedes: &[&str]) -> SyncRecord {
+    SyncRecord {
+        global_id: global_id.into(),
+        project: None,
+        memory_type: MemoryType::Note,
+        content: content.into(),
+        tags: Vec::new(),
+        supersedes: supersedes.iter().map(|id| id.to_string()).collect(),
+        origin_peer: None,
+        created_at: "2026-10-07T10:00:00.000Z".into(),
+        deleted_at: None,
+        deleted_by_peer: None,
+    }
+}
+
 const PAIR_HINT: &str =
     "Run this on the other machine within 10 minutes; recollect serve must be running here.";
 
@@ -900,18 +916,7 @@ fn sync_embeds_what_a_round_stored_before_it_failed() {
         )
         .unwrap();
     let about_storage = "We keep every memory in a single SQLite file with a project column.";
-    let memory = SyncRecord {
-        global_id: "0199a8c0-0000-7000-8000-000000000001".into(),
-        project: None,
-        memory_type: MemoryType::Note,
-        content: about_storage.into(),
-        tags: Vec::new(),
-        supersedes: Vec::new(),
-        origin_peer: None,
-        created_at: "2026-10-07T10:00:00.000Z".into(),
-        deleted_at: None,
-        deleted_by_peer: None,
-    };
+    let memory = record("0199a8c0-0000-7000-8000-000000000001", about_storage, &[]);
     // A mistake in the script fails the test instead of hanging it.
     let timeouts = Timeouts {
         io: Duration::from_secs(10),
@@ -986,22 +991,6 @@ fn sync_names_an_unknown_peer_and_says_when_there_is_none() {
         .stderr("error: no peer named \"nobody\"\n");
 }
 
-/// A live note as a peer sends it, superseding the memories in `supersedes`.
-fn record(global_id: &str, content: &str, supersedes: &[&str]) -> SyncRecord {
-    SyncRecord {
-        global_id: global_id.into(),
-        project: None,
-        memory_type: MemoryType::Note,
-        content: content.into(),
-        tags: Vec::new(),
-        supersedes: supersedes.iter().map(|id| id.to_string()).collect(),
-        origin_peer: None,
-        created_at: "2026-10-07T10:00:00.000Z".into(),
-        deleted_at: None,
-        deleted_by_peer: None,
-    }
-}
-
 #[test]
 fn a_supersession_made_on_one_machine_hides_the_old_memory_on_the_other() {
     let (alpha, _alpha_daemon, beta, _beta_daemon) = paired();
@@ -1050,7 +1039,8 @@ fn deleting_the_superseder_on_one_machine_brings_the_old_memory_back_on_both() {
         .recollect()
         .args(["delete", &alpha.id_of("B")])
         .assert()
-        .success();
+        .success()
+        .stderr("");
     alpha.sync("beta: sent 1 deletion\n");
 
     assert_eq!(alpha.contents(), ["A"]);
@@ -1070,6 +1060,11 @@ fn two_machines_superseding_the_same_memory_make_a_fork_on_both() {
 
     beta.sync("alpha: received 1 memory, sent 1 memory\n");
 
+    let mut expected = [
+        alpha.global_id_of("B from alpha"),
+        alpha.global_id_of("B from beta"),
+    ];
+    expected.sort();
     for machine in [&alpha, &beta] {
         assert_eq!(
             machine.contents(),
@@ -1081,7 +1076,14 @@ fn two_machines_superseding_the_same_memory_make_a_fork_on_both() {
         let forks = forks.as_array().unwrap();
         assert_eq!(forks.len(), 1, "{}: {forks:?}", machine.name);
         assert_eq!(forks[0]["target"]["global_id"], a);
-        assert_eq!(forks[0]["superseded_by"].as_array().unwrap().len(), 2);
+        let mut superseders: Vec<&str> = forks[0]["superseded_by"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|reference| reference["global_id"].as_str().unwrap())
+            .collect();
+        superseders.sort();
+        assert_eq!(superseders, expected, "{}", machine.name);
     }
 }
 
