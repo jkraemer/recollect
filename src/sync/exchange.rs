@@ -100,7 +100,10 @@ fn check_global_id(global_id: &str) -> Result<()> {
 }
 
 /// A memory supersedes other memories, each named once by its canonical
-/// global id; superseding itself would hide it from every read.
+/// global id; superseding itself would hide it from every read. A cycle across
+/// two records (A supersedes B, B supersedes A) is not refused: a local store
+/// cannot create one, since lists are immutable and targets must exist, so
+/// only a faulty peer could.
 fn check_supersedes(global_id: &str, supersedes: &[String]) -> Result<()> {
     let mut seen = HashSet::new();
     for target in supersedes {

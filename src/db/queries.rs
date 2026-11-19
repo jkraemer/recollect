@@ -41,12 +41,7 @@ impl Database {
 
     /// How many memories are not tombstoned.
     pub fn live_count(&self) -> Result<usize> {
-        let count: i64 = self.conn.query_row(
-            "SELECT count(*) FROM memories WHERE deleted_at IS NULL",
-            [],
-            |row| row.get(0),
-        )?;
-        Ok(count as usize)
+        self.count("SELECT count(*) FROM memories WHERE deleted_at IS NULL")
     }
 
     /// How many live memories no other live memory supersedes.
@@ -101,36 +96,50 @@ impl Database {
             }))
     }
 
-    /// Every global id that two or more rows supersede, by global id. Live
-    /// memories only: a deleted memory has no supersession rows.
+    /// Every global id that two or more current memories supersede. A
+    /// superseder that is itself superseded no longer counts, so superseding
+    /// the superseders with a merged memory dissolves the fork. Known limit: a
+    /// partial merge (a memory superseding only one of two superseders) drops
+    /// the target out of this list although the remaining two still
+    /// conflict; finding that takes a recursive look the dream does.
     pub fn forks(&self) -> Result<Vec<Fork>> {
-        let mut statement = self.conn.prepare(
-            "SELECT supersedes_global_id FROM supersessions
-             GROUP BY supersedes_global_id HAVING count(*) >= 2
-             ORDER BY supersedes_global_id",
-        )?;
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT t.supersedes_global_id FROM supersessions t
+             JOIN memories m ON m.id = t.memory_id
+             WHERE NOT {IS_SUPERSEDED}
+             GROUP BY t.supersedes_global_id HAVING count(*) >= 2
+             ORDER BY t.supersedes_global_id"
+        ))?;
         let targets = statement
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut superseders = self.conn.prepare(
-            "SELECT m.global_id FROM supersessions s JOIN memories m ON m.id = s.memory_id
-             WHERE s.supersedes_global_id = ?1 ORDER BY m.global_id",
-        )?;
         targets
             .into_iter()
             .map(|target| {
-                let ids = superseders
-                    .query_map([&target], |row| row.get::<_, String>(0))?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
                 Ok(Fork {
                     target: self.reference(&target)?,
-                    superseded_by: ids
-                        .iter()
-                        .map(|id| self.reference(id))
-                        .collect::<Result<_>>()?,
+                    superseded_by: self.superseders(&target, true)?,
                 })
             })
             .collect()
+    }
+
+    /// The live memories that supersede `global_id`, by global id; with
+    /// `only_current`, leaving out those that are superseded themselves.
+    pub fn superseders(&self, global_id: &str, only_current: bool) -> Result<Vec<Reference>> {
+        let current = if only_current {
+            format!("AND NOT {IS_SUPERSEDED}")
+        } else {
+            String::new()
+        };
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT m.global_id FROM supersessions t JOIN memories m ON m.id = t.memory_id
+             WHERE t.supersedes_global_id = ?1 {current} ORDER BY m.global_id"
+        ))?;
+        let ids = statement
+            .query_map([global_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ids.iter().map(|id| self.reference(id)).collect()
     }
 
     /// Current-memory counts per project, the global bucket named `global`, by name.
@@ -509,6 +518,41 @@ mod tests {
         assert_eq!(db.forks().unwrap().len(), 1);
         db.delete(c, &day(4)).unwrap();
         assert!(db.forks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_third_memory_superseding_both_superseders_dissolves_the_fork() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("a", None, &day(1)), None).unwrap();
+        db.insert_memory(&superseding("b", None, "a", &day(2)), None)
+            .unwrap();
+        db.insert_memory(&superseding("c", None, "a", &day(3)), None)
+            .unwrap();
+        assert_eq!(db.forks().unwrap().len(), 1);
+        let mut merge = superseding("d", None, "b", &day(4));
+        merge.supersedes.push("test-c".into());
+        db.insert_memory(&merge, None).unwrap();
+        assert!(db.forks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_superseded_superseder_is_not_listed_in_a_fork() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("a", None, &day(1)), None).unwrap();
+        for (content, day_of) in [("b", 2), ("c", 3), ("d", 4)] {
+            db.insert_memory(&superseding(content, None, "a", &day(day_of)), None)
+                .unwrap();
+        }
+        db.insert_memory(&superseding("e", None, "b", &day(5)), None)
+            .unwrap();
+        let forks = db.forks().unwrap();
+        assert_eq!(forks.len(), 1);
+        let superseders: Vec<&str> = forks[0]
+            .superseded_by
+            .iter()
+            .map(|r| r.global_id.as_str())
+            .collect();
+        assert_eq!(superseders, ["test-c", "test-d"]);
     }
 
     #[test]

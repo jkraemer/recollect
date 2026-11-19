@@ -31,7 +31,8 @@ pub struct StoreInput {
 pub struct StoreOutcome {
     pub id: i64,
     pub global_id: String,
-    /// Set when the memory was stored without embeddings.
+    /// Set when the memory was stored without embeddings or supersedes a
+    /// memory that is superseded already.
     pub warning: Option<String>,
 }
 
@@ -185,6 +186,7 @@ impl Recollect {
         let content = normalize_content(&input.content)?;
         let tags = normalize_tags(&input.tags)?;
         let supersedes = self.resolve_supersedes(&input.supersedes)?;
+        let forked = self.already_superseded(&supersedes)?;
         let embedded = self.with_vectors(|embedder| embed_memory(embedder, &content))?;
         let record = NewRecord {
             global_id: Uuid::now_v7().to_string(),
@@ -200,9 +202,15 @@ impl Recollect {
         Ok(StoreOutcome {
             id,
             global_id: record.global_id,
-            warning: embedded
-                .err()
-                .map(|why| why.stored_without_vectors(&format!("#{id}"))),
+            warning: [
+                forked,
+                embedded
+                    .err()
+                    .map(|why| why.stored_without_vectors(&format!("#{id}"))),
+            ]
+            .into_iter()
+            .flatten()
+            .reduce(|first, second| format!("{first}; {second}")),
         })
     }
 
@@ -237,17 +245,17 @@ impl Recollect {
     }
 
     /// The memory `reference` names with both directions of supersession. A
-    /// global id that is unknown or deleted here is `NoSuchMemory`.
+    /// global id that is unknown or deleted here is `NotFound`.
     pub fn show(&self, reference: &MemoryRef) -> Result<Shown> {
         let id = match reference {
             MemoryRef::Local(id) => *id,
-            MemoryRef::Global(global_id) => match self.db.find(reference)? {
+            MemoryRef::Global(_) => match self.db.find(reference)? {
                 Some(Reference {
                     id: Some(id),
                     deleted: false,
                     ..
                 }) => id,
-                _ => return Err(Error::NoSuchMemory(global_id.clone())),
+                _ => return Err(Error::NotFound(reference.clone())),
             },
         };
         let memory = self.db.get(id)?;
@@ -474,6 +482,31 @@ impl Recollect {
             }
         }
         Ok(global_ids)
+    }
+
+    /// A warning for each of `targets` that a live memory supersedes already:
+    /// superseding it again forks instead of replacing, so it names what to
+    /// supersede instead.
+    fn already_superseded(&self, targets: &[String]) -> Result<Option<String>> {
+        let mut warnings = Vec::new();
+        for target in targets {
+            let superseders = self.db.superseders(target, false)?;
+            if superseders.is_empty() {
+                continue;
+            }
+            let ids = superseders
+                .iter()
+                .filter_map(|superseder| superseder.id)
+                .map(|id| format!("#{id}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let target = self.db.reference(target)?;
+            warnings.push(format!(
+                "#{} is already superseded by {ids}; supersede {ids} to replace it",
+                target.id.expect("a resolved target is on this machine"),
+            ));
+        }
+        Ok((!warnings.is_empty()).then(|| warnings.join("; ")))
     }
 
     /// Runs `work` with the embedder, or says why vectors are unusable: an

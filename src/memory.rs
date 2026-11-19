@@ -136,8 +136,10 @@ pub struct Reference {
     pub deleted: bool,
 }
 
-/// A global id superseded by two or more live memories: the machines that
-/// wrote them did not know of each other.
+/// A global id superseded by two or more current memories (live, and not
+/// superseded themselves): they correct the same memory without knowing of
+/// each other, as two machines do, or because a memory that was superseded
+/// already got a second correction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Fork {
     pub target: Reference,

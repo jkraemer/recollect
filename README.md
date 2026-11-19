@@ -221,9 +221,11 @@ on `search`, `list` and `context` shows it, marked `superseded`, and
 `recollect show` lists what a memory supersedes and what supersedes it.
 Deleting the new memory brings the old one back.
 
-If two machines correct the same memory, both new memories stay visible and
-`recollect status` lists the memory as a fork; delete one of the corrections,
-or supersede both with a third memory.
+If two memories correct the same memory (two machines that did not know of
+each other, or a correction of a memory that is superseded already, which
+`store` warns about), both stay visible and `recollect status` lists the
+memory as a fork; delete one of the corrections, or supersede both with a
+third memory.
 
 Sync passes the supersessions on. Machines that sync must run versions with
 the same sync protocol: peers on different versions refuse each other and

@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 
+use crate::memory::MemoryRef;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("memory {0} not found")]
-    NotFound(i64),
-    #[error("memory {0} not found")]
-    NoSuchMemory(String),
+    NotFound(MemoryRef),
     #[error("cannot supersede {0}: no such memory on this machine")]
     UnknownSupersedes(String),
     #[error("invalid project name {0:?}: allowed are a-z 0-9 . _ -")]

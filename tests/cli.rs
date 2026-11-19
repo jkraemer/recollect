@@ -288,6 +288,19 @@ fn store_supersedes_by_local_or_global_id_and_hides_the_old_memory() {
 }
 
 #[test]
+fn store_warns_when_the_target_is_already_superseded() {
+    let dir = tempfile::tempdir().unwrap();
+    let a = store_json(dir.path(), "alpha old", &[]);
+    store_json(dir.path(), "beta new", &["--supersedes", &id_of(&a)]);
+    recollect(dir.path())
+        .args(["store", "gamma rival", "--supersedes", "1"])
+        .assert()
+        .success()
+        .stdout("stored #3\n")
+        .stderr("warning: #1 is already superseded by #2; supersede #2 to replace it\n");
+}
+
+#[test]
 fn store_refuses_an_unknown_or_malformed_supersedes_target_and_stores_nothing() {
     let dir = tempfile::tempdir().unwrap();
     store(dir.path(), &["alpha old"]);
@@ -441,7 +454,11 @@ fn status_counts_superseded_memories_and_lists_forks() {
     let dir = tempfile::tempdir().unwrap();
     let a = store_json(dir.path(), "alpha", &[]);
     store_json(dir.path(), "beta", &["--supersedes", &id_of(&a)]);
-    store_json(dir.path(), "gamma", &["--supersedes", &id_of(&a)]);
+    recollect(dir.path())
+        .args(["store", "gamma", "--supersedes", &id_of(&a)])
+        .assert()
+        .success()
+        .stderr("warning: #1 is already superseded by #2; supersede #2 to replace it\n");
     let status = json_of(recollect(dir.path()).args(["status", "--json"]));
     assert_eq!(status["memories"], 2);
     assert_eq!(status["superseded"], 1);

@@ -5,7 +5,7 @@ use rusqlite::Row;
 use super::Database;
 use super::memories::{
     INSERT_MEMORY, UNLESS_STORED, apply_tombstone, insert_row, json_array, memory_type_at,
-    supersedes_of_memory, tags_at,
+    string_list_at, supersedes_of_memory,
 };
 use crate::error::Result;
 use crate::memory::{SyncRecord, Tombstone};
@@ -32,8 +32,8 @@ fn sync_record_from_row(row: &Row<'_>) -> rusqlite::Result<SyncRecord> {
         project: row.get(1)?,
         memory_type: memory_type_at(row, 2)?,
         content: row.get(3)?,
-        tags: tags_at(row, 4)?,
-        supersedes: tags_at(row, 5)?,
+        tags: string_list_at(row, 4)?,
+        supersedes: string_list_at(row, 5)?,
         origin_peer: row.get(6)?,
         created_at: row.get(7)?,
         deleted_at: row.get(8)?,

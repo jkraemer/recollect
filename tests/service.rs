@@ -587,7 +587,7 @@ fn import_deletes_memories_deleted_in_the_other_installation() {
     );
     assert!(matches!(
         app.show(&MemoryRef::Local(1)),
-        Err(Error::NotFound(1))
+        Err(Error::NotFound(MemoryRef::Local(1)))
     ));
     assert_eq!(app.status().unwrap().memories, 1);
     assert_eq!(
@@ -801,7 +801,7 @@ fn show_names_both_directions_and_refuses_unknown_global_ids() {
     for global_id in [old.global_id, unknown] {
         assert!(matches!(
             app.show(&MemoryRef::Global(global_id.clone())),
-            Err(Error::NoSuchMemory(shown)) if shown == global_id
+            Err(Error::NotFound(MemoryRef::Global(shown))) if shown == global_id
         ));
     }
 }

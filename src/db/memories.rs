@@ -5,7 +5,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::{Database, chunks};
 use crate::error::{Error, Result};
-use crate::memory::{Embedded, Memory, MemoryType, NewRecord, Tombstone};
+use crate::memory::{Embedded, Memory, MemoryRef, MemoryType, NewRecord, Tombstone};
 
 /// The SQL of a JSON array of the global ids the memory `m` supersedes,
 /// sorted. A tombstoned memory has no supersession rows, so its list is
@@ -36,10 +36,10 @@ pub(super) fn memory_from_row(row: &Row<'_>) -> rusqlite::Result<Memory> {
         project: row.get(2)?,
         memory_type: memory_type_at(row, 3)?,
         content: row.get(4)?,
-        tags: tags_at(row, 5)?,
+        tags: string_list_at(row, 5)?,
         created_at: row.get(6)?,
-        supersedes: tags_at(row, 7)?,
-        superseded_by: tags_at(row, 8)?,
+        supersedes: string_list_at(row, 7)?,
+        superseded_by: string_list_at(row, 8)?,
     })
 }
 
@@ -55,8 +55,9 @@ pub(super) fn memory_type_at(row: &Row<'_>, index: usize) -> rusqlite::Result<Me
     })
 }
 
-/// The tags stored as a JSON array in column `index` of `row`.
-pub(super) fn tags_at(row: &Row<'_>, index: usize) -> rusqlite::Result<Vec<String>> {
+/// The list of strings stored as a JSON array in column `index` of `row`:
+/// tags, or global ids of the memories superseded or superseding.
+pub(super) fn string_list_at(row: &Row<'_>, index: usize) -> rusqlite::Result<Vec<String>> {
     let tags: String = row.get(index)?;
     serde_json::from_str(&tags)
         .map_err(|err| rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(err)))
@@ -167,7 +168,7 @@ impl Database {
                 memory_from_row,
             )
             .optional()?
-            .ok_or(Error::NotFound(id))
+            .ok_or(Error::NotFound(MemoryRef::Local(id)))
     }
 
     /// Tombstones a live memory: drops its chunks and blanks its text. The row
@@ -175,7 +176,7 @@ impl Database {
     pub fn delete(&mut self, id: i64, deleted_at: &str) -> Result<()> {
         let tx = self.write_transaction()?;
         if !tombstone_memory(&tx, id, deleted_at, None)? {
-            return Err(Error::NotFound(id));
+            return Err(Error::NotFound(MemoryRef::Local(id)));
         }
         tx.commit()?;
         Ok(())
@@ -229,7 +230,7 @@ mod tests {
     use crate::db::test_support::{LATER, T0, concurrently, fts_hits, record};
     use crate::db::{Database, ImportCounts};
     use crate::error::Error;
-    use crate::memory::{Embedded, MemoryType, NewRecord, Tombstone};
+    use crate::memory::{Embedded, MemoryRef, MemoryType, NewRecord, Tombstone};
 
     fn embedded(model_id: &str, chunks: usize) -> Embedded {
         Embedded {
@@ -319,7 +320,10 @@ mod tests {
     #[test]
     fn unknown_ids_are_not_found() {
         let db = Database::open_in_memory().unwrap();
-        assert!(matches!(db.get(42), Err(Error::NotFound(42))));
+        assert!(matches!(
+            db.get(42),
+            Err(Error::NotFound(MemoryRef::Local(42)))
+        ));
     }
 
     #[test]
@@ -465,7 +469,10 @@ mod tests {
         let id = db.insert_memory(&record("x", None, T0), None).unwrap();
         db.delete(id, LATER).unwrap();
         assert!(matches!(db.delete(id, LATER), Err(Error::NotFound(_))));
-        assert!(matches!(db.delete(999, LATER), Err(Error::NotFound(999))));
+        assert!(matches!(
+            db.delete(999, LATER),
+            Err(Error::NotFound(MemoryRef::Local(999)))
+        ));
     }
 
     #[test]
