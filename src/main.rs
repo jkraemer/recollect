@@ -46,7 +46,7 @@ enum Command {
         #[command(flatten)]
         output: OutputArgs,
     },
-    /// Delete a memory
+    /// Delete a memory; to correct one, store the correction with --supersedes
     Delete { id: i64 },
     /// The latest session and the recent notes and todos
     Context {

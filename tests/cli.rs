@@ -61,6 +61,19 @@ fn version_flag_prints_the_crate_version() {
 }
 
 #[test]
+fn the_help_points_from_delete_to_superseding() {
+    Command::cargo_bin("recollect")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Delete a memory; to correct one, store the correction with --supersedes",
+        ))
+        .stderr("");
+}
+
+#[test]
 fn store_from_an_argument_then_show_it() {
     let dir = tempfile::tempdir().unwrap();
     recollect(dir.path())
@@ -1211,7 +1224,7 @@ fn hook_session_start_after_compaction_prints_only_the_header() {
     .assert()
     .success()
     .stdout(format!(
-        "# Recollect memory: project fera\n\nProject from the repository directory {}.\nCommands for this project: search `recollect search \"<words>\" -p fera --json`, full text `recollect show <id>`, store `recollect store -p fera -T <tags>` with the content on stdin.\n",
+        "# Recollect memory: project fera\n\nProject from the repository directory {}.\nCommands for this project: search `recollect search \"<words>\" -p fera --json`, full text `recollect show <id>`, store `recollect store -p fera -T <tags>` with the content on stdin; a correction of a stored memory adds `--supersedes <id>` instead of deleting it.\n",
         repo.display()
     ))
     .stderr("");
@@ -1249,7 +1262,7 @@ fn the_first_session_on_a_machine_creates_the_database_without_loading_the_model
         .assert()
         .success()
         .stdout(predicate::str::ends_with(
-            "with the content on stdin.\n\nNo memories stored for this project yet.\n",
+            "instead of deleting it.\n\nNo memories stored for this project yet.\n",
         ))
         .stderr("");
     assert!(data.join("memories.db").is_file());

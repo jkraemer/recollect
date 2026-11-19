@@ -147,7 +147,8 @@ fn commands(label: &str, project: &str) -> String {
     format!(
         "{label}: search `recollect search \"<words>\" -p {project} --json`, \
          full text `recollect show <id>`, \
-         store `recollect store -p {project} -T <tags>` with the content on stdin."
+         store `recollect store -p {project} -T <tags>` with the content on stdin; \
+         a correction of a stored memory adds `--supersedes <id>` instead of deleting it."
     )
 }
 
@@ -313,7 +314,8 @@ mod tests {
         Project from the repository directory /work/fera.\n\
         Commands for this project: search `recollect search \"<words>\" -p fera --json`, \
         full text `recollect show <id>`, \
-        store `recollect store -p fera -T <tags>` with the content on stdin.";
+        store `recollect store -p fera -T <tags>` with the content on stdin; \
+        a correction of a stored memory adds `--supersedes <id>` instead of deleting it.";
 
     #[test]
     fn a_project_context_is_the_header_the_last_session_and_the_notes_index() {
@@ -523,7 +525,8 @@ mod tests {
              Commands, with the project name in place of <project>: \
              search `recollect search \"<words>\" -p <project> --json`, \
              full text `recollect show <id>`, \
-             store `recollect store -p <project> -T <tags>` with the content on stdin.\n\n\
+             store `recollect store -p <project> -T <tags>` with the content on stdin; \
+             a correction of a stored memory adds `--supersedes <id>` instead of deleting it.\n\n\
              ## Recent sessions\n\
              - #8 · fera · session · 2026-05-02 · billing · Session: Billing\n\n\
              ## Recent notes and todos\n\
@@ -536,7 +539,7 @@ mod tests {
         };
         assert!(
             session_start_text(&detection, &nothing)
-                .ends_with("with the content on stdin.\n\nNo memories stored yet.")
+                .ends_with("instead of deleting it.\n\nNo memories stored yet.")
         );
     }
 
