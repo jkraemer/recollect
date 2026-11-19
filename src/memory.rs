@@ -189,8 +189,10 @@ pub struct SyncRecord {
     pub memory_type: MemoryType,
     pub content: String,
     pub tags: Vec<String>,
-    /// The global ids of the memories this one supersedes, sorted; fixed at
-    /// creation, so a deleted memory carries none.
+    /// The global ids of the memories this one supersedes; fixed at
+    /// creation, so a deleted memory carries none. The sender sends them
+    /// sorted and the receiver stores them as a set, so their order does not
+    /// matter on receipt.
     pub supersedes: Vec<String>,
     pub origin_peer: Option<String>,
     pub created_at: String,

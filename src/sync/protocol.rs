@@ -306,11 +306,13 @@ mod tests {
             r#"{"type":"hello","protocol":2,"manifest_hash":"abc","extra":true}"#,
             r#"{"type":"end","extra":1}"#,
             r#"{"type":"paired","extra":1}"#,
-            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"note","content":"c","tags":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null,"extra":1}]}"#,
+            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"note","content":"c","tags":[],"supersedes":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null,"extra":1}]}"#,
             r#"{"type":"greeting"}"#,
             r#"{"protocol":2,"manifest_hash":"abc"}"#,
             r#"{"type":"tombstones","entries":[{"global_id":"g","deleted_at":"t","deleted_by_peer":null,"why":"x"}]}"#,
-            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"decision","content":"c","tags":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null}]}"#,
+            // The protocol 1 shape: no supersedes list.
+            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"note","content":"c","tags":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null}]}"#,
+            r#"{"type":"records","memories":[{"global_id":"g","project":null,"memory_type":"decision","content":"c","tags":[],"supersedes":[],"origin_peer":null,"created_at":"t","deleted_at":null,"deleted_by_peer":null}]}"#,
         ] {
             assert!(serde_json::from_str::<Message>(json).is_err(), "{json}");
         }

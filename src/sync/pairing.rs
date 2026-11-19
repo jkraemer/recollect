@@ -210,12 +210,24 @@ pub fn accept<S: Read + Write>(
     let reply = match &outcome {
         Ok(_) => Message::Paired {},
         Err(err) => Message::Error {
-            message: err.to_string(),
+            message: told_to_joiner(err),
         },
     };
     // The outcome stands whether or not the machine is still there to hear it.
     let _ = channel.send(&reply);
     outcome
+}
+
+/// What the joiner is told about a refusal. A protocol mismatch is worded
+/// from the joiner's side, since "this machine" would name the inviter there.
+fn told_to_joiner(err: &Error) -> String {
+    match err {
+        Error::ProtocolMismatch { theirs, ours, .. } => format!(
+            "your recollect speaks sync protocol {theirs}, mine speaks {ours}; upgrade {}",
+            if theirs > ours { "mine" } else { "yours" }
+        ),
+        other => other.to_string(),
+    }
 }
 
 fn redeem(
@@ -717,11 +729,25 @@ mod tests {
         assert_eq!(
             reply,
             Message::Error {
-                message: mismatch.into()
+                message: "your recollect speaks sync protocol 3, mine speaks 2; upgrade mine"
+                    .into()
             }
         );
         assert_eq!(message_of(answered), mismatch);
         assert!(inviter.database().peers().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_joiner_with_an_older_protocol_version_is_told_to_upgrade_itself() {
+        let (reply, _, _) =
+            send_unpaired(pair_message(PROTOCOL_VERSION - 1, "twelve", "twelve:7327"));
+        assert_eq!(
+            reply,
+            Message::Error {
+                message: "your recollect speaks sync protocol 1, mine speaks 2; upgrade yours"
+                    .into()
+            }
+        );
     }
 
     #[test]
