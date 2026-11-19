@@ -205,6 +205,8 @@ mod tests {
             content: "Single SQLite DB.\nSecond line.".into(),
             tags: tags.iter().map(|t| t.to_string()).collect(),
             created_at: "2026-09-29T08:05:03.045Z".into(),
+            supersedes: Vec::new(),
+            superseded_by: Vec::new(),
         }
     }
 

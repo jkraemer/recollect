@@ -19,6 +19,7 @@ pub fn record(content: &str, project: Option<&str>, created_at: &str) -> NewReco
         tags: Vec::new(),
         origin_peer: None,
         created_at: created_at.to_string(),
+        supersedes: Vec::new(),
     }
 }
 

@@ -180,6 +180,7 @@ impl Recollect {
             tags,
             origin_peer: None,
             created_at: now_timestamp(),
+            supersedes: Vec::new(),
         };
         let id = self.db.insert_memory(&record, embedded.as_ref().ok())?;
         Ok(StoreOutcome {

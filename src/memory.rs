@@ -83,6 +83,10 @@ pub struct Memory {
     pub content: String,
     pub tags: Vec<String>,
     pub created_at: String,
+    /// Global ids of the memories this one supersedes, sorted.
+    pub supersedes: Vec<String>,
+    /// Global ids of the live memories that supersede this one, sorted.
+    pub superseded_by: Vec<String>,
 }
 
 impl Memory {
@@ -112,6 +116,8 @@ pub struct NewRecord {
     /// `None` means the memory was created on this machine.
     pub origin_peer: Option<String>,
     pub created_at: String,
+    /// Global ids of the memories this one supersedes; fixed at creation.
+    pub supersedes: Vec<String>,
 }
 
 /// The deletion of a memory, on this machine or another: its `global_id`,
@@ -153,6 +159,7 @@ impl SyncRecord {
             tags: self.tags.clone(),
             origin_peer: self.origin_peer.clone(),
             created_at: self.created_at.clone(),
+            supersedes: Vec::new(),
         }
     }
 
@@ -273,12 +280,15 @@ mod tests {
             content: "c".into(),
             tags: vec!["a".into()],
             created_at: "2026-09-29T10:00:00.000Z".into(),
+            supersedes: vec!["a".into()],
+            superseded_by: Vec::new(),
         };
         assert_eq!(
             serde_json::to_value(&memory).unwrap(),
             json!({
                 "id": 7, "global_id": "g", "project": null, "memory_type": "todo",
-                "content": "c", "tags": ["a"], "created_at": "2026-09-29T10:00:00.000Z"
+                "content": "c", "tags": ["a"], "created_at": "2026-09-29T10:00:00.000Z",
+                "supersedes": ["a"], "superseded_by": []
             })
         );
         let scored = ScoredMemory { memory, score: 0.5 };

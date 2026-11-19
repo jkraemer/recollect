@@ -67,6 +67,7 @@ fn old_record(global_id: &str, content: &str) -> NewRecord {
         tags: Vec::new(),
         origin_peer: None,
         created_at: "2026-01-01T00:00:00.000Z".to_string(),
+        supersedes: Vec::new(),
     }
 }
 

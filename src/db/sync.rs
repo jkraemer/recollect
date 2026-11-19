@@ -90,7 +90,8 @@ impl Database {
         let insert = format!("{INSERT_MEMORY} {UNLESS_STORED}");
         let mut applied = SyncApplied::default();
         for record in records {
-            let inserted = insert_row(&tx, &insert, &record.to_new_record())?;
+            let inserted =
+                usize::from(insert_row(&tx, &insert, &record.to_new_record())?.is_some());
             match record.tombstone() {
                 None => applied.memories += inserted,
                 Some(tombstone) => {

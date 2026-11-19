@@ -7,9 +7,28 @@ use super::{Database, chunks};
 use crate::error::{Error, Result};
 use crate::memory::{Embedded, Memory, MemoryType, NewRecord, Tombstone};
 
-/// The columns `memory_from_row` reads, from the `memories` table aliased `m`.
-pub(super) const MEMORY_COLUMNS: &str =
-    "m.id, m.global_id, m.project, m.memory_type, m.content, m.tags, m.created_at";
+/// The SQL of a JSON array of the global ids the memory `m` supersedes,
+/// sorted. A tombstoned memory has no supersession rows, so its list is
+/// empty. A macro so that `concat!` can build `MEMORY_COLUMNS` from it.
+macro_rules! supersedes_of_memory {
+    () => {
+        "(SELECT json_group_array(supersedes_global_id)
+           FROM (SELECT supersedes_global_id FROM supersessions
+                 WHERE memory_id = m.id ORDER BY supersedes_global_id))"
+    };
+}
+
+/// The columns `memory_from_row` reads, from the `memories` table aliased
+/// `m`: the last two are the global ids of what the memory supersedes and of
+/// the memories that supersede it, each sorted.
+pub(super) const MEMORY_COLUMNS: &str = concat!(
+    "m.id, m.global_id, m.project, m.memory_type, m.content, m.tags, m.created_at, ",
+    supersedes_of_memory!(),
+    ", (SELECT json_group_array(global_id)
+         FROM (SELECT s.global_id FROM supersessions
+               JOIN memories s ON s.id = supersessions.memory_id
+               WHERE supersedes_global_id = m.global_id ORDER BY s.global_id))"
+);
 
 pub(super) fn memory_from_row(row: &Row<'_>) -> rusqlite::Result<Memory> {
     Ok(Memory {
@@ -20,6 +39,8 @@ pub(super) fn memory_from_row(row: &Row<'_>) -> rusqlite::Result<Memory> {
         content: row.get(4)?,
         tags: tags_at(row, 5)?,
         created_at: row.get(6)?,
+        supersedes: tags_at(row, 7)?,
+        superseded_by: tags_at(row, 8)?,
     })
 }
 
@@ -59,9 +80,12 @@ pub(super) const INSERT_MEMORY: &str =
 pub(super) const UNLESS_STORED: &str = "ON CONFLICT(global_id) DO NOTHING";
 
 /// Runs `sql`, `INSERT_MEMORY` with or without `UNLESS_STORED`, for
-/// `record`; returns how many rows it inserted.
-pub(super) fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Result<usize> {
-    Ok(conn.prepare_cached(sql)?.execute(params![
+/// `record`; returns the id of the row it inserted, `None` if it skipped one.
+/// The id is returned because writing the supersessions moves
+/// `last_insert_rowid`. The supersessions of `record` are written only when
+/// the memory was inserted, so a skipped duplicate adds none.
+pub(super) fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Result<Option<i64>> {
+    let inserted = conn.prepare_cached(sql)?.execute(params![
         record.global_id,
         record.project,
         record.memory_type.as_str(),
@@ -69,7 +93,18 @@ pub(super) fn insert_row(conn: &Connection, sql: &str, record: &NewRecord) -> Re
         json_array(&record.tags),
         record.origin_peer,
         record.created_at,
-    ])?)
+    ])?;
+    if inserted == 0 {
+        return Ok(None);
+    }
+    let id = conn.last_insert_rowid();
+    let mut insert = conn.prepare_cached(
+        "INSERT OR IGNORE INTO supersessions (memory_id, supersedes_global_id) VALUES (?1, ?2)",
+    )?;
+    for target in &record.supersedes {
+        insert.execute(params![id, target])?;
+    }
+    Ok(Some(id))
 }
 
 /// What `Database::import` changed.
@@ -87,8 +122,8 @@ impl Database {
         embedded: Option<&Embedded>,
     ) -> Result<i64> {
         let tx = self.write_transaction()?;
-        insert_row(&tx, INSERT_MEMORY, record)?;
-        let id = tx.last_insert_rowid();
+        let id =
+            insert_row(&tx, INSERT_MEMORY, record)?.expect("a plain insert adds a row or fails");
         if let Some(embedded) = embedded {
             chunks::insert_chunks(&tx, id, embedded)?;
         }
@@ -113,7 +148,7 @@ impl Database {
             deleted: 0,
         };
         for record in records {
-            counts.inserted += insert_row(&tx, &sql, record)?;
+            counts.inserted += usize::from(insert_row(&tx, &sql, record)?.is_some());
         }
         for tombstone in tombstones {
             if apply_tombstone(&tx, tombstone)? {
@@ -158,6 +193,7 @@ fn tombstone_memory(
     deleted_by_peer: Option<&str>,
 ) -> Result<bool> {
     conn.execute("DELETE FROM chunks WHERE memory_id = ?1", [id])?;
+    conn.execute("DELETE FROM supersessions WHERE memory_id = ?1", [id])?;
     let changed = conn.execute(
         "UPDATE memories SET deleted_at = ?2, deleted_by_peer = ?3, content = '', tags = '[]'
          WHERE id = ?1 AND deleted_at IS NULL",
@@ -644,5 +680,68 @@ mod tests {
         assert_eq!(db.get(first).unwrap().content, "first");
         assert_eq!(memory_count(&db), 2, "the new memory was not inserted");
         assert_eq!(fts_hits(&db, "new"), 0);
+    }
+
+    fn supersession_rows(db: &Database) -> i64 {
+        db.conn
+            .query_row("SELECT count(*) FROM supersessions", [], |row| row.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_memory_reads_what_it_supersedes_and_what_supersedes_it() {
+        let mut db = Database::open_in_memory().unwrap();
+        let old = db.insert_memory(&record("old", None, T0), None).unwrap();
+        let new = NewRecord {
+            supersedes: vec!["test-old".into()],
+            ..record("new", None, T0)
+        };
+        let new = db.insert_memory(&new, None).unwrap();
+        assert_eq!(db.get(new).unwrap().supersedes, vec!["test-old"]);
+        assert_eq!(db.get(old).unwrap().superseded_by, vec!["test-new"]);
+        assert!(db.get(old).unwrap().supersedes.is_empty());
+        assert!(db.get(new).unwrap().superseded_by.is_empty());
+    }
+
+    #[test]
+    fn a_supersession_may_name_a_memory_this_machine_has_not_seen() {
+        let mut db = Database::open_in_memory().unwrap();
+        let new = NewRecord {
+            supersedes: vec!["test-unknown".into()],
+            ..record("new", None, T0)
+        };
+        let new = db.insert_memory(&new, None).unwrap();
+        assert_eq!(db.get(new).unwrap().supersedes, vec!["test-unknown"]);
+    }
+
+    #[test]
+    fn deleting_the_superseder_removes_its_supersessions() {
+        let mut db = Database::open_in_memory().unwrap();
+        let old = db.insert_memory(&record("old", None, T0), None).unwrap();
+        let new = NewRecord {
+            supersedes: vec!["test-old".into()],
+            ..record("new", None, T0)
+        };
+        let new = db.insert_memory(&new, None).unwrap();
+        db.delete(new, LATER).unwrap();
+        assert!(db.get(old).unwrap().superseded_by.is_empty());
+        assert_eq!(supersession_rows(&db), 0);
+    }
+
+    #[test]
+    fn an_import_that_skips_a_stored_memory_adds_no_supersessions() {
+        let mut db = Database::open_in_memory().unwrap();
+        db.insert_memory(&record("old", None, T0), None).unwrap();
+        let new = NewRecord {
+            supersedes: vec!["test-old".into()],
+            ..record("new", None, T0)
+        };
+        let new_id = db.insert_memory(&new, None).unwrap();
+        let again = NewRecord {
+            supersedes: vec!["test-other".into()],
+            ..new
+        };
+        db.import(&[again], &[]).unwrap();
+        assert_eq!(db.get(new_id).unwrap().supersedes, vec!["test-old"]);
     }
 }
