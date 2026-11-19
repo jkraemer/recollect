@@ -8,7 +8,9 @@ use recollect::config::Config;
 use recollect::db::Database;
 use recollect::embed::MODEL_ID;
 use recollect::filter::Filter;
-use recollect::memory::{Embedded, MemoryType, NewRecord, ProjectRef, SyncRecord, Tombstone};
+use recollect::memory::{
+    Embedded, MemoryRef, MemoryType, NewRecord, ProjectRef, Reference, SyncRecord, Tombstone,
+};
 use recollect::service::{Context, ImportOutcome, ProjectCount, Recollect, StoreInput, TagCount};
 use tempfile::TempDir;
 
@@ -30,6 +32,7 @@ fn input(content: &str, project: ProjectRef, memory_type: MemoryType) -> StoreIn
         project,
         memory_type,
         tags: Vec::new(),
+        supersedes: Vec::new(),
     }
 }
 
@@ -144,7 +147,7 @@ fn input_is_normalized_before_storing() {
             ..note("  padded content \n", ProjectRef::Global)
         })
         .unwrap();
-    let memory = app.show(stored.id).unwrap();
+    let memory = app.show(&MemoryRef::Local(stored.id)).unwrap().memory;
     assert_eq!(memory.content, "padded content");
     assert_eq!(memory.tags, ["a", "b"]);
     assert_eq!(memory.project, None);
@@ -176,7 +179,10 @@ fn deleted_memories_are_gone() {
         .unwrap()
         .id;
     app.delete(id).unwrap();
-    assert!(matches!(app.show(id), Err(Error::NotFound(_))));
+    assert!(matches!(
+        app.show(&MemoryRef::Local(id)),
+        Err(Error::NotFound(_))
+    ));
     assert!(matches!(app.delete(id), Err(Error::NotFound(_))));
     assert!(
         app.search("short-lived", &Filter::default(), 10)
@@ -206,7 +212,7 @@ fn context_gathers_the_latest_session_and_recent_notes_and_todos() {
         project,
         last_session,
         recent_notes_todos,
-    } = app.context(Some(&named("p"))).unwrap()
+    } = app.context(Some(&named("p")), false).unwrap()
     else {
         panic!("a project context was requested");
     };
@@ -220,7 +226,7 @@ fn context_gathers_the_latest_session_and_recent_notes_and_todos() {
         project,
         recent_sessions,
         recent_notes_todos,
-    } = app.context(None).unwrap()
+    } = app.context(None, false).unwrap()
     else {
         panic!("a cross-project context was requested");
     };
@@ -229,7 +235,8 @@ fn context_gathers_the_latest_session_and_recent_notes_and_todos() {
     assert_eq!(sessions, ["elsewhere", "latest session", "first session"]);
     assert_eq!(recent_notes_todos.len(), 10);
 
-    let Context::Project { project, .. } = app.context(Some(&ProjectRef::Global)).unwrap() else {
+    let Context::Project { project, .. } = app.context(Some(&ProjectRef::Global), false).unwrap()
+    else {
         panic!("global is a project context");
     };
     assert_eq!(project, "global");
@@ -542,7 +549,7 @@ fn import_stores_and_embeds_and_a_rerun_adds_only_new_memories() {
     let status = app.status().unwrap();
     assert_eq!((status.memories, status.pending_embeddings), (3, 0));
     assert_eq!(
-        app.show(1).unwrap().created_at,
+        app.show(&MemoryRef::Local(1)).unwrap().memory.created_at,
         "2026-01-01T00:00:00.000Z",
         "imported memories keep their creation time"
     );
@@ -578,7 +585,10 @@ fn import_deletes_memories_deleted_in_the_other_installation() {
             warning: None
         }
     );
-    assert!(matches!(app.show(1), Err(Error::NotFound(1))));
+    assert!(matches!(
+        app.show(&MemoryRef::Local(1)),
+        Err(Error::NotFound(1))
+    ));
     assert_eq!(app.status().unwrap().memories, 1);
     assert_eq!(
         app.import(still_live, &tombstones).unwrap().deleted,
@@ -746,4 +756,96 @@ fn received_memories_stay_pending_with_a_warning_when_the_model_is_unavailable()
         "{warning}"
     );
     assert_eq!(app.status().unwrap().pending_embeddings, 1);
+}
+
+#[test]
+fn a_memory_that_supersedes_an_unknown_target_is_not_stored() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(&dir);
+    let known = app.store(note("known", ProjectRef::Global)).unwrap();
+    let result = app.store(StoreInput {
+        supersedes: vec![MemoryRef::Local(known.id), MemoryRef::Local(99)],
+        ..note("new", ProjectRef::Global)
+    });
+    assert!(matches!(result, Err(Error::UnknownSupersedes(target)) if target == "99"));
+    assert_eq!(app.list(&Filter::default(), 10).unwrap().len(), 1);
+}
+
+#[test]
+fn show_names_both_directions_and_refuses_unknown_global_ids() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(&dir);
+    let old = app.store(note("old", ProjectRef::Global)).unwrap();
+    let new = app
+        .store(StoreInput {
+            supersedes: vec![
+                MemoryRef::Global(old.global_id.clone()),
+                MemoryRef::Local(old.id),
+            ],
+            ..note("new", ProjectRef::Global)
+        })
+        .unwrap();
+    let reference = |stored: &recollect::service::StoreOutcome| Reference {
+        global_id: stored.global_id.clone(),
+        id: Some(stored.id),
+        deleted: false,
+    };
+    let shown = app.show(&MemoryRef::Global(new.global_id.clone())).unwrap();
+    assert_eq!(shown.supersedes, [reference(&old)]);
+    assert!(shown.superseded_by.is_empty());
+    let shown = app.show(&MemoryRef::Local(old.id)).unwrap();
+    assert_eq!(shown.superseded_by, [reference(&new)]);
+    app.delete(old.id).unwrap();
+    let unknown = "0199a8c0-0000-7000-8000-0000000000ff".to_string();
+    for global_id in [old.global_id, unknown] {
+        assert!(matches!(
+            app.show(&MemoryRef::Global(global_id.clone())),
+            Err(Error::NoSuchMemory(shown)) if shown == global_id
+        ));
+    }
+}
+
+#[test]
+fn context_leaves_superseded_memories_out_unless_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(&dir);
+    let old = app.store(note("old", named("p"))).unwrap();
+    app.store(StoreInput {
+        supersedes: vec![MemoryRef::Local(old.id)],
+        ..note("new", named("p"))
+    })
+    .unwrap();
+    let notes = |include_superseded| {
+        let Context::Project {
+            recent_notes_todos, ..
+        } = app.context(Some(&named("p")), include_superseded).unwrap()
+        else {
+            panic!("a project context was requested");
+        };
+        recent_notes_todos
+            .into_iter()
+            .map(|m| m.content)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(notes(false), ["new"]);
+    assert_eq!(notes(true), ["new", "old"]);
+}
+
+#[test]
+fn status_counts_current_and_superseded_memories_and_reports_forks() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = app(&dir);
+    let old = app.store(note("old", ProjectRef::Global)).unwrap();
+    for content in ["one", "two"] {
+        app.store(StoreInput {
+            supersedes: vec![MemoryRef::Local(old.id)],
+            ..note(content, ProjectRef::Global)
+        })
+        .unwrap();
+    }
+    let status = app.status().unwrap();
+    assert_eq!((status.memories, status.superseded), (2, 1));
+    assert_eq!(status.forks.len(), 1);
+    assert_eq!(status.forks[0].target.global_id, old.global_id);
+    assert_eq!(status.forks[0].superseded_by.len(), 2);
 }

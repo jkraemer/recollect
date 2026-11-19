@@ -10,8 +10,8 @@ use crate::embed::{Embedder, FastEmbedder, MODEL_ID, embed_memory};
 use crate::error::{Error, Result};
 use crate::filter::Filter;
 use crate::memory::{
-    Memory, MemoryType, NewRecord, ProjectRef, ScoredMemory, Tombstone, normalize_content,
-    normalize_tags,
+    Fork, Memory, MemoryRef, MemoryType, NewRecord, ProjectRef, Reference, ScoredMemory, Tombstone,
+    normalize_content, normalize_tags,
 };
 use crate::search::fts_query::build_fts_query;
 use crate::search::{self, SearchRequest};
@@ -23,6 +23,8 @@ pub struct StoreInput {
     pub project: ProjectRef,
     pub memory_type: MemoryType,
     pub tags: Vec<String>,
+    /// Memories this one replaces; each must exist on this machine, live or deleted.
+    pub supersedes: Vec<MemoryRef>,
 }
 
 #[derive(Debug)]
@@ -52,6 +54,14 @@ pub struct SearchOutcome {
     pub results: Vec<ScoredMemory>,
     /// Set when the search ran on full text only.
     pub warning: Option<String>,
+}
+
+/// A memory with the memories it supersedes and those that supersede it.
+#[derive(Debug, PartialEq)]
+pub struct Shown {
+    pub memory: Memory,
+    pub supersedes: Vec<Reference>,
+    pub superseded_by: Vec<Reference>,
 }
 
 #[derive(Debug, PartialEq, Serialize)]
@@ -94,6 +104,9 @@ pub struct Status {
     /// Why vectors are unusable; `None` when they are usable.
     pub vectors_reason: Option<String>,
     pub pending_embeddings: usize,
+    /// Live memories that a live memory supersedes; `memories` leaves them out.
+    pub superseded: usize,
+    pub forks: Vec<Fork>,
 }
 
 /// Why vector search or embedding cannot run right now.
@@ -171,6 +184,7 @@ impl Recollect {
     pub fn store(&mut self, input: StoreInput) -> Result<StoreOutcome> {
         let content = normalize_content(&input.content)?;
         let tags = normalize_tags(&input.tags)?;
+        let supersedes = self.resolve_supersedes(&input.supersedes)?;
         let embedded = self.with_vectors(|embedder| embed_memory(embedder, &content))?;
         let record = NewRecord {
             global_id: Uuid::now_v7().to_string(),
@@ -180,7 +194,7 @@ impl Recollect {
             tags,
             origin_peer: None,
             created_at: now_timestamp(),
-            supersedes: Vec::new(),
+            supersedes,
         };
         let id = self.db.insert_memory(&record, embedded.as_ref().ok())?;
         Ok(StoreOutcome {
@@ -222,8 +236,32 @@ impl Recollect {
         self.db.list(filter, limit)
     }
 
-    pub fn show(&self, id: i64) -> Result<Memory> {
-        self.db.get(id)
+    /// The memory `reference` names with both directions of supersession. A
+    /// global id that is unknown or deleted here is `NoSuchMemory`.
+    pub fn show(&self, reference: &MemoryRef) -> Result<Shown> {
+        let id = match reference {
+            MemoryRef::Local(id) => *id,
+            MemoryRef::Global(global_id) => match self.db.find(reference)? {
+                Some(Reference {
+                    id: Some(id),
+                    deleted: false,
+                    ..
+                }) => id,
+                _ => return Err(Error::NoSuchMemory(global_id.clone())),
+            },
+        };
+        let memory = self.db.get(id)?;
+        let references = |global_ids: &[String]| {
+            global_ids
+                .iter()
+                .map(|global_id| self.db.reference(global_id))
+                .collect::<Result<Vec<_>>>()
+        };
+        Ok(Shown {
+            supersedes: references(&memory.supersedes)?,
+            superseded_by: references(&memory.superseded_by)?,
+            memory,
+        })
     }
 
     pub fn delete(&mut self, id: i64) -> Result<()> {
@@ -232,10 +270,16 @@ impl Recollect {
 
     /// With a project: its latest session and 10 newest notes/todos. Without:
     /// the 5 newest sessions and 10 newest notes/todos across all projects.
-    pub fn context(&self, project: Option<&ProjectRef>) -> Result<Context> {
+    /// Superseded memories are left out unless `include_superseded`.
+    pub fn context(
+        &self,
+        project: Option<&ProjectRef>,
+        include_superseded: bool,
+    ) -> Result<Context> {
         let of_types = |project: Option<&ProjectRef>, types: Vec<MemoryType>| Filter {
             project: project.cloned(),
             types,
+            include_superseded,
             ..Filter::default()
         };
         let notes_todos = vec![MemoryType::Note, MemoryType::Todo];
@@ -404,14 +448,32 @@ impl Recollect {
         Ok(Status {
             data_dir: self.config.data_dir.display().to_string(),
             database: self.config.database_path().display().to_string(),
-            memories: self.db.live_count()?,
+            memories: self.db.current_count()?,
             projects: self.db.project_counts()?.len(),
             embedding_model: self.model_id().to_string(),
             stored_embedding_model: stored,
             vectors_usable: vectors_reason.is_none(),
             vectors_reason,
             pending_embeddings: self.db.pending_embedding_count()?,
+            superseded: self.db.superseded_count()?,
+            forks: self.db.forks()?,
         })
+    }
+
+    /// The distinct global ids `targets` name; any target this machine does
+    /// not have is an error, so that nothing is stored for a lost reference.
+    fn resolve_supersedes(&self, targets: &[MemoryRef]) -> Result<Vec<String>> {
+        let mut global_ids = Vec::new();
+        for target in targets {
+            let found = self
+                .db
+                .find(target)?
+                .ok_or_else(|| Error::UnknownSupersedes(target.to_string()))?;
+            if !global_ids.contains(&found.global_id) {
+                global_ids.push(found.global_id);
+            }
+        }
+        Ok(global_ids)
     }
 
     /// Runs `work` with the embedder, or says why vectors are unusable: an

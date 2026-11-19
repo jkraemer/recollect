@@ -118,6 +118,15 @@ impl MemoryRef {
     }
 }
 
+impl std::fmt::Display for MemoryRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemoryRef::Local(id) => write!(f, "{id}"),
+            MemoryRef::Global(global_id) => f.write_str(global_id),
+        }
+    }
+}
+
 /// A memory named by its global id, in whatever state it is on this machine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Reference {

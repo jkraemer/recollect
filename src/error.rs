@@ -8,6 +8,10 @@ use thiserror::Error;
 pub enum Error {
     #[error("memory {0} not found")]
     NotFound(i64),
+    #[error("memory {0} not found")]
+    NoSuchMemory(String),
+    #[error("cannot supersede {0}: no such memory on this machine")]
+    UnknownSupersedes(String),
     #[error("invalid project name {0:?}: allowed are a-z 0-9 . _ -")]
     InvalidProject(String),
     #[error("invalid tag {0:?}: tags must not be empty")]
