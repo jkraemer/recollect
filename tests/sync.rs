@@ -86,6 +86,23 @@ impl Machine {
             .stderr("");
     }
 
+    /// Stores `content` as a memory that supersedes `target`, a local or global id.
+    fn store_superseding(&self, content: &str, target: &str) {
+        self.recollect()
+            .args(["store", content, "--supersedes", target])
+            .assert()
+            .success()
+            .stderr("");
+    }
+
+    /// The global id of the current memory with this content.
+    fn global_id_of(&self, content: &str) -> String {
+        self.json(&["show", &self.id_of(content), "--json"])["global_id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
     /// The contents of the machine's memories, sorted.
     fn contents(&self) -> Vec<String> {
         let mut contents: Vec<String> = self
@@ -967,6 +984,105 @@ fn sync_names_an_unknown_peer_and_says_when_there_is_none() {
         .failure()
         .stdout("")
         .stderr("error: no peer named \"nobody\"\n");
+}
+
+/// A live note as a peer sends it, superseding the memories in `supersedes`.
+fn record(global_id: &str, content: &str, supersedes: &[&str]) -> SyncRecord {
+    SyncRecord {
+        global_id: global_id.into(),
+        project: None,
+        memory_type: MemoryType::Note,
+        content: content.into(),
+        tags: Vec::new(),
+        supersedes: supersedes.iter().map(|id| id.to_string()).collect(),
+        origin_peer: None,
+        created_at: "2026-10-07T10:00:00.000Z".into(),
+        deleted_at: None,
+        deleted_by_peer: None,
+    }
+}
+
+#[test]
+fn a_supersession_made_on_one_machine_hides_the_old_memory_on_the_other() {
+    let (alpha, _alpha_daemon, beta, _beta_daemon) = paired();
+    alpha.store("A");
+    beta.sync("alpha: received 1 memory\n");
+    let a = alpha.global_id_of("A");
+    alpha.store_superseding("B", &a);
+
+    alpha.sync("beta: sent 1 memory\n");
+
+    assert_eq!(beta.contents(), ["B"]);
+    let shown = beta.json(&["show", &beta.id_of("B"), "--json"]);
+    assert_eq!(shown["supersedes"], serde_json::json!([a]));
+}
+
+#[test]
+fn a_superseder_that_arrives_first_hides_its_target_when_it_arrives() {
+    let (alpha, _alpha_daemon, beta, _beta_daemon) = paired();
+    let a = "0199a8c0-0000-7000-8000-00000000000a";
+    let b = "0199a8c0-0000-7000-8000-00000000000b";
+    beta.database()
+        .apply_sync(&[record(b, "B", &[a])], &[])
+        .unwrap();
+    alpha
+        .database()
+        .apply_sync(&[record(a, "A", &[])], &[])
+        .unwrap();
+    assert_eq!(beta.contents(), ["B"]);
+
+    alpha.sync("beta: received 1 memory, sent 1 memory\n");
+
+    assert_eq!(beta.contents(), ["B"]);
+    assert_eq!(alpha.contents(), ["B"]);
+}
+
+#[test]
+fn deleting_the_superseder_on_one_machine_brings_the_old_memory_back_on_both() {
+    let (alpha, _alpha_daemon, beta, _beta_daemon) = paired();
+    alpha.store("A");
+    beta.sync("alpha: received 1 memory\n");
+    alpha.store_superseding("B", &alpha.global_id_of("A"));
+    alpha.sync("beta: sent 1 memory\n");
+    assert_eq!(beta.contents(), ["B"]);
+
+    alpha
+        .recollect()
+        .args(["delete", &alpha.id_of("B")])
+        .assert()
+        .success();
+    alpha.sync("beta: sent 1 deletion\n");
+
+    assert_eq!(alpha.contents(), ["A"]);
+    assert_eq!(beta.contents(), ["A"]);
+}
+
+#[test]
+fn two_machines_superseding_the_same_memory_make_a_fork_on_both() {
+    // Both daemons only answer (their timers wait an hour), so the round
+    // that joins the two supersessions is the explicit one.
+    let (alpha, _alpha_daemon, beta, _beta_daemon) = paired();
+    alpha.store("A");
+    beta.sync("alpha: received 1 memory\n");
+    let a = alpha.global_id_of("A");
+    alpha.store_superseding("B from alpha", &a);
+    beta.store_superseding("B from beta", &a);
+
+    beta.sync("alpha: received 1 memory, sent 1 memory\n");
+
+    for machine in [&alpha, &beta] {
+        assert_eq!(
+            machine.contents(),
+            ["B from alpha", "B from beta"],
+            "{}",
+            machine.name
+        );
+        let forks = &machine.json(&["status", "--json"])["forks"];
+        let forks = forks.as_array().unwrap();
+        assert_eq!(forks.len(), 1, "{}: {forks:?}", machine.name);
+        assert_eq!(forks[0]["target"]["global_id"], a);
+        assert_eq!(forks[0]["superseded_by"].as_array().unwrap().len(), 2);
+    }
 }
 
 const RESTARTING: &str = "recollect was replaced; restarting as the new version";
